@@ -7,5 +7,10 @@ notebooks/output/*
 **/.snakemake
 
 **/Manifest.toml
+*scratch*/
+*sandbox*/
 
 src/corsika/build/
+
+*.pdf
+*.png

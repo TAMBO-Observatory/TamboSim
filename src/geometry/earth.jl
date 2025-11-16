@@ -1,27 +1,16 @@
 struct Earth{T <: Real, U}
     sphere::Sphere{T, U}
     topography::Vector{Triangle{T, U}}
+    bvh::BVHTree{T, U}
 end
 
 function Base.show(io::IO, earth::Earth)
     print(io, "Earth:\n\t$(earth.sphere.radius)\n\t$(length(earth.topography)) triangles")
 end
 
-#function Earth(location::String)
-#
-#    sphere, triangles = parse_earth_file(location)
-#    triangles = [
-#        Triangle([Coordinate(x...) for x in y]...) for y in triangles
-#    ]
-#    
-#    earth = Earth(sphere, triangles)
-#    return earth
-#end
-
-function Earth(location::String, longlat::Tuple{Float64, Float64})
-    rearth, vertices, faces = parse_earth_file(location)
-    rearth = rearth * units.m
+function Earth(location::String, longlat::Tuple{Float64, Float64}, rearth=6_378_000.0*u"m")
     enu_coordinates = CoordinateSystem(longlat, rearth)
+    vertices, faces = parse_triangles(location)
 
     center = convert(
         enu_coordinates,
@@ -31,8 +20,6 @@ function Earth(location::String, longlat::Tuple{Float64, Float64})
         )
     )
     sphere = Sphere(center, rearth)
-
-    #x = Coordinate(enu_coordinates.origin, ecefcoordinates)
     
     T = typeof(one(rearth))
     U = typeof(u"m").parameters[2]
@@ -41,7 +28,7 @@ function Earth(location::String, longlat::Tuple{Float64, Float64})
         vs = []
         for idx in idxs
             v = Coordinate(
-                SVector{3}(vertices[idx, :] * units.m),
+                SVector{3}(vertices[idx, :] * u"m"),
                 ecefcoordinates
             )
 
@@ -51,18 +38,42 @@ function Earth(location::String, longlat::Tuple{Float64, Float64})
             
         push!(triangles, Triangle(vs...))
     end
-    earth = Earth(sphere, triangles)
+    bvh = parse_bvh(location, enu_coordinates, triangles)
+
+    earth = Earth(sphere, triangles, bvh)
     return earth
 end
 
-function parse_earth_file(location::String)
+function parse_bvh(
+    location::String,
+    cs::CoordinateSystem{T,U},
+    triangles::Vector{Triangle{T,U}}
+) where {T,U}
     filename, groupname = split(location, ":")
-    rearth, vertices, faces= h5open(filename) do h5f
-       group = h5f[groupname]
-       rearth = Float64(attrs(group)["rearth"])
+    bvh = h5open(filename, "r+") do file
+        group = file[groupname]
+        bhv = nothing
+        if "bvh" in keys(group)
+            bvh = deserialize_bvh_from_hdf5(group["bvh"], triangles)
+        else
+            println("Computing BVH from scratch.")
+            bvh = build_bvh(triangles)
+            println("Saving BVH to `$(realpath(filename)):$(groupname)/bvh`")
+            group = create_group(group, "bvh")
+            serialize_bvh_to_hdf5(bvh, group, false)
+        end
+        bvh
+    end
+    return bvh
+end
+
+function parse_triangles(location::String)
+    filename, groupname = split(location, ":")
+    vertices, faces= h5open(filename) do file
+       group = file[groupname]
        vertices = group["vertices"][:, :]
        faces = group["faces"][:, :]
-       rearth, vertices, faces
+       vertices, faces
     end
-    return rearth, vertices, faces
+    return vertices, faces
 end

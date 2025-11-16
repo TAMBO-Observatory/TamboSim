@@ -13,6 +13,6 @@ end
 Base.eltype(cs::CoordinateSystem) = eltype(cs.rotation)
 
 const ecefcoordinates = CoordinateSystem(
-    SVector{3}([0.0*units.m, 0.0*units.m, 0.0*units.m]),
+    SVector{3}([0.0*u"m", 0.0*u"m", 0.0*u"m"]),
     SMatrix{3, 3}([1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0])
 )

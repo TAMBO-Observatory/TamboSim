@@ -1,3 +1,21 @@
+function serialize_bvh_to_hdf5(
+    bvh::BVHTree{T,U},
+    location::Union{HDF5.File, HDF5.Group},
+    serialize_triangle=true
+) where {T,U}
+    # Store metadata
+    location["metadata/type"] = "BVHTree"
+    location["metadata/num_triangles"] = length(bvh.triangles)
+    
+    # Serialize all triangles first
+    if serialize_triangle
+        serialize_triangles(location, bvh.triangles)
+    end
+    
+    # Serialize BVH tree structure
+    serialize_bvh_node(location, bvh.root, "root")
+end
+
 function serialize_bvh_to_hdf5(bvh::BVHTree{T,U}, location::String) where {T,U}
     """
     Serialize a BVHTree to HDF5 format.
@@ -10,6 +28,9 @@ function serialize_bvh_to_hdf5(bvh::BVHTree{T,U}, location::String) where {T,U}
     else
         a, b = dirname(groupname), basename(groupname)
         h5open(filename, "r+") do file
+            if length(a) > 0 && ~(a in keys(file))
+                create_group(file, a)
+            end
             group = length(a) > 0 ? file[a] : file
             if b in keys(group)
                 delete_object(group[b])
@@ -18,16 +39,8 @@ function serialize_bvh_to_hdf5(bvh::BVHTree{T,U}, location::String) where {T,U}
     end
 
     h5open(filename, "r+") do file
-        # Store metadata
         group = create_group(file, groupname)
-        group["metadata/type"] = "BVHTree"
-        group["metadata/num_triangles"] = length(bvh.triangles)
-        
-        # Serialize all triangles first
-        serialize_triangles(group, bvh.triangles)
-        
-        # Serialize BVH tree structure
-        serialize_bvh_node(group, bvh.root, "root")
+        serialize_bvh_to_hdf5(bvh, group)
     end
 end
 
@@ -88,18 +101,44 @@ function deserialize_bvh_from_hdf5(location::String, cs::CoordinateSystem)::BVHT
 
     h5open(filename, "r") do file
         group = file[groupname]
-        # Deserialize triangles
-        triangles = deserialize_triangles(group, cs)
-
-        # Deserialize BVH tree
-        root = deserialize_bvh_node(group, "root", triangles, cs)
-
-        return BVHTree(root, triangles)
+        return deserialize_bvh_from_hdf5(group, cs)
     end
+
+end
+
+function deserialize_bvh_from_hdf5(
+    location::Union{HDF5.File, HDF5.Group},
+    cs::CoordinateSystem{T,U}
+)::BVHTree{T,U} where {T,U}
+    """
+    Deserialize a BVHTree from HDF5 file.
+    """
+    # Deserialize triangles
+    triangles = deserialize_triangles(location, cs)
+    @show length(triangles)
+    display(first(triangles))
+
+    # Deserialize BVH tree
+    root = deserialize_bvh_node(location, "root", triangles, cs)
+
+    return BVHTree(root, triangles)
+end
+
+function deserialize_bvh_from_hdf5(
+    location::Union{HDF5.File, HDF5.Group},
+    triangles::Vector{Triangle{T, U}},
+)::BVHTree{T,U} where {T,U}
+    """
+    Deserialize a BVHTree from HDF5 file.
+    """
+    cs = CoordinateSystem(first(triangles))
+
+    root = deserialize_bvh_node(location, "root", triangles, cs)
+
+    return BVHTree(root, triangles)
 end
 
 function deserialize_triangles(group, cs::CoordinateSystem{T, U})::Vector{Triangle{T, U}} where {T, U}
-#function deserialize_triangles(file, T::Type, U::Type)::Vector{Triangle{T,U}}
     """
     Deserialize triangles from HDF5.
     """

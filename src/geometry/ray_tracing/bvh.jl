@@ -8,6 +8,26 @@ function CoordinateSystem(aabb::AABB)
 end
 
 function AABB(
+    indices::Vector{Int},
+    precomputed_aabbs::Vector{AABB{T,U}}
+) where {T,U}
+
+    # Merge precomputed AABBs
+    aabb = precomputed_aabbs[indices[1]]
+    min_point = aabb.min.point
+    max_point = aabb.max.point
+
+    @inbounds for i in indices[2:end]
+        aabb = precomputed_aabbs[i]
+        min_point = min.(min_point, aabb.min.point)
+        max_point = max.(max_point, aabb.max.point)
+    end
+
+    cs = CoordinateSystem(aabb)
+    return AABB(Coordinate(min_point, cs), Coordinate(max_point, cs))
+end
+
+function AABB(
     triangles::Vector{Triangle{T,U}},
     indices::Vector{Int},
     precomputed_aabbs::Vector{AABB{T,U}}
@@ -24,7 +44,7 @@ function AABB(
         max_point = max.(max_point, aabb.max.point)
     end
 
-    cs = CoordinateSystem(triangles[indices[1]])
+    cs = CoordinateSystem(aabb)
     return AABB(Coordinate(min_point, cs), Coordinate(max_point, cs))
 end
 
@@ -167,7 +187,8 @@ function find_best_split(
     triangles::Vector{Triangle{T,U}},
     indices::Vector{Int}, 
     precomputed_aabbs::Vector{AABB{T,U}},
-    precomputed_centers::Vector{Coordinate{T, U}}
+    precomputed_centers::Vector{Coordinate{T, U}},
+    fast=true
 ) where {T,U}
     best_axis = 1
     best_pos = 0.0
@@ -183,7 +204,12 @@ function find_best_split(
         #centers = [center(precomputed_aabbs[i])[axis] for i in indices]
         sorted_indices = sortperm(centers)
 
-        for i in 1:length(sorted_indices)-1
+        skipper = 1
+        if fast
+            skipper = Int(floor(sqrt(length(centers))))
+        end
+        #skipper = Int(ceil(1 / sqrt(length(centers))))
+        for i in 1:skipper:length(sorted_indices)-1
             split_pos = (centers[sorted_indices[i]] + centers[sorted_indices[i+1]]) / 2.0
             left_indices = indices[sorted_indices[1:i]]
             right_indices = indices[sorted_indices[i+1:end]]

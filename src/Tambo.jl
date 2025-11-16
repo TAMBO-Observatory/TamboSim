@@ -38,7 +38,6 @@ using Arrow
 using LibGit2
 using Unitful
 
-include("units.jl")
 #include("samplers/samplers.jl")
 ##include("samplers/crosssections.jl")
 ##include("samplers/injectionvolumes.jl")
@@ -59,7 +58,6 @@ include("units.jl")
 #include("triggers.jl")
 
 include("geometry/geometry.jl")
-include("ray_tracing/ray_tracing.jl")
 
 function __init__()
     commit_hash = get_git_commit_hash()

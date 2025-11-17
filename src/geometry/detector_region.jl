@@ -1,4 +1,4 @@
 struct DetectorRegion
     location::Coordinate
-    triangles::Vector{Triangle}
+    idxs::Vector{Int}
 end

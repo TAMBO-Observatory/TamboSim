@@ -99,7 +99,7 @@ function find_intersect(ray::Ray{T, U}, triangle::Triangle{T,U}) where {T, U}
 end
 
 # Find all intersections (not just closest)
-function intersect_all(ray::Ray, bvh::BVHTree)
+function intersect_all(bvh::BVHTree{T,U}, ray::Ray{T,U}) where {T,U}
     intersections = Tuple{TriangleIntersection, Int}[]
     intersect_node(ray, bvh.root, bvh.triangles, intersections)
     sort!(intersections, by = x -> ustrip(x[1].distance))
@@ -189,7 +189,11 @@ function intersect_node(
     end
 end
 
-function detailed_sphere_intersection(sphere::Sphere, ray::Ray; epsilon=1e-10)
+function intersect_all(
+    sphere::Sphere{T,U},
+    ray::Ray{T,U};
+    epsilon=1e-10
+    ) where {T,U}
     """
     Detailed sphere-ray intersection with additional information.
     """
@@ -197,40 +201,32 @@ function detailed_sphere_intersection(sphere::Sphere, ray::Ray; epsilon=1e-10)
     o = ray.origin
     c = sphere.center
     r = sphere.radius
+    ϵ = epsilon * u"m"^2
 
     oc = o - c
 
-    a = dot(d, d)
-    b = 2.0 * dot(oc, d)
-    c_val = dot(oc, oc) - r^2
+    a = dot(d.point, d.point)
+    b = 2.0 * dot(oc, d.point)
+    c_val = dot(oc.point, oc.point) - r^2
 
     discriminant = b^2 - 4.0 * a * c_val
 
-    if discriminant < -epsilon
-        return nothing
-    end
-
-    # Handle near-zero discriminant
-    if abs(discriminant) < epsilon
+    if discriminant < -ϵ
+        return SphereIntersection{T,U}[]
+    elseif abs(discriminant) < ϵ
         discriminant = 0.0
     end
 
-    points = Vector{Vector{Float64}}()
-    t_values = Vector{Float64}()
-    distances = Vector{Float64}()
-    normals = Vector{Vector{Float64}}()
 
     if discriminant == 0.0
         # Tangent intersection
         t = -b / (2.0 * a)
-        if t >= 0
+        if t >= 0*u"m"
             point = o + t * d
-            normal = normalize(point - c)
+            normal = Direction(normalize(point.point - c.point), CoordinateSystem(point))
+            intersection = SphereIntersection(point, normal, t, true)
+            return [intersection]
 
-            push!(points, point)
-            push!(t_values, t)
-            push!(distances, norm(point - o))
-            push!(normals, normal)
         end
     else
         # Two intersections
@@ -241,18 +237,22 @@ function detailed_sphere_intersection(sphere::Sphere, ray::Ray; epsilon=1e-10)
         # Sort by t value
         t_candidates = sort([t1, t2])
 
+        intersections = SphereIntersection{T,U}[]
         for t in t_candidates
-            if t >= 0
+            if t >= 0 * u"m"
                 point = o + t * d
-                normal = normalize(point - c)
+                normal = Direction(normalize(point.point - c.point), CoordinateSystem(point))
 
-                push!(points, point)
-                push!(t_values, t)
-                push!(distances, norm(point - o))
-                push!(normals, normal)
+                intersection = SphereIntersection(point, normal, t, true)
+                push!(intersections, intersection)
             end
         end
+        return intersections
     end
 
-    return IntersectionResult(points, t_values, distances, normals, discriminant == 0.0)
+    return SphereIntersection{T,U}[]
+end
+
+function intersect_all(earth::Earth{T,U}, ray::Ray{T,U}) where {T,U}
+    return intersect_all(earth.bvh, ray), intersect_all(earth.sphere, ray)
 end

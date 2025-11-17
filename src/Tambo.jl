@@ -58,6 +58,7 @@ using Unitful
 #include("triggers.jl")
 
 include("geometry/geometry.jl")
+include("ray_tracing/ray_tracing.jl")
 
 function __init__()
     commit_hash = get_git_commit_hash()

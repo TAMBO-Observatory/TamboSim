@@ -1,6 +1,6 @@
 function centroid(triangle::Triangle)
     p = triangle.v1 + triangle.v2 + triangle.v3
-    return p/3
+    return p / 3
 end
 
 function check_coordinate_systems(coord1::Coordinate, coord2::Coordinate)
@@ -32,14 +32,36 @@ function cart_to_longlat(x, y, z)
     return [atan(y, x), asin(z)]
 end
 
-function normal(v1::Coordinate, v2::Coordinate, v3::Coordinate)
+function cart_to_longlat(c::Coordinate)
+    c = convert(ecefcoordinates, c)
+    cart_to_longlat(c.point...)
+end
+
+function normal(v1::AbstractVector, v2::AbstractVector, v3::AbstractVector)
+    (length(v1)==3 && length(v3)==3 && length(v3)==3) || throw("Can't take cross product")
+    edge1 = v1 - v2
+    edge2 = v1 - v3
+    n = cross(edge1, edge2)
+    n /= norm(n)
+
+end
+
+function normal(v1::Coordinate{T,U}, v2::Coordinate{T,U}, v3::Coordinate{T,U}) where {T,U}
+    CoordinateSystem(v1)==CoordinateSystem(v2)==CoordinateSystem(v3) || throw("incompatible coordinate systems")
     edge1 = v1.point - v2.point
     edge2 = v1.point - v3.point
     n = cross(edge1, edge2)
     n /= norm(n)
-    return n
+    return Direction(n, CoordinateSystem(v1))
 end
 
-function normal(triangle::Triangle)
-    return normal(triangle.v1, transform.v2, transform.v3)
+function normal(triangle::Triangle{T,U}) where {T,U}
+    return normal(triangle.v1, triangle.v2, triangle.v3)
+end
+
+function validate_triangle(triangle::Triangle{T,U}, center::Coordinate{T,U}) where {T,U}
+    cent = centroid(triangle)
+    n1 = normal(triangle)
+    n2 = normalize(cent.point - center.point)
+    return dot(n1.point, n2) > 0
 end

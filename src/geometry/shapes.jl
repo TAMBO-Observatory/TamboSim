@@ -43,6 +43,10 @@ struct Sphere{T <: Real, U}
     radius::Quantity{T, U, typeof(u"m")}
 end
 
+function CoordinateSystem(sphere::Sphere)
+    return CoordinateSystem(sphere.center)
+end
+
 #function Sphere(radius::T) where T <: RealOrQuantity
 #    zero_unit = 0.0 * radius
 #    @assert radius > zero_unit "Radius not positive"

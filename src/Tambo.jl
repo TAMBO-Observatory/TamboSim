@@ -20,31 +20,29 @@ module Tambo
 #       did_trigger
 
 
+using Arrow
 using CoordinateTransformations
-#using Dierckx: Spline2D
+using Dierckx: Spline1D, Spline2D
 using Distributions: Uniform, Poisson
-using JLD2: jldopen, JLDFile, load
+using Integrals
 using HDF5
+using JLD2: jldopen, JLDFile, load
+using LibGit2
 using LinearAlgebra
 using ProgressBars
 using PyCall: PyCall, PyNULL, PyObject
-using Random: seed!, rand
-using Geodesy
-#using Roots: find_zeros, find_zero
+using Random
 using Rotations
 using StaticArrays
+using StatsBase
 using TOML
-using Arrow
-using LibGit2
 using Unitful
 
-#include("samplers/samplers.jl")
 ##include("samplers/crosssections.jl")
 ##include("samplers/injectionvolumes.jl")
 ##include("samplers/powerlaws.jl")
 ##include("samplers/injectionplane.jl")
 #include("directions.jl")
-#include("particles.jl")
 #include("locations.jl")
 #include("geometries.jl")
 #include("tracks.jl")
@@ -59,6 +57,9 @@ using Unitful
 
 include("geometry/geometry.jl")
 include("ray_tracing/ray_tracing.jl")
+include("samplers/samplers.jl")
+include("particles.jl")
+include("injection/injection.jl")
 
 function __init__()
     commit_hash = get_git_commit_hash()

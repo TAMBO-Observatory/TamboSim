@@ -1,71 +1,56 @@
-struct PowerLaw
-    γ::Float64
-    emin::Float64
-    emax::Float64
-    norm::Float64
-    function PowerLaw(γ, emin, emax, norm)
+struct UnitfulPowerLawSampler{T <: Real, U, V}
+    γ::T
+    emin::Quantity{T, U, typeof(u"GeV")}
+    emax::Quantity{T, U, typeof(u"GeV")}
+    norm::Quantity{T, V, typeof(u"GeV"^-1)}
+    function UnitfulPowerLawSampler(γ, emin, emax, norm)
         """
         Returns a normalized PowerLaw
         """
         if γ >= 1
             @assert !isinf(emax)
         end
-        return new(γ, emin, emax, norm)
+        T = Float64
+        U = dimension(u"GeV")
+        V = dimension(u"GeV"^-1)
+        return new{T,U,V}(γ, emin, emax, norm)
     end
 end
 
-function PowerLaw(γ, emin, emax)
+function UnitfulPowerLawSampler(γ, emin, emax)
     if γ == 1
-        norm = 1 / log(emax / emin)
+        norm = 1 / (emin * log(emax / emin))
     else
         γ > 1
         mg = 1 - γ
-        norm = mg / (emax^mg - emin^mg)
+        norm = mg / (emin^γ * (emax^mg - emin^mg))
     end
-    return PowerLaw(γ, emin, emax, norm)
+    return UnitfulPowerLawSampler(γ, emin, emax, norm)
 end
 
-function Base.show(io::IO, pl::PowerLaw)
-    print(
-        io,
-        "PowerLaw(γ=$(pl.γ), emin=$(pl.emin / units.GeV) GeV, emax=$(pl.emax / units.GeV) GeV)",
-    )
-end
-
-function (pl::PowerLaw)(e)
-    return pl.norm * e^(-pl.γ)
-end
-
-function Base.rand(pl::PowerLaw)
-    u = Base.rand()
-    if pl.γ == 1
-        b = (pl.emax) .^ u
-        a = (pl.emin) .^ (u .- 1)
-        return b ./ a
+function Base.rand(
+    pl::UnitfulPowerLawSampler{T,U,V}
+)::Quantity{T, U, typeof(u"GeV")} where {T,U,V}
+    u = rand()
+    if pl.γ==1
+        return pl.emin * exp(u / (pl.norm * pl.emin))
+    else
+        α = 1 - pl.γ
+        return (u * α / pl.norm / pl.emin^pl.γ + pl.emin^α)^(1/α)
     end
-    mg = 1 - pl.γ
-    val = (u .* pl.emax .^ mg + (1 .- u) .* pl.emin^mg) .^ (1 / mg)
-    return val
 end
 
-function Base.rand(n::Int, pl::PowerLaw)
-    u = Base.rand(n)
-    if pl.γ == 1
-        b = (pl.emax) .^ u
-        a = (pl.emin) .^ (u .- 1)
-        val = b ./ a
-        return val
-    end
-    mg = 1 - pl.γ
-    val = (u .* pl.emax .^ mg + (1 .- u) .* pl.emin^mg) .^ (1 / mg)
-    return val
+function Base.rand(pl::UnitfulPowerLawSampler{T,U,V}, n::Int)::Vector{Quantity{T, U, typeof(u"GeV")}} where {T,U,V}
+    return [rand(pl) for _ in 1:n]
 end
 
-function probability(pl::PowerLaw, event)
-    return probability(pl, event.initial_state.energy)
+function (pl::UnitfulPowerLawSampler{T,U,V})(
+    e::Quantity{T, U, typeof(u"GeV")}
+)::Quantity{T, V, typeof(u"GeV"^(-1))} where {T,U,V}
+    return pl.norm * (e / pl.emin)^(-pl.γ)
 end
 
-function probability(pl::PowerLaw, e::Float64)
+function probability(pl::UnitfulPowerLawSampler{T,U,V}, e::Quantity)::T where {T,U,V}
     @assert pl.emin < e && e < pl.emax
     if pl.γ==1
         return pl(e) / (pl.norm * log(pl.emax / pl.emin))

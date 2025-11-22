@@ -1,170 +1,115 @@
-using HDF5: h5open
-using Interpolations: LinearInterpolation, Extrapolation
-
-const pdg_to_str = Dict{Int,String}(
-    12 => "nue_nu",
-    14 => "numu_nu",
-    16 => "nutau_nu",
-    -12 => "nue_nubar",
-    -14 => "numu_nubar",
-    -16 => "nutau_nubar",
-)
-
-@enum Interaction begin
-    CC = 1
-    NC = 2
+struct CrossSection{T,U}
+    total_xs::Spline1D
+    differential_xs::Spline2D
+    inverter::Spline2D
+    es::Vector{Quantity{T,U, typeof(u"GeV")}}
+    emin::Quantity{T,U, typeof(u"GeV")}
 end
 
-struct TotalXS
-    fname::String
-    interaction::Interaction
-    itp::Extrapolation
-end
-
-struct DifferentialXS
-    fname::String
-    interaction::Interaction
-    itp::Extrapolation
-    log_emin_z::Float64
-end
-
-struct OutgoingEnergy
-    fname::String
-    interaction::Interaction
-    itp::Extrapolation
-    log_emin_z::Float64
-end
-
-struct CrossSection
-    ν_pdg::Int
-    interaction::Interaction
-    energy_sampler::OutgoingEnergy
-    total_xs::TotalXS
-    differential_xs::DifferentialXS
-end
-
-function CrossSection(
-    dir::String,
-    model_name::String,
-    ν_pdg::Int,
-    interaction_name::String
-)
-    interaction = interaction_name=="CC" ? Interaction(1) : Interaction(2)
-    sampling_file = "$(dir)/$(model_name)_differential_cross_section_cdf.h5"
-    total_file = "$(dir)/$(model_name)_total_cross_section.h5"
-    differential_file = "$(dir)/$(model_name)_differential_cross_section.h5"
-    tot = TotalXS(total_file, ν_pdg, interaction)
-    diff = DifferentialXS(differential_file, ν_pdg, interaction)
-    sampl = OutgoingEnergy(sampling_file, ν_pdg, interaction)
-    return CrossSection(ν_pdg, interaction, sampl, tot, diff)
-end
-
-function TotalXS(fname::String, ν_pdg::Int, interaction::Interaction)
-    nutype = pdg_to_str[ν_pdg]
-    int_str = "CC"
-    if interaction==Interaction(2)
-        int_str = "NC"
+function CrossSection(location::String, epsilon::Float64=1e-6)
+    filename, groupname = split(location, ":")
+    es, zs, tot_xs, diff_xs, emin = h5open(filename) do file
+        group = file[groupname]
+        es = read(group["energies"]) .* u"GeV"
+        zs = read(group["zs"])
+        tot_xs = read(group["total_xs"]) .* u"cm^2"
+        diff_xs = read(group["differential_xs"]) .* u"cm^2"
+        emin = read(group["emin"]) * u"GeV"
+        es, zs, tot_xs, diff_xs, emin
     end
-    h5f = h5open(fname)
-    log_xs = h5f["log_$(nutype)_$(int_str)"][:]
-    log_energys = h5f["log_energies"][:]
-    close(h5f)
-    itp = LinearInterpolation(log_energys, log_xs)
-    return TotalXS(fname, interaction, itp)
-end
+    tot_itp = Spline1D(log.(ustrip.(es)), log.(ustrip.(tot_xs)); s=0.0)
+    diff_itp = Spline2D(log.(ustrip.(es)), zs, log.(ustrip.(diff_xs)); s=0.5, ky=2)
 
-function DifferentialXS(fname::String, ν_pdg::Int, interaction::Interaction)
-    nutype = pdg_to_str[ν_pdg]
-    int_str = "CC"
-    if interaction==Interaction(2)
-        int_str = "NC"
+    int_zs = LinRange(minimum(zs), maximum(zs), 1000)
+    u_targets = LinRange(0, 1, 1001)
+    
+    out = zeros((size(diff_xs, 1), length(u_targets)))
+    
+    for idx in 1:size(diff_xs, 1)
+        slice = diff_xs[idx, :]
+        slice = ustrip.(slice)
+        lidx, ridx = find_trim_idxs(slice)
+        itp = Spline1D(zs[lidx:ridx], log.(slice[lidx:ridx]); s=0.0)
+        f(u, p) = exp(itp(u))
+    
+        ## Subroutine 1 ##
+        cdfs = Float64[]
+        for z in int_zs
+            if z < zs[lidx] || zs[ridx] < z
+                push!(cdfs, NaN)
+                continue
+            end
+    
+            domain = (minimum(zs[lidx:ridx]), z)
+            prob = IntegralProblem(f, domain)
+            sol = solve(prob, HCubatureJL(); reltol = 1e-10, abstol = 1e-10)
+            push!(cdfs, minimum([epsilon, sol.u]))
+        end
+        nan_mask = .~isnan.(cdfs)
+        cdfs ./= cdfs[nan_mask][end]
+    
+        ## Subroutine 2 ##
+        inverter = Spline1D(cdfs[nan_mask], int_zs[nan_mask]; s=0.0)
+        t = Float64[]
+    
+        for u in u_targets
+            if u==0
+                push!(t, 0.0)
+                continue
+            end
+            if u==1
+                push!(t, 1.0)
+                continue
+            end
+            push!(t, inverter(u))
+        end
+        out[idx, :] = t
     end
-    h5f = h5open(fname)
-    log_xs = h5f["log_$(nutype)_$(int_str)"][:, :]
-    log_energys = h5f["log_energies"][:]
-    log_emin = read(h5f["log_energymin"])
-    zs = h5f["zs"][:]
-    close(h5f)
-    itp = LinearInterpolation((log_energys, zs), log_xs)
-    return DifferentialXS(fname, interaction, itp, log_emin)
+    inverter = Spline2D(log.(ustrip.(es .|> u"GeV")), u_targets, out; s=0)
+    return CrossSection(tot_itp, diff_itp, inverter, es, emin)
 end
 
-function OutgoingEnergy(fname::String, ν_pdg::Int, interaction::Interaction)
-    nutype = pdg_to_str[ν_pdg]
-    int_str = "CC"
-    if interaction==Interaction(2)
-        int_str = "NC"
-    end
-    h5f = h5open(fname)
-    log_energys = h5f["log_energies"][:]
-    log_emin = read(h5f["log_energymin"])
-    vs = h5f["$(nutype)_$(int_str)"][:, :]
-    us = h5f["us"][:]
-    close(h5f)
-    itp = LinearInterpolation((log_energys, us), vs)
-    return OutgoingEnergy(fname, interaction, itp, log_emin)
+function (xs::CrossSection)(
+    e::Quantity{T,U}
+) where {T,U}
+    # Epsilon for floating point precision issues
+    e - minimum(xs.es) > -1e-6u"GeV" || throw("Energy $(e) out of range for splines")
+    egev = ustrip(e |> u"GeV")
+    v = exp(xs.total_xs(log(egev))) * u"cm^2"
+    return v
 end
 
-function (xs::TotalXS)(e)
-    # TODO fix this hack
-    if e <= 105 * units.GeV
-        return 0
-    end
-    return 10 ^ xs.itp(log(10, e))
+function (xs::CrossSection)(
+    ein::Quantity{T,U},
+    eout::Quantity{T,U}
+   )::Quantity{T,Unitful.𝐋^2} where {T,U}
+    ein >= eout || throw("Outgoing energy cannot be greater than incoming energy")
+    eingev = ustrip(ein |> u"GeV")
+    eoutgev = ustrip(eout |> u"GeV")
+    emin = ustrip(xs.emin)
+    z = ustrip((eoutgev - emin)/(eingev - emin))
+    v = max(exp(xs.differential_xs(log(eingev), z)), 1e-50) * u"cm^2"
+    return v
 end
 
-function (xs::DifferentialXS)(ein, eout)
-    emin = 10^xs.log_emin_z
-    if eout < emin
-        return 0.0
-    end
-    z = (eout - emin) / (ein - emin)
-    logein = log(10, ein)
-    return 10 ^ xs.itp(logein, z)
-end
-
-function (xs::OutgoingEnergy)(ein, u)
-    return xs.itp(log(10, ein), u)
-end
-
-function Base.rand(xs::OutgoingEnergy, ein::Float64)
-    # Hack to catch love energy things that are beneath our tables
-    if log(10, ein) < 11.000000000000433
-        return 0.0
-    end
+function Base.rand(xs::CrossSection{T,U}, ein::Quantity{T,U})::Quantity{T,U} where {T,U}
+    # Epsilon for floating point precision issues
+    ein - minimum(xs.es) > -1e-6u"GeV" || throw("Energy $(ein) out of range for splines")
     u = rand()
-    eout = xs(ein, u) * (ein - 10^xs.log_emin_z) + 10^xs.log_emin_z
-    return eout
+    # Catch numerical instabilities for u~1e-20.
+    z = max(0, xs.inverter(log(ustrip(ein |> u"GeV")), u))
+    return z * (ein - xs.emin) + xs.emin
 end
 
-function Base.rand(xs::CrossSection, ein::Float64)
-    return rand(xs.energy_sampler, ein)
-end
-
-function Base.rand(n::Int, xs::OutgoingEnergy, ein::Float64)
+function Base.rand(xs::CrossSection{T,U}, ein::Quantity{T,U}, n::Int)::Vector{Quantity{T,U}} where {T,U}
     return [rand(xs, ein) for _ in 1:n]
 end
 
-function Base.show(io::IO, xs::TotalXS)
-    s = "TotalXS(fname=$(xs.fname), interaction=$(xs.interaction))"
-    print(io, s)
-end
-
-function Base.show(io::IO, xs::DifferentialXS)
-    s = "DifferentialXS(fname=$(xs.fname), interaction=$(xs.interaction), emin=$(10^xs.log_emin_z / 1e9) GeV)"
-    print(io, s)
-end
-
-function Base.show(io::IO, xs::OutgoingEnergy)
-    s = "OutgoingEnergy(fname=$(xs.fname), interaction=$(xs.interaction), emin=$(10^xs.log_emin_z / 1e9) GeV)"
-    print(io, s)
-end
-
-function probability(xs::CrossSection, ein::Float64, eout::Float64)
+function probability(xs::CrossSection{T,U}, ein::Quantity{T,U}, eout::Quantity{T,U})::Float64 where {T,U}
     @assert eout <= ein "Energy out of range"
-    σ = xs.total_xs(ein)
-    diff_σ = xs.differential_xs(ein, eout)
-    return diff_σ / σ
+    tot_xs = xs(ein)
+    diff_xs = xs(ein, eout)
+    return diff_xs / tot_xs
 end
 
 function probability(xs::CrossSection, event)

@@ -23,7 +23,7 @@ end
 
 function Earth(location::String, detectorname::String="")
     filename, groupname = split(location, ":")
-    earth = h5open(filename, "r+") do file
+    earth = h5open(filename) do file
         group = file[groupname]
 
         longlat = deg2rad.(Tuple(read(group["location"])))
@@ -48,28 +48,9 @@ function Earth(location::String, detectorname::String="")
         all(validate_triangle.(triangles, Ref(center))) || throw("Incorrectly oriented trinagles")
 
         # Construct or load BVH
-        bvh = parse_bvh(group, enu_coordinates, triangles)
+        bvh = build_bvh(triangles)
 
         return Earth(prem, triangles, bvh, detector_region)
-    end
-end
-
-function parse_bvh(
-    group::Union{HDF5.File, HDF5.Group},
-    cs::CoordinateSystem{T,U},
-    triangles::Vector{Triangle{T,U}}
-)::BVHTree{T,U} where {T,U}
-    if "bvh" in keys(group)
-        return deserialize_bvh_from_hdf5(group["bvh"], triangles)
-         
-    else
-        println("Computing BVH from scratch.")
-        bvh = build_bvh(triangles)
-        outpath = typeof(group)==HDF5.Group ? group.file.filename : group.filename
-        println("Saving BVH to `$(realpath(outpath))`")
-        group = create_group(group, "bvh")
-        serialize_bvh_to_hdf5(bvh, group, false)
-        return bvh
     end
 end
 

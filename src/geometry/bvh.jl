@@ -8,37 +8,19 @@ function CoordinateSystem(aabb::AABB)
 end
 
 function AABB(
-    indices::Vector{Int},
-    precomputed_aabbs::Vector{AABB{T,U}}
-) where {T,U}
+    indices,
+    precomputed_aabbs::Vector{AABB{U,V}}
+) where {U,V}
 
     # Merge precomputed AABBs
-    aabb = precomputed_aabbs[indices[1]]
+    aabb = precomputed_aabbs[first(indices)]
     min_point = aabb.min.point
     max_point = aabb.max.point
 
-    @inbounds for i in indices[2:end]
-        aabb = precomputed_aabbs[i]
-        min_point = min.(min_point, aabb.min.point)
-        max_point = max.(max_point, aabb.max.point)
-    end
-
-    cs = CoordinateSystem(aabb)
-    return AABB(Coordinate(min_point, cs), Coordinate(max_point, cs))
-end
-
-function AABB(
-    triangles::Vector{Triangle{T,U}},
-    indices::Vector{Int},
-    precomputed_aabbs::Vector{AABB{T,U}}
-) where {T,U}
-
-    # Merge precomputed AABBs
-    aabb = precomputed_aabbs[indices[1]]
-    min_point = aabb.min.point
-    max_point = aabb.max.point
-
-    @inbounds for i in indices[2:end]
+    @inbounds for i in indices
+        if i==1
+            continue
+        end
         aabb = precomputed_aabbs[i]
         min_point = min.(min_point, aabb.min.point)
         max_point = max.(max_point, aabb.max.point)
@@ -142,9 +124,8 @@ function build_bvh(triangles::Vector{Triangle{T, U}}; max_triangles_per_leaf = 4
     end
 
     indices = collect(1:length(triangles))
-    precomputed_aabbs = AABB{T, U}[AABB(triangle) for triangle in triangles]
-    precomputed_centers = [center(aabb) for aabb in precomputed_aabbs]
-    #display(precomputed_centers)
+    precomputed_aabbs = AABB.(triangles)
+    precomputed_centers = center.(precomputed_aabbs)
     root = build_bvh_node(triangles, indices, max_triangles_per_leaf, precomputed_aabbs, precomputed_centers)
     return BVHTree(root, triangles)
 end
@@ -159,23 +140,22 @@ function build_bvh_node(
 
     # Create leaf if few triangles remain
     if length(indices) <= max_triangles_per_leaf
-        bbox = AABB(triangles, indices, precomputed_aabbs)
+        bbox = AABB(indices, precomputed_aabbs)
         return BVHNode(bbox, nothing, nothing, indices, true)
     end
 
-    # Find the best split using SAH (Surface Area Heuristic)
+    # Find the best split using surface area heuristic
     best_axis, best_pos, best_cost = find_best_split(triangles, indices, precomputed_aabbs, precomputed_centers)
 
     # If no good split found, create leaf
     if best_cost >= length(indices) * surface_area_fast(AABB(triangles, indices))
     #if best_cost >= length(indices) * surface_area(AABB(triangles, indices))
-        bbox = AABB(triangles, indices, precomputed_aabbs)
+        bbox = AABB(indices, precomputed_aabbs)
         return BVHNode(bbox, nothing, nothing, indices, true)
     end
 
     # Split triangles along the best axis
-    left_indices, right_indices = split_triangles_optimized(triangles, indices, precomputed_aabbs, best_axis, best_pos)
-    #left_indices, right_indices = split_triangles(triangles, indices, best_axis, best_pos)
+    left_indices, right_indices = split_triangles(triangles, indices, precomputed_aabbs, best_axis, best_pos)
 
     # Recursively build children
     left_node = build_bvh_node(triangles, left_indices, max_triangles_per_leaf, precomputed_aabbs, precomputed_centers)
@@ -198,36 +178,31 @@ function find_best_split(
     best_pos = 0.0
     best_cost = Inf * u"m"^2
 
-    # Use precomputed AABBs
-    bbox = AABB(triangles, indices, precomputed_aabbs)
-    bbox_center_val = center(bbox)
-
+    n = length(indices)
+    skipper = 1
+    if fast
+        skipper = Int(floor(sqrt(n)))
+    end
     for axis in 1:3
         # Use precomputed centers
         centers = [precomputed_centers[i][axis] for i in indices]
-        #centers = [center(precomputed_aabbs[i])[axis] for i in indices]
         sorted_indices = sortperm(centers)
 
-        skipper = 1
-        if fast
-            skipper = Int(floor(sqrt(length(centers))))
-        end
-        #skipper = Int(ceil(1 / sqrt(length(centers))))
-        for i in 1:skipper:length(sorted_indices)-1
-            split_pos = (centers[sorted_indices[i]] + centers[sorted_indices[i+1]]) / 2.0
-            left_indices = indices[sorted_indices[1:i]]
-            right_indices = indices[sorted_indices[i+1:end]]
+        for i in 1:skipper:n-1
+        #for (i, (x,y)) in zip(centers, centers[2:end])
+            #left_indices = sorted_indices[1:i]
+            #right_indices = sorted_indices[i+1:end]
+            left_indices = Iterators.take(sorted_indices, i)
+            right_indices = Iterators.rest(sorted_indices, i+1)
 
-            # Use precomputed AABBs for cost calculation
-            left_bbox = AABB(triangles, left_indices, precomputed_aabbs)
-            right_bbox = AABB(triangles, right_indices, precomputed_aabbs)
+            left_bbox = AABB(left_indices, precomputed_aabbs)
+            right_bbox = AABB(right_indices, precomputed_aabbs)
 
-            #cost = length(left_indices) * surface_area(left_bbox) +
-            #       length(right_indices) * surface_area(right_bbox)
             cost = length(left_indices) * surface_area_fast(left_bbox) +
-                   length(right_indices) * surface_area_fast(right_bbox)
+                   (n-length(left_indices)) * surface_area_fast(right_bbox)
 
             if cost < best_cost
+                split_pos = (centers[sorted_indices[i]] + centers[sorted_indices[i+1]]) / 2.0
                 best_cost = cost
                 best_axis = axis
                 best_pos = split_pos
@@ -238,47 +213,43 @@ function find_best_split(
     return best_axis, best_pos, best_cost
 end
 
-function find_best_split(triangles, indices)
-    best_axis = 1
-    best_pos = 0.0
-    best_cost = Inf * u"m"^2
+#function find_best_split_split(
+#    triangles::Vector{Triangle{T,U}},
+#    indices::Vector{Int}, 
+#    precomputed_aabbs::Vector{AABB{T,U}},
+#    precomputed_centers::Vector{Coordinate{T, U}},
+#    fast=true
+#    ) where {T,U}
+#    n = length(indices)
+#    skipper = 1
+#    if fast
+#        skipper = Int(floor(sqrt(n)))
+#    end
+#    centers = precomputed_centers[indices]
+#    output = zeros((length(1:skipper:n-1), 3, 2))
+#    
+#    
+#end
+#
+#function find_best_split_split_inner_loop(
+#    centers,
+#    sorted
+#    axis,
+#    idx,
+#    out
+#)
+#    split_pos = (centers[sorted_indices[i]] + centers[sorted_indices[i+1]]) / 2.0
+#    left_indices = sorted_indices[1:i]
+#    right_indices = sorted_indices[i+1:end]
+#
+#    left_bbox = AABB(triangles, left_indices, precomputed_aabbs)
+#    right_bbox = AABB(triangles, right_indices, precomputed_aabbs)
+#
+#    cost = length(left_indices) * surface_area_fast(left_bbox) +
+#           length(right_indices) * surface_area_fast(right_bbox)
+#end
 
-    bbox = AABB(triangles, indices)
-    bbox_center = center(bbox)
-
-    # Try all three axes
-    for axis in 1:3
-        # Sort triangle centers along this axis
-        centers = [center(AABB(triangles[i]))[axis] for i in indices]
-        sorted_indices = sortperm(centers)
-
-        # Try different split positions
-        for i in 1:length(sorted_indices)-1
-            split_pos = (centers[sorted_indices[i]] + centers[sorted_indices[i+1]]) / 2.0
-
-            left_indices = indices[sorted_indices[1:i]]
-            right_indices = indices[sorted_indices[i+1:end]]
-
-            left_bbox = AABB(triangles, left_indices)
-            right_bbox = AABB(triangles, right_indices)
-
-            #cost = length(left_indices) * surface_area(left_bbox) +
-            #       length(right_indices) * surface_area(right_bbox)
-            cost = length(left_indices) * surface_area_fast(left_bbox) +
-                   length(right_indices) * surface_area_fast(right_bbox)
-
-            if cost < best_cost
-                best_cost = cost
-                best_axis = axis
-                best_pos = split_pos
-            end
-        end
-    end
-
-    return best_axis, best_pos, best_cost
-end
-
-function split_triangles_optimized(triangles, indices, precomputed_aabbs, axis, split_pos)
+function split_triangles(triangles, indices, precomputed_aabbs, axis, split_pos)
     left_indices = Int[]
     right_indices = Int[]
     sizehint!(left_indices, length(indices) ÷ 2)
@@ -293,33 +264,9 @@ function split_triangles_optimized(triangles, indices, precomputed_aabbs, axis, 
         end
     end
 
-    # Handle bad splits more efficiently
     if isempty(left_indices) || isempty(right_indices)
         mid = length(indices) ÷ 2
         return indices[1:mid], indices[mid+1:end]
-    end
-
-    return left_indices, right_indices
-end
-
-function split_triangles(triangles, indices, axis, split_pos)
-    left_indices = Int[]
-    right_indices = Int[]
-
-    for i in indices
-        tri_center = center(AABB(triangles[i]))[axis]
-        if tri_center < split_pos
-            push!(left_indices, i)
-        else
-            push!(right_indices, i)
-        end
-    end
-
-    # If split failed (all triangles on one side), do median split
-    if isempty(left_indices) || isempty(right_indices)
-        mid = length(indices) ÷ 2
-        left_indices = indices[1:mid]
-        right_indices = indices[mid+1:end]
     end
 
     return left_indices, right_indices

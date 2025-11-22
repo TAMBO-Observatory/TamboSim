@@ -35,3 +35,7 @@ function Base.convert(coordinate_system::CoordinateSystem, dir::Direction)
 
     return Direction(point, coordinate_system)
 end
+
+function Base.reverse(d::Direction)
+    return Direction(-d.point, d.coordinate_system)
+end

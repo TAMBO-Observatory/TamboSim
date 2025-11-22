@@ -41,16 +41,14 @@ Base.Broadcast.broadcastable(coord::Coordinate) = (coord,)
 # Generic function to handle both min and max
 function coordinate_extremum(f::Function, coords::Coordinate...)
     cs = first(coords).coordinate_system
-    for coord in coords
-        coord.coordinate_system == cs || error("Coordinate systems must match")
-    end
+    #for coord in coords
+    #    coord.coordinate_system == cs || error("Coordinate systems must match")
+    #end
 
-    points = [c.point for c in coords]
-    result_point = SVector{3}(
-        f(p[1] for p in points),
-        f(p[2] for p in points),
-        f(p[3] for p in points)
-    )
+    x = f(map(x->x.point[1], coords))
+    y = f(map(x->x.point[2], coords))
+    z = f(map(x->x.point[3], coords))
+    result_point = SVector{3}(x,y,z)
 
     return Coordinate(result_point, cs)
 end

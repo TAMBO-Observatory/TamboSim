@@ -1,16 +1,17 @@
-abstract type Intersection end
+abstract type Intersection{T <: Real,U} end
 
 # Intersection result with units
-struct TriangleIntersection{T <: Real, U}
+struct TriangleIntersection{T <: Real, U} <: Intersection{T,U}
     point::Coordinate{T, U}
     normal::Direction{T}  # Unitless normal
     distance::Quantity{T, U, typeof(u"m")}
     u::T  # Barycentric coordinates are unitless
     v::T
     hit::Bool
+    index::Int
 end
 
-struct SphereIntersection{T <: Real, U}
+struct SphereIntersection{T <: Real, U} <: Intersection{T,U}
     point::Coordinate{T, U}
     normal::Direction{T}
     distance::Quantity{T, U, typeof(u"m")}
@@ -25,7 +26,7 @@ function no_intersection_triangle(::Type{T} = Float64) where {T}
         ecefcoordinates
     )
     dir = Direction(SVector{3, T}(0, 0, 0), ecefcoordinates)
-    TriangleIntersection(vec, dir, T(Inf) * u"m", zero(T), zero(T), false)
+    TriangleIntersection(vec, dir, T(Inf) * u"m", zero(T), zero(T), false, -1)
 end
 
 function no_intersection_sphere(::Type{T} = Float64) where {T}
@@ -38,7 +39,7 @@ function no_intersection_sphere(::Type{T} = Float64) where {T}
     return SphereIntersection(vec, dir, T(Inf) * u"m", false)
 end
 
-function find_intersect(ray::Ray{T, U}, triangle::Triangle{T,U}) where {T, U}
+function find_intersect(ray::Ray{T, U}, triangle::Triangle{T,U}, tri_index::Int=-1) where {T, U}
     # Extract vertices and strip units for the algorithm
     v1 = ustrip.(triangle.v1.point)
     v2 = ustrip.(triangle.v2.point)
@@ -95,14 +96,14 @@ function find_intersect(ray::Ray{T, U}, triangle::Triangle{T,U}) where {T, U}
     point = ray.origin + t * point_unit * ray.direction
     normal = Direction(normalize(cross(edge1, edge2)), cs)  # Unitless
 
-    return TriangleIntersection(point, normal, t * point_unit, u, v, true)
+    return TriangleIntersection(point, normal, t * point_unit, u, v, true, tri_index)
 end
 
 # Find all intersections (not just closest)
-function intersect_all(bvh::BVHTree{T,U}, ray::Ray{T,U}) where {T,U}
-    intersections = Tuple{TriangleIntersection, Int}[]
+function intersect_all(bvh::BVHTree{T,U}, ray::Ray{T,U})::Vector{TriangleIntersection{T,U}} where {T,U}
+    intersections = TriangleIntersection[]
     intersect_node(ray, bvh.root, bvh.triangles, intersections)
-    sort!(intersections, by = x -> ustrip(x[1].distance))
+    sort!(intersections, by = x -> ustrip(x.distance))
     return intersections
 end
 
@@ -143,12 +144,12 @@ function find_intersect(ray::Ray, bbox::AABB{T, U}) where {T, U}
     return true, tmin, tmax
 end
 function find_intersect(ray::Ray, bvh::BVHTree)
-    intersections = Tuple{TriangleIntersection, Int}[]  # (intersection, triangle_index)
+    intersections = TriangleIntersection[]  # (intersection, triangle_index)
     intersect_node(ray, bvh.root, bvh.triangles, intersections)
 
     # Find the closest intersection
     if isempty(intersections)
-        return no_intersection_triangle(), -1
+        return no_intersection_triangle()
     end
 
     # Sort by distance and return the closest
@@ -161,7 +162,7 @@ function intersect_node(
     ray::Ray{T, U},
     node::BVHNode{T, U},
     triangles::Vector{Triangle{T, U}},
-    results::Vector{Tuple{TriangleIntersection, Int}}
+    results::Vector{TriangleIntersection}
 ) where {T, U}
     # Check ray-AABB intersection first
     hits_bbox, tmin, tmax = find_intersect(ray, node.bbox)
@@ -173,9 +174,9 @@ function intersect_node(
         # Check intersection with all triangles in leaf
         for tri_index in node.triangles
             tri = triangles[tri_index]
-            intersection = find_intersect(ray, tri)
+            intersection = find_intersect(ray, tri, tri_index)
             if intersection.hit
-                push!(results, (intersection, tri_index))
+                push!(results, intersection)
             end
         end
     else
@@ -193,7 +194,7 @@ function intersect_all(
     sphere::Sphere{T,U},
     ray::Ray{T,U};
     epsilon=1e-10
-    ) where {T,U}
+)::Vector{SphereIntersection{T,U}} where {T,U}
     """
     Detailed sphere-ray intersection with additional information.
     """
@@ -253,6 +254,13 @@ function intersect_all(
     return SphereIntersection{T,U}[]
 end
 
-function intersect_all(earth::Earth{T,U}, ray::Ray{T,U}) where {T,U}
-    return intersect_all(earth.bvh, ray), intersect_all(earth.sphere, ray)
+function intersect_all(
+    earth::Earth{T,U},
+    ray::Ray{T,U}
+)::Vector{<:Intersection{T,U}} where {T,U}
+    mesh_intersections = intersect_all(earth.bvh, ray)
+    sphere_intersections = vcat([intersect_all(sphere, ray) for sphere in earth.prem]...)
+    intersections = vcat(mesh_intersections, sphere_intersections)
+    intersections = sort(intersections; by=x->x.distance)
+    return intersections
 end

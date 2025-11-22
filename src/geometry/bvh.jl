@@ -103,6 +103,10 @@ struct BVHTree{T <: Real, U}
     triangles::Vector{Triangle{T, U}}
 end
 
+function CoordinateSystem(bvh::BVHTree)
+    return CoordinateSystem(first(bvh.triangles))
+end
+
 # Merge two AABBs
 function merge(a::AABB{T, U}, b::AABB{T, U}) where {T, U}
     min_corner = min.(a.min.point, b.min.point)

@@ -85,19 +85,19 @@ struct BVHTree{T <: Real, U}
     triangles::Vector{Triangle{T, U}}
 end
 
-function CoordinateSystem(bvh::BVHTree)
+function CoordinateSystem(bvh::BVHTree{T,U}) where {T<:Real, U}
     return CoordinateSystem(first(bvh.triangles))
 end
 
 # Merge two AABBs
-function merge(a::AABB{T, U}, b::AABB{T, U}) where {T, U}
+function merge(a::AABB{T, U}, b::AABB{T, U}) where {T<:Real, U}
     min_corner = min.(a.min.point, b.min.point)
     max_corner = max.(a.max.point, b.max.point)
     cs = CoordinateSystem(a)
     return AABB(Coordinate(min_corner, cs), Coordinate(max_corner, cs))
 end
 
-function surface_area_fast(bbox::AABB)
+function surface_area_fast(bbox::AABB{T,U}) where {T<:Real, U}
     min_vals = bbox.min.point
     max_vals = bbox.max.point
     lx = max_vals[1] - min_vals[1]
@@ -107,13 +107,13 @@ function surface_area_fast(bbox::AABB)
 end
 
 # AABB surface area (for SAH)
-@inline function surface_area(bbox::AABB)
+@inline function surface_area(bbox::AABB{T,U}) where {T<:Real,U}
     lengths = bbox.max - bbox.min
     return 2.0 * (lengths[1] * lengths[2] + lengths[2] * lengths[3] + lengths[3] * lengths[1])
 end
 
 # AABB center
-@inline function center(bbox::AABB)
+@inline function center(bbox::AABB{T,U})::Coordinate{T,U} where {T,U}
     return (bbox.min + bbox.max) / 2.0
 end
 

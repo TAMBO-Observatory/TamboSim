@@ -1,28 +1,41 @@
 struct Earth{T <: Real, U}
-    sphere::Sphere{T, U}
+    prem::Vector{Sphere{T, U}}
     topography::Vector{Triangle{T, U}}
     bvh::BVHTree{T, U}
     detector_region::Union{Vector{Int}, Nothing}
+    function Earth(prem::Vector{Sphere{T,U}}, topography::Vector{Triangle{T,U}}, bvh::BVHTree{T,U}, detector_region::Union{Vector{Int},Nothing}) where {T,U}
+        cs_prem = CoordinateSystem(prem[1])
+        @assert all([CoordinateSystem(sphere)==cs_prem for sphere in prem]) "Incompatible coordinate systems"
+        cs_topo = CoordinateSystem(topography[1])
+        @assert all([CoordinateSystem(tri)==cs_topo for tri in topography]) "Incompatible coordinate systems"
+        @assert cs_prem==cs_topo==CoordinateSystem(bvh) "Incompatible coordinate systems"
+        return new{T,U}(prem, topography, bvh, detector_region)
+    end
+end
+
+function CoordinateSystem(earth::Earth)
+    return CoordinateSystem(earth.prem[1])
 end
 
 function Base.show(io::IO, earth::Earth)
-    print(io, "Earth:\n\t$(earth.sphere.radius)\n\t$(length(earth.topography)) triangles")
+    print(io, "Earth:\n\t$(length(earth.prem)) layers\n\t$(length(earth.topography)) triangles")
 end
 
 function Earth(location::String, detectorname::String="")
     filename, groupname = split(location, ":")
-    earth = h5open(filename) do file
+    earth = h5open(filename, "r+") do file
         group = file[groupname]
 
         longlat = deg2rad.(Tuple(read(group["location"])))
-        rearth = read(group["rearth"]) * u"m"
+        radii = read(group["radii"]) .* u"m"
+        rearth = radii[end]
         # Construct coordinate system
         enu_coordinates = CoordinateSystem(longlat, rearth)
 
         # Make sphere that defines limits of PREM
         center = Coordinate(ecefcoordinates.origin, ecefcoordinates)
         center = convert(enu_coordinates, center)
-        sphere = Sphere(center, rearth)
+        prem = [Sphere(center, r) for r in radii]
 
         # Load indices corresponding to detector region if applicable
         detector_region = nothing
@@ -37,7 +50,7 @@ function Earth(location::String, detectorname::String="")
         # Construct or load BVH
         bvh = parse_bvh(group, enu_coordinates, triangles)
 
-        return Earth(sphere, triangles, bvh, detector_region)
+        return Earth(prem, triangles, bvh, detector_region)
     end
 end
 
@@ -52,7 +65,8 @@ function parse_bvh(
     else
         println("Computing BVH from scratch.")
         bvh = build_bvh(triangles)
-        println("Saving BVH to `$(realpath(filename)):$(groupname)/bvh`")
+        outpath = typeof(group)==HDF5.Group ? group.file.filename : group.filename
+        println("Saving BVH to `$(realpath(outpath))`")
         group = create_group(group, "bvh")
         serialize_bvh_to_hdf5(bvh, group, false)
         return bvh

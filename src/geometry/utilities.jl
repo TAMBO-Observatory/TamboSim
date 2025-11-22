@@ -37,6 +37,10 @@ function cart_to_longlat(c::Coordinate)
     cart_to_longlat(c.point...)
 end
 
+function sph_to_cart(theta, phi)
+    return [cos(phi) * sin(theta), sin(theta) * sin(phi), cos(theta)]
+end
+
 function normal(v1::AbstractVector, v2::AbstractVector, v3::AbstractVector)
     (length(v1)==3 && length(v3)==3 && length(v3)==3) || throw("Can't take cross product")
     edge1 = v1 - v2
@@ -59,9 +63,30 @@ function normal(triangle::Triangle{T,U}) where {T,U}
     return normal(triangle.v1, triangle.v2, triangle.v3)
 end
 
+function area(triangle::Triangle)
+    a = triangle.v2.point - triangle.v1.point
+    b = triangle.v3.point - triangle.v1.point
+
+    cross_product = cross(a, b)
+
+    return 0.5 * norm(cross_product)
+end
+
 function validate_triangle(triangle::Triangle{T,U}, center::Coordinate{T,U}) where {T,U}
     cent = centroid(triangle)
     n1 = normal(triangle)
     n2 = normalize(cent.point - center.point)
     return dot(n1.point, n2) > 0
+end
+
+function StatsBase.sample(t::Triangle)
+    r1 = rand()
+    r2 = rand()
+
+    if r1 + r2 > 1
+        r1 = 1 - r1
+        r2 = 1 - r2
+    end
+
+    return (1 - r1 - r2) * t.v1 + r1 * t.v2 + r2 * t.v3
 end

@@ -11,29 +11,18 @@ struct UniformAngularSampler
     end
 end
 
-function Base.show(io::IO, sampler::UniformAngularSampler)
-    s = "UniformAngularSampler("
-    s *= "θmin=$(sampler.θmin / π * 180)∘, "
-    s *= "θmax=$(sampler.θmax / π * 180)∘, "
-    s *= "ϕmin=$(sampler.ϕmin / π * 180)∘, "
-    s *= "ϕmax=$(sampler.ϕmax / π * 180)∘"
-    s *= ")"
-    print(io, s)
-end
-
-"""
-    Base.rand(sampler::UniformAngularSampler)
-
-Return zenith (θ) and azimuth (ϕ) angles sampled uniformly on a sphere
-
-TBW
-"""
 function Base.rand(sampler::UniformAngularSampler)
     # Randomly sample zenith uniform in phase space
     θ = acos(rand(Uniform(cos(sampler.θmax), cos(sampler.θmin))))
     # Randomly sample azimuth
     ϕ = rand(Uniform(sampler.ϕmin, sampler.ϕmax))
     return θ, ϕ
+end
+
+function Base.rand(sampler::UniformAngularSampler, cs::CoordinateSystem)
+    theta, phi = rand(sampler)
+    d = sph_to_cart(theta, phi)
+    return Direction(d, cs)
 end
 
 function probability(sampler::UniformAngularSampler, θ::Number, ϕ::Number)

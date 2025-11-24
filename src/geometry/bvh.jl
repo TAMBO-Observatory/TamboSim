@@ -17,7 +17,7 @@ function AABB(
     min_point = aabb.min.point
     max_point = aabb.max.point
 
-    @inbounds for i in indices
+    for i in indices
         if i==1
             continue
         end
@@ -97,13 +97,32 @@ function merge(a::AABB{T, U}, b::AABB{T, U}) where {T<:Real, U}
     return AABB(Coordinate(min_corner, cs), Coordinate(max_corner, cs))
 end
 
-function surface_area_fast(bbox::AABB{T,U}) where {T<:Real, U}
-    min_vals = bbox.min.point
-    max_vals = bbox.max.point
+function surface_area_fast(
+    #min_vals::MVector{3, Quantity{T, U, typeof(u"m")}}, 
+    #max_vals::MVector{3, Quantity{T, U, typeof(u"m")}}, 
+    min_vals, 
+    max_vals, 
+) where {T<:Real, U}
     lx = max_vals[1] - min_vals[1]
     ly = max_vals[2] - min_vals[2] 
     lz = max_vals[3] - min_vals[3]
     return 2.0 * (lx * ly + ly * lz + lz * lx)
+end
+
+function surface_area_fast(
+    min_vals::SVector{3, Quantity{T, U, typeof(u"m")}}, 
+    max_vals::SVector{3, Quantity{T, U, typeof(u"m")}}, 
+) where {T<:Real, U}
+    lx = max_vals[1] - min_vals[1]
+    ly = max_vals[2] - min_vals[2] 
+    lz = max_vals[3] - min_vals[3]
+    return 2.0 * (lx * ly + ly * lz + lz * lx)
+end
+
+function surface_area_fast(
+    aabb::AABB{T,U}
+) where {T<:Real, U}
+    return surface_area_fast(aabb.min.point, aabb.max.point)
 end
 
 # AABB surface area (for SAH)
@@ -149,7 +168,6 @@ function build_bvh_node(
 
     # If no good split found, create leaf
     if best_cost >= length(indices) * surface_area_fast(AABB(triangles, indices))
-    #if best_cost >= length(indices) * surface_area(AABB(triangles, indices))
         bbox = AABB(indices, precomputed_aabbs)
         return BVHNode(bbox, nothing, nothing, indices, true)
     end
@@ -189,17 +207,15 @@ function find_best_split(
         sorted_indices = sortperm(centers)
 
         for i in 1:skipper:n-1
-        #for (i, (x,y)) in zip(centers, centers[2:end])
-            #left_indices = sorted_indices[1:i]
-            #right_indices = sorted_indices[i+1:end]
             left_indices = Iterators.take(sorted_indices, i)
             right_indices = Iterators.rest(sorted_indices, i+1)
+            
+            left_min, left_max = static_extrema_per_dim(precomputed_aabbs, left_indices)
+            a1 = surface_area_fast(left_min, left_max)
+            right_min, right_max = static_extrema_per_dim(precomputed_aabbs, right_indices)
+            a2 = surface_area_fast(right_min, right_max)
 
-            left_bbox = AABB(left_indices, precomputed_aabbs)
-            right_bbox = AABB(right_indices, precomputed_aabbs)
-
-            cost = length(left_indices) * surface_area_fast(left_bbox) +
-                   (n-length(left_indices)) * surface_area_fast(right_bbox)
+            cost = length(left_indices) * a1 + (n-length(left_indices)) * a2
 
             if cost < best_cost
                 split_pos = (centers[sorted_indices[i]] + centers[sorted_indices[i+1]]) / 2.0
@@ -209,45 +225,80 @@ function find_best_split(
             end
         end
     end
-
     return best_axis, best_pos, best_cost
 end
 
-#function find_best_split_split(
-#    triangles::Vector{Triangle{T,U}},
-#    indices::Vector{Int}, 
-#    precomputed_aabbs::Vector{AABB{T,U}},
-#    precomputed_centers::Vector{Coordinate{T, U}},
-#    fast=true
-#    ) where {T,U}
-#    n = length(indices)
-#    skipper = 1
-#    if fast
-#        skipper = Int(floor(sqrt(n)))
-#    end
-#    centers = precomputed_centers[indices]
-#    output = zeros((length(1:skipper:n-1), 3, 2))
-#    
-#    
-#end
-#
-#function find_best_split_split_inner_loop(
-#    centers,
-#    sorted
-#    axis,
-#    idx,
-#    out
-#)
-#    split_pos = (centers[sorted_indices[i]] + centers[sorted_indices[i+1]]) / 2.0
-#    left_indices = sorted_indices[1:i]
-#    right_indices = sorted_indices[i+1:end]
-#
-#    left_bbox = AABB(triangles, left_indices, precomputed_aabbs)
-#    right_bbox = AABB(triangles, right_indices, precomputed_aabbs)
-#
-#    cost = length(left_indices) * surface_area_fast(left_bbox) +
-#           length(right_indices) * surface_area_fast(right_bbox)
-#end
+function find_best_split_optimized(
+    triangles::Vector{Triangle{T,U}},
+    indices::Vector{Int}, 
+    precomputed_aabbs::Vector{AABB{T,U}},
+    precomputed_centers::Vector{Coordinate{T, U}},
+    fast=true
+) where {T,U}
+    best_axis = 1
+    best_pos = 0.0
+    best_cost = Inf * u"m"^2
+
+    n = length(indices)
+    skipper = 1
+    if fast
+        skipper = Int(floor(sqrt(n)))
+    end
+    left_min, right_min = fill(Inf*u"m", 3), fill(Inf*u"m", 3)
+    left_max, right_max = fill(-Inf*u"m", 3), fill(-Inf*u"m", 3)
+    #q = reduce(hcat, [precomputed_centers[i].point for i in indices])
+    for axis in 1:3
+        # Use precomputed centers
+        #centers = @views q[axis, :]
+        centers = [precomputed_centers[i][axis] for i in indices]
+        sorted_indices = sortperm(centers)
+
+        for i in 1:skipper:n-1
+            left_indices = Iterators.take(sorted_indices, i)
+            right_indices = Iterators.rest(sorted_indices, i+1)
+            
+            if i > 1
+                aabb = precomputed_aabbs[sorted_indices[i]]
+                for kdx in 1:3
+                    left_min[kdx] = min(left_min[kdx], aabb.min[kdx])
+                    left_max[kdx] = max(left_max[kdx], aabb.max[kdx])
+                end
+            else
+                left_min, left_max = static_extrema_per_dim(precomputed_aabbs, left_indices, left_min, left_max)
+            end
+            right_min, right_max = static_extrema_per_dim(precomputed_aabbs, right_indices, right_min, right_max)
+            a1 = surface_area_fast(left_min, left_max)
+            a2 = surface_area_fast(right_min, right_max)
+      
+            #left_min, left_max = static_extrema_per_dim(precomputed_aabbs, left_indices)
+            #a1 = surface_area_fast(left_min, left_max)
+            #right_min, right_max = static_extrema_per_dim(precomputed_aabbs, right_indices)
+            #a2 = surface_area_fast(right_min, right_max)
+
+            cost = length(left_indices) * a1 + (n-length(left_indices)) * a2
+
+            if cost < best_cost
+                split_pos = (centers[sorted_indices[i]] + centers[sorted_indices[i+1]]) / 2.0
+                best_cost = cost
+                best_axis = axis
+                best_pos = split_pos
+            end
+        end
+    end
+    return best_axis, best_pos, best_cost
+end
+
+function need_to_recompute(
+    left_min::SVector{3, Quantity{T, U, typeof(u"m")}},
+    left_max::SVector{3, Quantity{T, U, typeof(u"m")}},
+    right_min::SVector{3, Quantity{T, U, typeof(u"m")}},
+    right_max::SVector{3, Quantity{T, U, typeof(u"m")}},
+    passed_aabb::AABB{T,U}
+) where {T,U}
+    redo_left = any(passed_aabb.min.point .< left_min) || any(left_max .< passed_aabb.max.point)
+    redo_right = any(passed_aabb.min.point.==right_min) || any(passed_aabb.max.point.==right_max)
+    return redo_left, redo_right
+end
 
 function split_triangles(triangles, indices, precomputed_aabbs, axis, split_pos)
     left_indices = Int[]
@@ -270,4 +321,75 @@ function split_triangles(triangles, indices, precomputed_aabbs, axis, split_pos)
     end
 
     return left_indices, right_indices
+end
+
+function static_extrema_per_dim(
+    aabbs::Vector{Tambo.AABB{T,U}},
+    indices,
+    mins,
+    maxs,
+    #mins::MVector{3, Quantity{T, U, typeof(u"m")}},
+    #maxs::MVector{3, Quantity{T, U, typeof(u"m")}},
+) where {T,U}
+    ndims = 3
+    mins .= Inf * u"m"
+    maxs .= -Inf * u"m"
+    for idx in indices
+        p1 = aabbs[idx].min.point
+        p2 = aabbs[idx].max.point
+        for i in 1:ndims
+            if p1[i] < mins[i]
+                mins[i] = p1[i]
+            end
+            if p2[i] > maxs[i]
+                maxs[i] = p2[i]
+            end
+        end
+    end
+
+    return mins, maxs
+end
+
+function static_extrema_per_dim(
+    aabbs::Vector{Tambo.AABB{T,U}},
+    indices,
+) where {T,U}
+    ndims = 3
+    mins = MVector{3}(fill(Inf, 3))
+    maxs = MVector{3}(fill(-Inf, 3))
+    for idx in indices
+        p1 = ustrip.(aabbs[idx].min.point)
+        p2 = ustrip.(aabbs[idx].max.point)
+        for i in 1:ndims
+            if p1[i] < mins[i]
+                mins[i] = p1[i]
+            end
+            if p2[i] > maxs[i]
+                maxs[i] = p2[i]
+            end
+        end
+    end
+
+    return SVector{3}(mins)*u"m", SVector{3}(maxs)*u"m"
+end
+
+function static_extrema_per_dim(
+    aabbs,
+    mins,
+    maxs
+) where {T,U}
+    ndims = 3
+    mins = MVector{ndims}(fill(Inf*u"m", ndims))
+    maxs = MVector{ndims}(fill(-Inf*u"m", ndims))
+
+    for aabb in aabbs
+        p1 = ustrip.(aabb.min.point)
+        p2 = ustrip.(aabb.max.point)
+        for i in 1:ndims
+            mins[i] = min(mins[i], p1[i])
+            maxs[i] = max(maxs[i], p2[i])
+        end
+    end
+
+    return mins, maxs
 end

@@ -15,7 +15,7 @@ function find_vertex_distance(
     for intersection in intersections
         density = nothing
         if typeof(intersection)==TriangleIntersection{T,U}
-            entering_rock = dot(direction.point, intersection.normal.point) < 0
+            entering_rock = dot(direction, intersection.normal) < 0
             #@show entering_rock
             density = entering_rock ? rock_density : air_density
             if entering_rock
@@ -55,7 +55,7 @@ function find_vertex_distance(
         intersection = intersections[idx]
         density = nothing
         if typeof(intersection)==TriangleIntersection{T,U}
-            density = dot(direction.point, intersection.normal.point) < 0 ? rock_density : air_density
+            density = dot(direction, intersection.normal) < 0 ? rock_density : air_density
         elseif typeof(intersection)==SphereIntersection{T,U}
             density = pop!(prem_densities)
         end

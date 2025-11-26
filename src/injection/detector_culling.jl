@@ -21,7 +21,7 @@ function faces_backwards(
     d::Direction{T,U},
     normal::Direction{T,U}
 ) where {T,U}
-    return dot(normal.point, d.point) < 0
+    return dot(normal, d) < 0
 end 
 
 function compute_occlusion(
@@ -34,7 +34,7 @@ function compute_occlusion(
     occlusion_mask = BitVector(undef, length(vertices))
     revd = reverse(d)
     for (idx, vx) in enumerate(vertices)
-        occlusion_mask[idx] = 1
+        #occlusion_mask[idx] = 1
         p = Coordinate(vx.point + 1e-6u"m" * revd.point, cs)
         ray = Ray(p, revd)
         a = intersect_all(bvh, ray)

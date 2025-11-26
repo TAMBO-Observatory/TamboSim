@@ -1,6 +1,6 @@
 struct Direction{T <: Real, U}
-    point::SVector{3, T}
-    coordinate_system::CoordinateSystem{T, U}
+    point::SVector{3,T}
+    coordinate_system::CoordinateSystem{T,U}
     function Direction(point::AbstractVector, coordinate_system::CoordinateSystem)
         U = typeof(coordinate_system).parameters[2]
         point_sv = SVector{3}(point)

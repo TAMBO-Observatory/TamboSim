@@ -60,6 +60,7 @@ include("ray_tracing/ray_tracing.jl")
 include("samplers/samplers.jl")
 include("particles.jl")
 include("injection/injection.jl")
+include("python_interfaces/python_interfaces.jl")
 
 function __init__()
     commit_hash = get_git_commit_hash()

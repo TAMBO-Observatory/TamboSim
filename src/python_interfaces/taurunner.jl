@@ -2,70 +2,164 @@ using PyCall
 
 const tr = PyNULL()
 const earth = PyNULL()
-const clp = PyNULL()
+const sphere_clp = PyNULL()
+const SlabClp = PyNULL()
 const xs = PyNULL()
-const chord = PyNULL()
+const Chord = PyNULL()
+const SlabTrack = PyNULL()
+const Rock = PyNULL()
+const Air = PyNULL()
+prop_cache = PyNULL()
 
-function tr_startup()
-
+function tr_init()
     copy!(tr, pyimport("taurunner"))
     x = tr.body.earth
-    copy!(earth, x.construct_earth())
+    copy!(earth, x.construct_earth([(1, 2.6)])) # 3km or rock gets us to sea level and 1km is reasonable for TAMBO location
     copy!(xs, tr.cross_sections.CrossSections(tr.cross_sections.XSModel.CSMS))
-    copy!(clp, tr.proposal_interface.ChargedLeptonPropagator(earth, xs))
-    copy!(chord, tr.track.chord)
-
-end
-
-# function run_taurunner(p:: Particle, θ:: Float64, depth:: Float64)
-function run_taurunner(p, θ:: Float64, depth:: Float64)
-
-    tr_p = tr.particle.Particle(p.pdg_mc, p.energy*units.eV, 0.0, xs)
-    # We need to round here otherwise it will take forever. Sorry
-    track = chord(theta=p.direction.θ, depth=round(depth, digits=3))
-    rounded_depth = round(depth,digits=3)
-
-    #for some reason 0.001 stalls 
-    #hopefully this doesn't change things 
-    if rounded_depth == 0.001 
-        rounded_depth = rounded_depth + 1e-10 
-    end 
-
-    track = chord(theta=p.direction.θ,depth=rounded_depth)
-    # return tr_p, track, earth, clp
-    tr_d = tr.Propagate(tr_p, track, earth, clp)
-    return tr_d.energy * units.eV, track.x_to_X(earth, tr_d.decay_position)[1]
-end
-
-function tr_propagate(ps::Vector{Particle}, ztambo::Float64, seed::Int)
-    # Check that TR variables have been initiailized
-    if chord == PyNULL() 
-        tr_startup()
-        tr.Casino.np.random.seed(seed)
-        tr.Casino.pp.RandomGenerator.get().set_seed(seed)
-    end 
-    
-    return tr_propagate.(ps, ztambo, seed)
-end
-
-function tr_propagate(p::Particle, ztambo::Float64, seed::Int)
-    # Check that TR variables have been initiailized
-
-    if chord == PyNULL()
-        tr_startup()
+    copy!(sphere_clp, tr.proposal_interface.ChargedLeptonPropagatorSphere(earth))
+    copy!(SlabClp, tr.proposal_interface.ChargedLeptonPropagatorSlab)
+    copy!(Chord, tr.track.chord)
+    copy!(SlabTrack, tr.track.SlabTrack)
+    copy!(Rock, tr.body.layered_constant_slab.Media.Rock)
+    copy!(Air, tr.body.layered_constant_slab.Media.Air)
+    # Voodoo. Please don't touch
+    try
+        copy!(prop_cache, PyDict())
+    catch e
+        global prop_cache = PyDict()
     end
 
-    tr.Casino.pp.RandomGenerator.get().set_seed(seed)
-    tr.Casino.np.random.seed(seed)
-    xb′ = p.position + SVector{3}([0, 0, ztambo + units.earthradius])
-    depth = (units.earthradius - norm(xb′)) / units.earthradius
-    # The neutrino does not pass through the Earth
-    if depth <= 0
-        return p, 0.0
+
+    py"""
+    from taurunner.utils import units
+    import numpy as np
+    def stopping_condition(p, body, track):
+        if abs(p.ID==15):
+            c = 299_792_458 * units.meter / units.sec
+            tautau = 2.903e-13 * units.sec
+            lrange = -p.energy / (1.776 * units.GeV) * c * tautau * np.log(1e-3)
+            d = lrange / body.length
+            remaining_distance = track.x_to_d(1-p.position)
+            return d > remaining_distance
+        elif abs(p.ID) in [12, 14, 16]:
+            remaining_depth = track.total_column_depth(body) - track.x_to_X(body, p.position)
+            depth_step = p.GetTotalInteractionDepth()
+            return depth_step * 1e-3 > remaining_depth
+        raise ValueError("Particle not supported")
+    prop_cache = {}
+    """
+end
+
+function taurunner_interface(
+    particle::Particle{T,U,V},
+    intersections::Vector{Intersection{T,U}},
+)::Particle{T} where {T<:Real,U,V}
+
+    if tr==PyNULL()
+        tr_init()
     end
-    ψ = acos(xb′.z / norm(xb′))
-    θ_tr = p.direction.θ + ψ
-    eout, X = run_taurunner(p, θ_tr, depth)
-    xb′ -= SVector{3}([0, 0, ztambo + units.earthradius])
-    return Particle(p.pdg_mc, eout, xb′, p.direction), X
+
+    #if length(intersections)==0
+    #    @show(
+    #        particle.energy,
+    #        particle.position,
+    #        particle.direction
+    #    )
+    #end
+
+    tr_particle = tr.particle.Particle(
+        particle.pdg_id,
+        ustrip(particle.energy |> u"eV"),
+        0.0,
+        xs
+    )
+    if should_go_through_earth(intersections)
+        theta, _ = cart_to_sph(particle.direction)
+        track = Chord(theta=theta)
+        out_tr_particle = tr.Propagate(
+            tr_particle,
+            track,
+            earth,
+            sphere_clp,
+            condition=py"stopping_condition"
+        )
+        distance = (track.x_to_d(1)-track.x_to_d(out_tr_particle.position)) * earth.length / tr.utils.units.meter * u"m"
+        position = distance * reverse(particle.direction) + particle.position
+        pdg_id = out_tr_particle.ID
+        energy = out_tr_particle.energy / tr.utils.units.GeV * u"GeV"
+        return Particle(pdg_id, energy, position, particle.direction)
+    else
+        intersections = cull_intersections(intersections)
+       if length(intersections)==0
+           @show particle
+       end
+        total_distance = last(intersections).distance
+        densities, boundaries, media = Float64[], [], String[]
+        itr = Iterators.rest(reverse(intersections), 2)
+        for intersection in Iterators.rest(reverse(intersections), 2)
+            is_rock = dot(particle.direction, intersection.normal) > 0 || typeof(intersection)==Tambo.SphereIntersection{T, U}
+            push!(boundaries, ustrip(total_distance - intersection.distance))
+            push!(densities, is_rock ? 2.6 : 1.2e-3)
+            push!(media, is_rock ? "Rock" : "Air")
+        end
+        if last(media)=="Air"
+            push!(media, "Rock")
+            push!(densities, 2.6)
+            push!(boundaries, ustrip(total_distance))
+        end
+        boundaries ./= last(boundaries)
+        track = SlabTrack()
+        body = tr.body.LayeredConstantSlab(
+            densities,
+            media,
+            ustrip(last(intersections).distance |> u"km"),
+            boundaries
+        )
+        slab_clp = SlabClp(body)
+        slab_clp._propagators = prop_cache
+        out_tr_particle = tr.Propagate(
+            tr_particle,
+            track,
+            body,
+            slab_clp,
+            condition=py"stopping_condition"
+        )
+        for ((id, medium), v) in slab_clp._propagators
+            medium = medium.name=="Rock" ? Rock : Air
+            prop_cache[(id, medium)] = v
+        end
+        distance = track.x_to_d(out_tr_particle.position) * body.length / tr.utils.units.meter * u"m"
+        position = distance * particle.direction + last(intersections).point
+        pdg_id = out_tr_particle.ID
+        energy = out_tr_particle.energy / tr.utils.units.GeV * u"GeV"
+        return Particle(pdg_id, energy, position, particle.direction)
+    end
+end
+
+function cull_intersections(
+    intersections::Vector{Intersection{T,U}},
+)::Vector{Intersection{T,U}} where {T,U}
+    include_triangles = true
+    culled_intersections = Intersection{T,U}[]
+    for intersection in intersections
+        if typeof(intersection)==SphereIntersection{T,U}
+            push!(culled_intersections, intersection)
+            include_triangles = false
+        elseif include_triangles
+            push!(culled_intersections, intersection)
+        end
+    end
+    return culled_intersections
+end
+
+function should_go_through_earth(
+    intersections::Vector{Intersection{T,U}}
+)::Bool where {T,U}
+    sphere_counter = 0
+    for intersection in intersections
+        if typeof(intersection)==SphereIntersection{T,U}
+            sphere_counter += 1
+        end
+    end
+    return sphere_counter > 4
 end

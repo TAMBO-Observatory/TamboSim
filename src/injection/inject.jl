@@ -7,7 +7,8 @@ function inject_event(
     detector_triangles::Union{Vector{Triangle{T,U}}, Nothing}=nothing,
     detector_normals::Union{Vector{Direction{T,U}}, Nothing}=nothing,
     detector_bvh::Union{BVHTree{T,U}, Nothing}=nothing,
-    detector_areas::Union{Vector{Quantity{T, U, typeof(u"m^2")}}, Nothing} = nothing,
+    #detector_areas::Union{Vector{Quantity{T,U^2,typeof(u"m^2")}}, Nothing} = nothing,
+    detector_areas::Union{Vector{Quantity{T,Unitful.𝐋^2,typeof(u"m^2")}}, Nothing} = nothing,
     epsilon=1e-6*u"m",
     event_id::Int=-1
 ) where {T,U}
@@ -28,7 +29,7 @@ function inject_event(
         detector_bvh = build_bvh(detector_triangles)
     end
     if isnothing(detector_areas)
-        #println("Computing areas. This is likely inefficnet")
+        println("Computing areas. This is likely inefficnet")
         detector_areas = area.(detector_triangles)
     end
 
@@ -44,7 +45,6 @@ function inject_event(
     )
     # Geometric is zero if all triangle are invalid
     if sum(geometric_mask)==0
-        #println("From behind")
         return null_event
     end
     perp_areas = [-dot(norm.point, d.point) * area for (norm, area) in zip(detector_normals, detector_areas)]
@@ -57,10 +57,8 @@ function inject_event(
     intersections = intersect_all(earth, ray)
     # No intersections means it only passed through air
     mask = mask_helper(intersections, earth)
-    #@show mask
     # We won't bother simulating this because weight will be zero
     if sum(mask)==0
-        #println("From the sky")
         return null_event
     end
 
@@ -69,7 +67,7 @@ function inject_event(
     initial_state = Particle(pdg_id, initial_energy, p, d)
 
     ## Compute arrival state via TR interface ##
-    close_state = fake_tr_interface(initial_state, intersections)
+    close_state = taurunner_interface(initial_state, intersections)
 
     ## Compute final state ##
     # If we got charged lepton, just throw it in
@@ -90,8 +88,6 @@ function inject_event(
     eout = rand(xs, close_state.energy)
     pdg_out = close_state.pdg_id > 0 ? close_state.pdg_id-1 : close_state.pdg_id + 1
     range = particle_range(pdg_out, eout)
-    #@show eout, revd.point
-    #@show ray.origin.point
     distance, cd = find_vertex_distance(revd, range, intersections[mask]) 
     if sum(.~mask) > 0
         distance += sum(map(x->x.distance, intersections[.~mask]))

@@ -58,7 +58,7 @@ using Unitful
 include("geometry/geometry.jl")
 include("ray_tracing/ray_tracing.jl")
 include("samplers/samplers.jl")
-include("particles.jl")
+include("particles/particles.jl")
 include("injection/injection.jl")
 include("python_interfaces/python_interfaces.jl")
 

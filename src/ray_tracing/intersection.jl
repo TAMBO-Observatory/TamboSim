@@ -70,7 +70,6 @@ function find_intersect(ray::Ray{T,U}, triangle::Triangle{T,U}, tri_index::Int=-
     end
 
     # Compute intersection point and normal (with units restored)
-    #point_unit = unit(ray.origin[1])
     cs = triangle.v1.coordinate_system
     point = Coordinate((ray_origin + t * ray_dir) * u"m", cs)
     normal = Direction(normalize(cross(edge1, edge2)), cs)  # Unitless

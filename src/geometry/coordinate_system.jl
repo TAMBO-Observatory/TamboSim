@@ -1,6 +1,6 @@
 # Coordinate system
-struct CoordinateSystem{T <: Real, U}
-    origin::SVector{3, Quantity{T, U, typeof(u"m")}}
+struct CoordinateSystem{T<:Real,U}
+    origin::SVector{3, Quantity{T,U,typeof(u"m")}}
     rotation::SMatrix{3, 3, T}
 end
 

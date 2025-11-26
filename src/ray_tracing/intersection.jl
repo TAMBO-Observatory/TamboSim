@@ -80,7 +80,7 @@ end
 # Find all intersections (not just closest)
 function intersect_all(bvh::BVHTree{T}, ray::Ray{T})::Vector{TriangleIntersection{T}} where {T<:Real}
     intersections = TriangleIntersection{T}[]
-    intersect_node(ray, bvh.root, bvh.triangles, intersections)
+    intersect_node!(intersections, ray, bvh.root, bvh.triangles)
     sort!(intersections, by = x -> ustrip(x.distance))
     return intersections
 end
@@ -123,7 +123,7 @@ function find_intersect(ray::Ray{T}, bbox::AABB{T}) where {T<:Real}
 end
 function find_intersect(ray::Ray{T}, bvh::BVHTree{T}) where {T<:Real}
     intersections = TriangleIntersection[]  # (intersection, triangle_index)
-    intersect_node(ray, bvh.root, bvh.triangles, intersections)
+    intersect_node!(intersections, ray, bvh.root, bvh.triangles)
 
     # Find the closest intersection
     if isempty(intersections)
@@ -136,11 +136,11 @@ function find_intersect(ray::Ray{T}, bvh::BVHTree{T}) where {T<:Real}
     return first(intersections)
 end
 
-function intersect_node(
+function intersect_node!(
+    results::Vector{TriangleIntersection{T}},
     ray::Ray{T},
     node::BVHNode{T},
     triangles::Vector{Triangle{T}},
-    results::Vector{TriangleIntersection{T}}
 ) where {T<:Real}
     # Check ray-AABB intersection first
     hits_bbox, tmin, tmax = find_intersect(ray, node.bbox)
@@ -150,6 +150,7 @@ function intersect_node(
 
     if node.is_leaf
         # Check intersection with all triangles in leaf
+        #ixs = map(i->find_intersect(ray, triangles[i], i), node.triangles)
         for tri_index in node.triangles
             tri = triangles[tri_index]
             intersection = find_intersect(ray, tri, tri_index)
@@ -161,10 +162,10 @@ function intersect_node(
     else
         # Recursively check children
         if node.left !== nothing
-            intersect_node(ray, node.left, triangles, results)
+            intersect_node!(results, ray, node.left, triangles)
         end
         if node.right !== nothing
-            intersect_node(ray, node.right, triangles, results)
+            intersect_node!(results, ray, node.right, triangles)
         end
     end
 end

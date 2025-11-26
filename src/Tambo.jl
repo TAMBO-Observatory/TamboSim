@@ -1,25 +1,5 @@
 module Tambo
 
-#export Simulation,
-#       Geometry,
-#       CorsikaMap,
-#       Coord,
-#       units,
-#       coords,
-#       normal_vecs,
-#       inject_ν!,
-#       propagate_τ!,
-#       identify_taus_to_shower!,
-#       shower_taus!,
-#       run_subshower!,
-#       run_airshower!,
-#       oneweight,
-#       save_simulation_to_arrow,
-#       save_simulation_to_jld2,
-#       make_detector_array,
-#       did_trigger
-
-
 using Arrow
 using CoordinateTransformations
 using Dierckx: Spline1D, Spline2D
@@ -38,23 +18,6 @@ using StatsBase
 using TOML
 using Unitful
 
-##include("samplers/crosssections.jl")
-##include("samplers/injectionvolumes.jl")
-##include("samplers/powerlaws.jl")
-##include("samplers/injectionplane.jl")
-#include("directions.jl")
-#include("locations.jl")
-#include("geometries.jl")
-#include("tracks.jl")
-#include("inject.jl")
-#include("proposal.jl")
-#include("weightings.jl")
-#include("taurunner.jl")
-#include("detector.jl")
-#include("corsika.jl")
-#include("serialization.jl")
-#include("triggers.jl")
-
 include("units.jl")
 include("geometry/geometry.jl")
 include("ray_tracing/ray_tracing.jl")
@@ -64,6 +27,7 @@ include("injection/injection.jl")
 include("python_interfaces/python_interfaces.jl")
 
 function __init__()
+    
     commit_hash = get_git_commit_hash()
     println("Welcome to TAMBOSim version -0.1")
     println("Git commit hash: $commit_hash")
@@ -71,12 +35,12 @@ function __init__()
               /\    //\
              { `---'  }
              {  O   O  }
-      _______{  \     /}________
+      _      {  \     /}     __
     /  \     `._`---'_/     /  \
-   /  |    ν_τ  `~.~`  ν_τ   |  \
-  /   |        _.-'-.        |   \
- /    |     .'       `.     |    \
-/     |    /           \    |     \ """)
+   /  | \  ν_τ  `~.~`  ν_τ /  | \
+  /   |  \     _.-'-.     /   |  \
+ /    |   \ .'       `.  /    |   \
+/     |    /           \/     |    \ """)
 println(raw"""
     ████████╗ █████╗ ███╗   ███╗██████╗  ██████╗ 
     ╚══██╔══╝██╔══██╗████╗ ████║██╔══██╗██╔═══██╗

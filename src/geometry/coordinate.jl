@@ -1,11 +1,11 @@
-struct Coordinate{T <: Real, U}
-    point::SVector{3, Quantity{T, U, typeof(u"m")}}
+struct Coordinate{T <: Real,U}
+    point::SVector{3, Quantity{T,U,typeof(u"m")}}
     coordinate_system::CoordinateSystem{T, U}
     function Coordinate(point::AbstractVector{<:Quantity}, cs::CoordinateSystem)
         point_sv = SVector{3}(point)
         U = dimension(point_sv.x)
         T = promote_type(eltype(cs), eltype(one(point_sv.x)))
-        new{T, U}(point_sv, cs)
+        new{T,U}(point_sv, cs)
     end
 end
 
@@ -62,44 +62,6 @@ end
 function Base.broadcasted(::typeof(min), coords::Coordinate...)
     return coordinate_extremum(minimum, coords...)
 end
-#Base.Broadcast.broadcastable(coord::Coordinate) = Ref(coord)
-#
-## Define how to broadcast max between Coordinates
-#function Base.broadcasted(::typeof(max), a::Coordinate, b::Coordinate)
-#    # Check coordinate systems
-#    if a.coordinate_system != b.coordinate_system
-#        error("Cannot max Coordinates with different coordinate systems")
-#    end
-#
-#    # Compute max for each component
-#    max_point = SVector{3}(
-#        max(a.point[1], b.point[1]),
-#        max(a.point[2], b.point[2]),
-#        max(a.point[3], b.point[3])
-#    )
-#
-#    return Coordinate(max_point, a.coordinate_system)
-#end
-#
-## Handle broadcasting with multiple coordinates
-#function Base.broadcasted(::typeof(max), coords::Coordinate...)
-#    # All coordinate systems must match
-#    cs = first(coords).coordinate_system
-#    for coord in coords
-#        if coord.coordinate_system != cs
-#            error("All Coordinates must have the same coordinate system for broadcasting")
-#        end
-#    end
-#
-#    # Find max along each dimension
-#    points = [c.point for c in coords]
-#    max_x = maximum(p[1] for p in points)
-#    max_y = maximum(p[2] for p in points)
-#    max_z = maximum(p[3] for p in points)
-#
-#    max_point = SVector{3}(max_x, max_y, max_z)
-#    return Coordinate(max_point, cs)
-#end
 
 Base.:*(a::Coordinate, s::Number) = Coordinate(a.point * s, a.coordinate_system)
 Base.:/(a::Coordinate, s::Number) = Coordinate(a.point / s, a.coordinate_system)

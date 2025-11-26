@@ -84,6 +84,10 @@ function inject_event(
         )
     end
 
+    if close_state.energy < minimum(xs.es)
+        return InjectionEvent(event_id, close_state, initial_state, null_particle, NaN*u"g/cm^2", NaN, NaN)
+    end
+
     # If we got a neutrino, back trace and force an interaction
     eout = rand(xs, close_state.energy)
     pdg_out = close_state.pdg_id > 0 ? close_state.pdg_id-1 : close_state.pdg_id + 1

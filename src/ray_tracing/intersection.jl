@@ -18,28 +18,7 @@ struct SphereIntersection{T <: Real, U} <: Intersection{T,U}
     hit::Bool
 end
 
-# No-intersection result with units
-function no_intersection_triangle(::Type{T} = Float64) where {T}
-    zero_quant = zero(T) * u"m"
-    vec = Coordinate(
-        SVector{3}(zero_quant, zero_quant, zero_quant),
-        ecefcoordinates
-    )
-    dir = Direction(SVector{3, T}(0, 0, 0), ecefcoordinates)
-    TriangleIntersection(vec, dir, T(Inf) * u"m", zero(T), zero(T), false, -1)
-end
-
-function no_intersection_sphere(::Type{T} = Float64) where {T}
-    zero_quant = zero(T) * u"m"
-    vec = Coordinate(
-        SVector{3}(zero_quant, zero_quant, zero_quant),
-        ecefcoordinates
-    )
-    dir = Direction(SVector{3, T}(0, 0, 0), ecefcoordinates)
-    return SphereIntersection(vec, dir, T(Inf) * u"m", false)
-end
-
-function find_intersect(ray::Ray{T, U}, triangle::Triangle{T,U}, tri_index::Int=-1) where {T, U}
+function find_intersect(ray::Ray{T,U}, triangle::Triangle{T,U}, tri_index::Int=-1) where {T, U}
     # Extract vertices and strip units for the algorithm
     v1 = ustrip.(triangle.v1.point)
     v2 = ustrip.(triangle.v2.point)
@@ -59,7 +38,7 @@ function find_intersect(ray::Ray{T, U}, triangle::Triangle{T,U}, tri_index::Int=
 
     # If determinant is near zero, ray lies in plane of triangle
     if abs(det) < eps(T)
-        return no_intersection_triangle(T)
+        return 
     end
 
     inv_det = one(T) / det
@@ -70,7 +49,7 @@ function find_intersect(ray::Ray{T, U}, triangle::Triangle{T,U}, tri_index::Int=
     # Calculate u parameter and test bound
     u = dot(tvec, pvec) * inv_det
     if u < zero(T) || u > one(T)
-        return no_intersection_triangle(T)
+        return 
     end
 
     # Prepare to test v parameter
@@ -79,7 +58,7 @@ function find_intersect(ray::Ray{T, U}, triangle::Triangle{T,U}, tri_index::Int=
     # Calculate v parameter and test bound
     v = dot(ray_dir, qvec) * inv_det
     if v < zero(T) || (u + v) > one(T)
-        return no_intersection_triangle(T)
+        return 
     end
 
     # Calculate t, ray intersects triangle
@@ -87,16 +66,16 @@ function find_intersect(ray::Ray{T, U}, triangle::Triangle{T,U}, tri_index::Int=
 
     # Check if intersection is in front of ray origin
     if t < eps(T)
-        return no_intersection_triangle(T)
+        return 
     end
 
     # Compute intersection point and normal (with units restored)
-    point_unit = unit(ray.origin[1])
+    #point_unit = unit(ray.origin[1])
     cs = triangle.v1.coordinate_system
-    point = ray.origin + t * point_unit * ray.direction
+    point = Coordinate((ray_origin + t * ray_dir) * u"m", cs)
     normal = Direction(normalize(cross(edge1, edge2)), cs)  # Unitless
 
-    return TriangleIntersection(point, normal, t * point_unit, u, v, true, tri_index)
+    return TriangleIntersection(point, normal, t * u"m", u, v, true, tri_index)
 end
 
 # Find all intersections (not just closest)
@@ -149,13 +128,13 @@ function find_intersect(ray::Ray{T,U}, bvh::BVHTree{T,U}) where {T,U}
 
     # Find the closest intersection
     if isempty(intersections)
-        return no_intersection_triangle()
+        return 
     end
 
     # Sort by distance and return the closest
     sort!(intersections, by = x -> ustrip(x[1].distance))
     #sort!(intersections, by = x -> ustrip(x[1].distance))
-    return intersections[1]
+    return first(intersections)
 end
 
 function intersect_node(
@@ -175,9 +154,10 @@ function intersect_node(
         for tri_index in node.triangles
             tri = triangles[tri_index]
             intersection = find_intersect(ray, tri, tri_index)
-            if intersection.hit
-                push!(results, intersection)
+            if isnothing(intersection)
+                continue
             end
+            push!(results, intersection)
         end
     else
         # Recursively check children
@@ -194,7 +174,7 @@ function intersect_all(
     sphere::Sphere{T,U},
     ray::Ray{T,U};
     epsilon=1e-10
-)::Vector{SphereIntersection{T,U}} where {T,U}
+)::Vector{SphereIntersection{T,U}} where {T<:Real,U}
     """
     Detailed sphere-ray intersection with additional information.
     """
@@ -239,6 +219,7 @@ function intersect_all(
         t_candidates = sort([t1, t2])
 
         intersections = SphereIntersection{T,U}[]
+        #intersections, ct = Vector{SphereIntersection{T,U}}(undef, length(t_candidates)), 0
         for t in t_candidates
             if t >= 0 * u"m"
                 point = o + t * d

@@ -86,6 +86,8 @@ function taurunner_interface(
         distance = (track.x_to_d(1)-track.x_to_d(out_tr_particle.position)) * earth.length / tr.utils.units.meter * u"m"
         position = distance * reverse(particle.direction) + particle.position
         pdg_id = out_tr_particle.ID
+        # Also Voodoo. Please don't move
+        typeof(pdg_id)
         energy = out_tr_particle.energy / tr.utils.units.GeV * u"GeV"
         return Particle(pdg_id, energy, position, particle.direction)
     else

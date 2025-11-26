@@ -1,9 +1,9 @@
-struct CrossSection{T,U}
+struct CrossSection{T}
     total_xs::Spline1D
     differential_xs::Spline2D
     inverter::Spline2D
-    es::Vector{Quantity{T,U, typeof(u"GeV")}}
-    emin::Quantity{T,U, typeof(u"GeV")}
+    es::Vector{Quantity{T,edim,typeof(u"GeV")}}
+    emin::Quantity{T,edim,typeof(u"GeV")}
 end
 
 function CrossSection(location::String, epsilon::Float64=1e-6)
@@ -70,8 +70,8 @@ function CrossSection(location::String, epsilon::Float64=1e-6)
 end
 
 function (xs::CrossSection)(
-    e::Quantity{T,U}
-) where {T,U}
+    e::Quantity{T, edim, typeof(u"GeV")}
+) where {T<:Real}
     # Epsilon for floating point precision issues
     e - minimum(xs.es) > -1e-6u"GeV" || throw("Energy $(e) out of range for splines")
     egev = ustrip(e |> u"GeV")
@@ -80,9 +80,9 @@ function (xs::CrossSection)(
 end
 
 function (xs::CrossSection)(
-    ein::Quantity{T,U},
-    eout::Quantity{T,U}
-   )::Quantity{T,Unitful.𝐋^2} where {T,U}
+    ein::Quantity{T,edim,typeof(u"GeV")},
+    eout::Quantity{T,edim,typeof(u"GeV")}
+)::Quantity{T,ldim^2, typeof(u"cm^2")} where {T}
     ein >= eout || throw("Outgoing energy cannot be greater than incoming energy")
     eingev = ustrip(ein |> u"GeV")
     eoutgev = ustrip(eout |> u"GeV")
@@ -92,7 +92,10 @@ function (xs::CrossSection)(
     return v
 end
 
-function Base.rand(xs::CrossSection{T,U}, ein::Quantity{T,U})::Quantity{T,U} where {T,U}
+function Base.rand(
+    xs::CrossSection{T},
+    ein::Quantity{T,edim,typeof(u"GeV")}
+)::Quantity{T,edim,typeof(u"GeV")} where {T<:Real}
     # Epsilon for floating point precision issues
     ein - minimum(xs.es) > -1e-6u"GeV" || throw("Energy $(ein) out of range for splines")
     u = rand()
@@ -101,11 +104,19 @@ function Base.rand(xs::CrossSection{T,U}, ein::Quantity{T,U})::Quantity{T,U} whe
     return z * (ein - xs.emin) + xs.emin
 end
 
-function Base.rand(xs::CrossSection{T,U}, ein::Quantity{T,U}, n::Int)::Vector{Quantity{T,U}} where {T,U}
+function Base.rand(
+    xs::CrossSection{T},
+    ein::Quantity{T,edim,typeof(u"GeV")},
+    n::Int
+)::Vector{Quantity{T,edim,typeof(u"GeV")}} where {T<:Real}
     return [rand(xs, ein) for _ in 1:n]
 end
 
-function probability(xs::CrossSection{T,U}, ein::Quantity{T,U}, eout::Quantity{T,U})::Float64 where {T,U}
+function probability(
+    xs::CrossSection{T},
+    ein::Quantity{T,edim,typeof(u"GeV")},
+    eout::Quantity{T,edim,typeof(u"GeV")}
+)::T where {T<:Real}
     @assert eout <= ein "Energy out of range"
     tot_xs = xs(ein)
     diff_xs = xs(ein, eout)

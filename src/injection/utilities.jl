@@ -1,8 +1,8 @@
 function triangles_to_mesh(
-    triangles::Vector{Triangle{T,U}},
+    triangles::Vector{Triangle{T}},
     forplot::Bool=false
-) where {T,U}
-    unique_vertices = Coordinate{T,U}[]
+) where {T<:Real}
+    unique_vertices = Coordinate{T}[]
     vertex_to_index = Dict{Any, Int}()
     face_indices = Vector{Tuple{Int, Int, Int}}()
     
@@ -32,12 +32,12 @@ end
 
 function mask_helper(
     intersections::Vector{T},
-    earth::Tambo.Earth{U,V}
-) where {T<:Tambo.Intersection,U,V}
+    earth::Tambo.Earth{U}
+) where {T<:Tambo.Intersection,U<:Real}
     mask = ones(Bool, length(intersections))
     bad_idxs = Int[]
     for (idx, i) in enumerate(intersections)
-        if idx in bad_idxs || typeof(i)==SphereIntersection{U,V}
+        if idx in bad_idxs || typeof(i)==SphereIntersection{U}
             continue
         end
         if i.index in earth.detector_region

@@ -1,15 +1,15 @@
-struct Triangle{T <: Real, U}
-    v1::Coordinate{T, U}
-    v2::Coordinate{T, U}
-    v3::Coordinate{T, U}
+struct Triangle{T <: Real}
+    v1::Coordinate{T}
+    v2::Coordinate{T}
+    v3::Coordinate{T}
 end
 
 function Triangle(
-    v1::Coordinate{T, U},
-    v2::Coordinate{T, U},
-    v3::Coordinate{T, U},
-    ref::Coordinate{T, U }
-    ) where {T, U}
+    v1::Coordinate{T},
+    v2::Coordinate{T},
+    v3::Coordinate{T},
+    ref::Coordinate{T}
+) where {T}
     n = normal(v1, v2, v3)
     d = dot(n, ref)
     if d > 0 * d
@@ -38,9 +38,9 @@ function Base.length(triangle::Triangle)
     return 3
 end
 
-struct Sphere{T <: Real, U}
-    center::Coordinate{T, U}
-    radius::Quantity{T, U, typeof(u"m")}
+struct Sphere{T <: Real}
+    center::Coordinate{T}
+    radius::Quantity{T, ldim, typeof(u"m")}
 end
 
 function CoordinateSystem(sphere::Sphere)

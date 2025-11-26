@@ -51,9 +51,9 @@ function tr_init()
 end
 
 function taurunner_interface(
-    particle::Particle{T,U,V},
-    intersections::Vector{Intersection{T,U}},
-)::Particle{T} where {T<:Real,U,V}
+    particle::Particle{T},
+    intersections::Vector{Intersection{T}},
+)::Particle{T} where {T<:Real}
 
     if tr==PyNULL()
         tr_init()
@@ -99,7 +99,7 @@ function taurunner_interface(
         densities, boundaries, media = Float64[], [], String[]
         itr = Iterators.rest(reverse(intersections), 2)
         for intersection in Iterators.rest(reverse(intersections), 2)
-            is_rock = dot(particle.direction, intersection.normal) > 0 || typeof(intersection)==Tambo.SphereIntersection{T, U}
+            is_rock = dot(particle.direction, intersection.normal) > 0 || typeof(intersection)==Tambo.SphereIntersection{T}
             push!(boundaries, ustrip(total_distance - intersection.distance))
             push!(densities, is_rock ? 2.6 : 1.2e-3)
             push!(media, is_rock ? "Rock" : "Air")
@@ -139,12 +139,12 @@ function taurunner_interface(
 end
 
 function cull_intersections(
-    intersections::Vector{Intersection{T,U}},
-)::Vector{Intersection{T,U}} where {T,U}
+    intersections::Vector{Intersection{T}},
+)::Vector{Intersection{T}} where {T<:Real}
     include_triangles = true
-    culled_intersections = Intersection{T,U}[]
+    culled_intersections = Intersection{T}[]
     for intersection in intersections
-        if typeof(intersection)==SphereIntersection{T,U}
+        if typeof(intersection)==SphereIntersection{T}
             push!(culled_intersections, intersection)
             include_triangles = false
         elseif include_triangles
@@ -155,11 +155,11 @@ function cull_intersections(
 end
 
 function should_go_through_earth(
-    intersections::Vector{Intersection{T,U}}
-)::Bool where {T,U}
+    intersections::Vector{Intersection{T}}
+)::Bool where {T}
     sphere_counter = 0
     for intersection in intersections
-        if typeof(intersection)==SphereIntersection{T,U}
+        if typeof(intersection)==SphereIntersection{T}
             sphere_counter += 1
         end
     end

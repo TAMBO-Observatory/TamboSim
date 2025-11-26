@@ -1,8 +1,8 @@
-struct Particle{T <: Real, U, V}
+struct Particle{T<:Real}
     pdg_id::Int
-    energy::Quantity{T,V,typeof(u"GeV")}
-    position::Coordinate{T,U}
-    direction::Direction{T,U}
+    energy::Quantity{T,edim,typeof(u"GeV")}
+    position::Coordinate{T}
+    direction::Direction{T}
 end
 
 const null_particle = Particle(
@@ -12,34 +12,31 @@ const null_particle = Particle(
     Direction([0.0, 0.0, -1.0], ecefcoordinates)
 )
 
-# This is a bad place for this
-const c = 299_792_458.0 * u"m" / u"s"
-
 particle_parameters = Dict{Int, Tuple}(
-    15 => (1776.86 * u"MeV"/c^2, 2.903e-13 * u"s"),
-    -15 => (1776.86 * u"MeV"/c^2, 2.903e-13 * u"s"),
+    15 => (1.77686 * u"MeVc2", 2.903e-13 * u"s"),
+    -15 => (1.77686 * u"MeVc2", 2.903e-13 * u"s"),
 )
 
 function gamma(
-    ke::Quantity{T,U,typeof(u"GeV")},
-    m::Quantity{T,V}
-)::T where {T,U,V}
-    return ke / m / c^2
+    ke::Quantity{T,edim,typeof(u"GeV")},
+    m::Quantity{T,mdim,typeof(u"GeVc2")}
+)::T where {T<:Real}
+    return ke / m / speedoflight^2
 end
 
 function particle_range(
     pdg_id::Int,
-    energy::Quantity{T,U},
+    energy::Quantity{T,edim,typeof(u"GeV")},
     epsilon::Float64=1e-3
-)::Quantity{T,Unitful.𝐋,typeof(u"m")} where {T,U}
+)::Quantity{T,ldim,typeof(u"m")} where {T<:Real}
     m, tau = particle_parameters[pdg_id]
     return -gamma(energy, m) * c * tau * log(epsilon)
 end
 
 function particle_range(
-    particle::Particle{T,U,V},
+    particle::Particle{T},
     epsilon::Float64=1e-3
-)::Quantity{T,U,typeof(u"m")} where {T,U,V}
+)::Quantity{T,ldim,typeof(u"m")} where {T}
     return particle_range(particle_range.pdg_id, epsilon)
 end
 

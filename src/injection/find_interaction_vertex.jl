@@ -2,11 +2,11 @@ air_density = 1.2e-3 * u"g"/u"cm"^3
 rock_density = 2.6 * u"g"/u"cm"^3
 
 function find_vertex_distance(
-    direction::Direction{T,U},
-    distance::Quantity{T,U},
-    intersections::Vector{Intersection{T,U}},
+    direction::Direction{T},
+    distance::Quantity{T},
+    intersections::Vector{Intersection{T}},
     epsilon::Float64=1e-3
-) where {T,U}
+) where {T<:Real}
 
     prem_densities = [2.9u"g"/u"cm"^3, rock_density, rock_density]
     prev_distance = 0.0u"km"
@@ -14,14 +14,14 @@ function find_vertex_distance(
     seen_rock = false
     for intersection in intersections
         density = nothing
-        if typeof(intersection)==TriangleIntersection{T,U}
+        if typeof(intersection)==TriangleIntersection{T}
             entering_rock = dot(direction, intersection.normal) < 0
             #@show entering_rock
             density = entering_rock ? rock_density : air_density
             if entering_rock
                 seen_rock = true
             end
-        elseif typeof(intersection)==SphereIntersection{T,U}
+        elseif typeof(intersection)==SphereIntersection{T}
             seen_rock = true
             density = pop!(prem_densities)
         end
@@ -54,9 +54,9 @@ function find_vertex_distance(
     while target_column_depth > 0.0u"g/cm^2"
         intersection = intersections[idx]
         density = nothing
-        if typeof(intersection)==TriangleIntersection{T,U}
+        if typeof(intersection)==TriangleIntersection{T}
             density = dot(direction, intersection.normal) < 0 ? rock_density : air_density
-        elseif typeof(intersection)==SphereIntersection{T,U}
+        elseif typeof(intersection)==SphereIntersection{T}
             density = pop!(prem_densities)
         end
         section_length = intersection.distance - prev_distance

@@ -4,14 +4,14 @@ function inject_event(
     angular_sampler::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
     xs::CrossSection;
-    detector_triangles::Union{Vector{Triangle{T,U}}, Nothing}=nothing,
-    detector_normals::Union{Vector{Direction{T,U}}, Nothing}=nothing,
-    detector_bvh::Union{BVHTree{T,U}, Nothing}=nothing,
+    detector_triangles::Union{Vector{Triangle{T}}, Nothing}=nothing,
+    detector_normals::Union{Vector{Direction{T}}, Nothing}=nothing,
+    detector_bvh::Union{BVHTree{T}, Nothing}=nothing,
     #detector_areas::Union{Vector{Quantity{T,U^2,typeof(u"m^2")}}, Nothing} = nothing,
-    detector_areas::Union{Vector{Quantity{T,Unitful.𝐋^2,typeof(u"m^2")}}, Nothing} = nothing,
+    detector_areas::Union{Vector{Quantity{T,ldim^2,typeof(u"m^2")}}, Nothing} = nothing,
     epsilon=1e-6*u"m",
     event_id::Int=-1
-) where {T,U}
+) where {T<:Real}
 
     cs = CoordinateSystem(earth)
     # Compute parameters is not passed.
@@ -116,9 +116,9 @@ function inject_event(
 end
 
 function fake_tr_interface(
-    p::Particle{T,U,V},
-    intersections::Vector{Intersection{T,U}}
-) where {T,U,V}
+    p::Particle{T},
+    intersections::Vector{Intersection{T}}
+) where {T<:Real}
     if rand() < 0.9
         return p
     else
@@ -132,11 +132,11 @@ function fake_tr_interface(
 end
 
 function select_detector_intersection(
-    earth::Earth{T,U},
-    revd::Direction{T,U},
-    detector_triangles::Vector{Triangle{T,U}},
-    detector_normals::Vector{Direction{T,U}},
-) where {T,U}
+    earth::Earth{T},
+    revd::Direction{T},
+    detector_triangles::Vector{Triangle{T}},
+    detector_normals::Vector{Direction{T}},
+) where {T<:Real}
     scales = [dot(revd.point, n.point) for n in detector_normals]
 
     faces_event = scales .> 0

@@ -1,8 +1,8 @@
-struct UnitfulPowerLawSampler{T <: Real, U, V}
+struct UnitfulPowerLawSampler{T <: Real}
     γ::T
-    emin::Quantity{T, U, typeof(u"GeV")}
-    emax::Quantity{T, U, typeof(u"GeV")}
-    norm::Quantity{T, V, typeof(u"GeV"^-1)}
+    emin::Quantity{T, edim, typeof(u"GeV")}
+    emax::Quantity{T, edim, typeof(u"GeV")}
+    norm::Quantity{T, edim^-1, typeof(u"GeV^-1")}
     function UnitfulPowerLawSampler(γ, emin, emax, norm)
         """
         Returns a normalized PowerLaw
@@ -11,9 +11,7 @@ struct UnitfulPowerLawSampler{T <: Real, U, V}
             @assert !isinf(emax)
         end
         T = Float64
-        U = dimension(u"GeV")
-        V = dimension(u"GeV"^-1)
-        return new{T,U,V}(γ, emin, emax, norm)
+        return new{T}(γ, emin, emax, norm)
     end
 end
 
@@ -29,8 +27,8 @@ function UnitfulPowerLawSampler(γ, emin, emax)
 end
 
 function Base.rand(
-    pl::UnitfulPowerLawSampler{T,U,V}
-)::Quantity{T, U, typeof(u"GeV")} where {T,U,V}
+    pl::UnitfulPowerLawSampler{T}
+)::Quantity{T,edim,typeof(u"GeV")} where {T<:Real}
     u = rand()
     if pl.γ==1
         return pl.emin * exp(u / (pl.norm * pl.emin))
@@ -40,17 +38,20 @@ function Base.rand(
     end
 end
 
-function Base.rand(pl::UnitfulPowerLawSampler{T,U,V}, n::Int)::Vector{Quantity{T, U, typeof(u"GeV")}} where {T,U,V}
+function Base.rand(pl::UnitfulPowerLawSampler{T}, n::Int)::Vector{Quantity{T, edim, typeof(u"GeV")}} where {T<:Real}
     return [rand(pl) for _ in 1:n]
 end
 
-function (pl::UnitfulPowerLawSampler{T,U,V})(
-    e::Quantity{T, U, typeof(u"GeV")}
-)::Quantity{T, V, typeof(u"GeV"^(-1))} where {T,U,V}
+function (pl::UnitfulPowerLawSampler{T})(
+    e::Quantity{T, edim, typeof(u"GeV")}
+)::Quantity{T, edim^-1, typeof(u"GeV^-1")} where {T<:Real}
     return pl.norm * (e / pl.emin)^(-pl.γ)
 end
 
-function probability(pl::UnitfulPowerLawSampler{T,U,V}, e::Quantity)::T where {T,U,V}
+function probability(
+    pl::UnitfulPowerLawSampler{T},
+    e::Quantity{T, edim, typeof(u"GeV")}
+)::T where {T}
     @assert pl.emin < e && e < pl.emax
     if pl.γ==1
         return pl(e) / (pl.norm * log(pl.emax / pl.emin))

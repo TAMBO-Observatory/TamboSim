@@ -55,6 +55,7 @@ using Unitful
 #include("serialization.jl")
 #include("triggers.jl")
 
+include("units.jl")
 include("geometry/geometry.jl")
 include("ray_tracing/ray_tracing.jl")
 include("samplers/samplers.jl")

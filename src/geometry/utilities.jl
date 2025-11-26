@@ -54,7 +54,7 @@ function normal(v1::AbstractVector, v2::AbstractVector, v3::AbstractVector)
 
 end
 
-function normal(v1::Coordinate{T,U}, v2::Coordinate{T,U}, v3::Coordinate{T,U}) where {T,U}
+function normal(v1::Coordinate{T}, v2::Coordinate{T}, v3::Coordinate{T}) where {T<:Real}
     CoordinateSystem(v1)==CoordinateSystem(v2)==CoordinateSystem(v3) || throw("incompatible coordinate systems")
     edge1 = v1.point - v2.point
     edge2 = v1.point - v3.point
@@ -63,11 +63,11 @@ function normal(v1::Coordinate{T,U}, v2::Coordinate{T,U}, v3::Coordinate{T,U}) w
     return Direction(n, CoordinateSystem(v1))
 end
 
-function normal(triangle::Triangle{T,U}) where {T,U}
+function normal(triangle::Triangle{T}) where {T<:Real}
     return normal(triangle.v1, triangle.v2, triangle.v3)
 end
 
-function area(triangle::Triangle{T,U})::Quantity{T,U^2,typeof(u"m^2")} where {T,U}
+function area(triangle::Triangle{T})::Quantity{T,ldim^2,typeof(u"m^2")} where {T<:Real}
     a = triangle.v2.point - triangle.v1.point
     b = triangle.v3.point - triangle.v1.point
 
@@ -76,7 +76,7 @@ function area(triangle::Triangle{T,U})::Quantity{T,U^2,typeof(u"m^2")} where {T,
     return 0.5 * norm(cross_product)
 end
 
-function validate_triangle(triangle::Triangle{T,U}, center::Coordinate{T,U}) where {T,U}
+function validate_triangle(triangle::Triangle{T}, center::Coordinate{T}) where {T<:Real}
     cent = centroid(triangle)
     n1 = normal(triangle)
     n2 = normalize(cent.point - center.point)

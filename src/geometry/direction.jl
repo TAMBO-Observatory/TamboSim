@@ -1,12 +1,11 @@
-struct Direction{T <: Real, U}
+struct Direction{T<:Real}
     point::SVector{3,T}
-    coordinate_system::CoordinateSystem{T,U}
+    coordinate_system::CoordinateSystem{T}
     function Direction(point::AbstractVector, coordinate_system::CoordinateSystem)
-        U = typeof(coordinate_system).parameters[2]
         point_sv = SVector{3}(point)
         point_norm = normalize(point_sv)
         T = eltype(point_norm)
-        return new{T, U}(point_norm, coordinate_system)
+        return new{T}(point_norm, coordinate_system)
     end
 end
 

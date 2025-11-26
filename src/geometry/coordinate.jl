@@ -1,11 +1,10 @@
-struct Coordinate{T <: Real,U}
-    point::SVector{3, Quantity{T,U,typeof(u"m")}}
-    coordinate_system::CoordinateSystem{T, U}
+struct Coordinate{T <: Real}
+    point::SVector{3, Quantity{T,ldim,typeof(u"m")}}
+    coordinate_system::CoordinateSystem{T}
     function Coordinate(point::AbstractVector{<:Quantity}, cs::CoordinateSystem)
         point_sv = SVector{3}(point)
-        U = dimension(point_sv.x)
         T = promote_type(eltype(cs), eltype(one(point_sv.x)))
-        new{T,U}(point_sv, cs)
+        new{T}(point_sv, cs)
     end
 end
 

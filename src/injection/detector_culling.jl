@@ -1,9 +1,9 @@
 function geometric_triangle_weight(
-    triangles::Vector{Triangle{T,U}},
-    d::Direction{T,U},
-    normals::Union{Nothing,Vector{Direction{T,U}}}=nothing,
-    bvh::Union{Nothing,BVHTree{T,U}}=nothing
-) where {T,U}
+    triangles::Vector{Triangle{T}},
+    d::Direction{T},
+    normals::Union{Nothing,Vector{Direction{T}}}=nothing,
+    bvh::Union{Nothing,BVHTree{T}}=nothing
+) where {T<:Real}
     if isnothing(normals)
         normals = normal.(triangles)
     end
@@ -18,18 +18,18 @@ function geometric_triangle_weight(
 end
 
 function faces_backwards(
-    d::Direction{T,U},
-    normal::Direction{T,U}
-) where {T,U}
+    d::Direction{T},
+    normal::Direction{T}
+) where {T<:Real}
     return dot(normal, d) < 0
 end 
 
 function compute_occlusion(
-    vertices::Vector{Coordinate{T,U}},
+    vertices::Vector{Coordinate{T}},
     faces::Matrix{Int},
-    d::Direction{T,U},
-    bvh::BVHTree{T,U},
-) where {T,U}
+    d::Direction{T},
+    bvh::BVHTree{T},
+) where {T<:Real}
     cs = d.coordinate_system
     occlusion_mask = BitVector(undef, length(vertices))
     revd = reverse(d)

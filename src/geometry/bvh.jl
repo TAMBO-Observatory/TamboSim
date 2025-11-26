@@ -1,6 +1,6 @@
-struct AABB{T, U}
-    min::Coordinate{T, U}
-    max::Coordinate{T, U}
+struct AABB{T}
+    min::Coordinate{T}
+    max::Coordinate{T}
 end
 
 function CoordinateSystem(aabb::AABB)
@@ -9,8 +9,8 @@ end
 
 function AABB(
     indices,
-    precomputed_aabbs::Vector{AABB{U,V}}
-) where {U,V}
+    precomputed_aabbs::Vector{AABB{T}}
+) where T
 
     # Merge precomputed AABBs
     aabb = precomputed_aabbs[first(indices)]
@@ -30,7 +30,7 @@ function AABB(
     return AABB(Coordinate(min_point, cs), Coordinate(max_point, cs))
 end
 
-function AABB(triangle::Triangle{T, U}) where {T, U}
+function AABB(triangle::Triangle{T}) where {T <: Real}
     v1 = triangle.v1
     v2 = triangle.v2
     v3 = triangle.v3
@@ -44,9 +44,9 @@ end
 
 # Create an AABB that contains multiple triangles
 function AABB(
-    triangles::Vector{Triangle{T, U}},
+    triangles::Vector{Triangle{T}},
     indices::Vector{Int}
-) where {T, U}
+) where {T<:Real}
     if isempty(indices)
         error("Cannot create AABB for empty triangle set")
     end
@@ -71,26 +71,26 @@ function AABB(
 end
 
 # BVH Node
-mutable struct BVHNode{T <: Real, U}
-    bbox::AABB{T, U}
-    left::Union{BVHNode{T, U}, Nothing}
-    right::Union{BVHNode{T, U}, Nothing}
+mutable struct BVHNode{T <: Real}
+    bbox::AABB{T}
+    left::Union{BVHNode{T}, Nothing}
+    right::Union{BVHNode{T}, Nothing}
     triangles::Vector{Int}  # Indices into the triangles array
     is_leaf::Bool
 end
 
 # BVH Tree
-struct BVHTree{T <: Real, U}
-    root::BVHNode{T, U}
-    triangles::Vector{Triangle{T, U}}
+struct BVHTree{T <: Real}
+    root::BVHNode{T}
+    triangles::Vector{Triangle{T}}
 end
 
-function CoordinateSystem(bvh::BVHTree{T,U}) where {T<:Real, U}
+function CoordinateSystem(bvh::BVHTree{T}) where {T<:Real}
     return CoordinateSystem(first(bvh.triangles))
 end
 
 # Merge two AABBs
-function merge(a::AABB{T, U}, b::AABB{T, U}) where {T<:Real, U}
+function merge(a::AABB{T}, b::AABB{T}) where {T<:Real}
     min_corner = min.(a.min.point, b.min.point)
     max_corner = max.(a.max.point, b.max.point)
     cs = CoordinateSystem(a)
@@ -110,9 +110,9 @@ function surface_area_fast(
 end
 
 function surface_area_fast(
-    min_vals::SVector{3, Quantity{T, U, typeof(u"m")}}, 
-    max_vals::SVector{3, Quantity{T, U, typeof(u"m")}}, 
-) where {T<:Real, U}
+    min_vals::SVector{3, Quantity{T, ldim, typeof(u"m")}}, 
+    max_vals::SVector{3, Quantity{T, ldim, typeof(u"m")}}, 
+) where {T<:Real}
     lx = max_vals[1] - min_vals[1]
     ly = max_vals[2] - min_vals[2] 
     lz = max_vals[3] - min_vals[3]
@@ -120,23 +120,23 @@ function surface_area_fast(
 end
 
 function surface_area_fast(
-    aabb::AABB{T,U}
-) where {T<:Real, U}
+    aabb::AABB{T}
+) where {T<:Real}
     return surface_area_fast(aabb.min.point, aabb.max.point)
 end
 
 # AABB surface area (for SAH)
-@inline function surface_area(bbox::AABB{T,U}) where {T<:Real,U}
+@inline function surface_area(bbox::AABB{T}) where {T<:Real}
     lengths = bbox.max - bbox.min
     return 2.0 * (lengths[1] * lengths[2] + lengths[2] * lengths[3] + lengths[3] * lengths[1])
 end
 
 # AABB center
-@inline function center(bbox::AABB{T,U})::Coordinate{T,U} where {T,U}
+@inline function center(bbox::AABB{T})::Coordinate{T} where {T<:Real}
     return (bbox.min + bbox.max) / 2.0
 end
 
-function build_bvh(triangles::Vector{Triangle{T, U}}; max_triangles_per_leaf = 4) where {T, U}
+function build_bvh(triangles::Vector{Triangle{T}}; max_triangles_per_leaf = 4) where {T<:Real}
 #function build_bvh(triangles::Vector{Triangle{<:Quantity}}; max_triangles_per_leaf = 4)
     if isempty(triangles)
         error("Cannot build BVH from empty triangle list")
@@ -150,12 +150,12 @@ function build_bvh(triangles::Vector{Triangle{T, U}}; max_triangles_per_leaf = 4
 end
 
 function build_bvh_node(
-    triangles::Vector{Triangle{T, U}},
+    triangles::Vector{Triangle{T}},
     indices::Vector{Int},
     max_triangles_per_leaf::Int,
-    precomputed_aabbs::Vector{AABB{T, U}},
-    precomputed_centers::Vector{Coordinate{T, U}},
-) where {T <: Real, U}
+    precomputed_aabbs::Vector{AABB{T}},
+    precomputed_centers::Vector{Coordinate{T}},
+) where {T <: Real}
 
     # Create leaf if few triangles remain
     if length(indices) <= max_triangles_per_leaf
@@ -192,12 +192,12 @@ function build_bvh_node(
 end
 
 function find_best_split(
-    triangles::Vector{Triangle{T,U}},
+    triangles::Vector{Triangle{T}},
     indices::Vector{Int}, 
-    precomputed_aabbs::Vector{AABB{T,U}},
-    precomputed_centers::Vector{Coordinate{T, U}},
+    precomputed_aabbs::Vector{AABB{T}},
+    precomputed_centers::Vector{Coordinate{T}},
     fast=true
-) where {T,U}
+) where {T}
     best_axis = 1
     best_pos = 0.0
     best_cost = Inf * u"m"^2
@@ -324,11 +324,11 @@ function split_triangles(triangles, indices, precomputed_centers, axis, split_po
 end
 
 function static_extrema_per_dim(
-    aabbs::Vector{Tambo.AABB{T,U}},
+    aabbs::Vector{Tambo.AABB{T}},
     indices,
-    mins::MVector{3, Quantity{T, U, typeof(u"m")}},
-    maxs::MVector{3, Quantity{T, U, typeof(u"m")}},
-) where {T,U}
+    mins::MVector{3, Quantity{T, ldim, typeof(u"m")}},
+    maxs::MVector{3, Quantity{T, ldim, typeof(u"m")}},
+) where {T<:Real}
     ndims = 3
     mins .= Inf * u"m"
     maxs .= -Inf * u"m"
@@ -345,9 +345,9 @@ function static_extrema_per_dim(
 end
 
 function static_extrema_per_dim(
-    aabbs::Vector{Tambo.AABB{T,U}},
+    aabbs::Vector{Tambo.AABB{T}},
     indices,
-) where {T,U}
+) where {T<:Real}
     ndims = 3
     mins = MVector{3}(fill(Inf, 3))
     maxs = MVector{3}(fill(-Inf, 3))

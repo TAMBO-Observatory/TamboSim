@@ -41,6 +41,10 @@ function sph_to_cart(theta, phi)
     return [cos(phi) * sin(theta), sin(theta) * sin(phi), cos(theta)]
 end
 
+function cart_to_sph(d::Direction)
+    return acos(d.point.z), atan(d.point.y, d.point.x)
+end
+
 function normal(v1::AbstractVector, v2::AbstractVector, v3::AbstractVector)
     (length(v1)==3 && length(v3)==3 && length(v3)==3) || throw("Can't take cross product")
     edge1 = v1 - v2
@@ -63,7 +67,7 @@ function normal(triangle::Triangle{T,U}) where {T,U}
     return normal(triangle.v1, triangle.v2, triangle.v3)
 end
 
-function area(triangle::Triangle)
+function area(triangle::Triangle{T,U})::Quantity{T,U^2,typeof(u"m^2")} where {T,U}
     a = triangle.v2.point - triangle.v1.point
     b = triangle.v3.point - triangle.v1.point
 

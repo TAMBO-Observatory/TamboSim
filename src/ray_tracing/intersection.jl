@@ -143,7 +143,7 @@ function find_intersect(ray::Ray, bbox::AABB{T, U}) where {T, U}
     
     return true, tmin, tmax
 end
-function find_intersect(ray::Ray, bvh::BVHTree)
+function find_intersect(ray::Ray{T,U}, bvh::BVHTree{T,U}) where {T,U}
     intersections = TriangleIntersection[]  # (intersection, triangle_index)
     intersect_node(ray, bvh.root, bvh.triangles, intersections)
 

@@ -21,7 +21,7 @@ function faces_backwards(
     d::Direction{T},
     normal::Direction{T}
 ) where {T<:Real}
-    return dot(normal, d) < 0
+    return dot(normal, d) > 0
 end 
 
 function compute_occlusion(

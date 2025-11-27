@@ -13,13 +13,13 @@ const null_particle = Particle(
 )
 
 particle_parameters = Dict{Int, Tuple}(
-    15 => (1.77686 * u"MeVc2", 2.903e-13 * u"s"),
-    -15 => (1.77686 * u"MeVc2", 2.903e-13 * u"s"),
+    15 => (1.77686 * u"GeV"/speedoflight^2, 2.903e-13 * u"s"),
+    -15 => (1.77686 * u"GeV"/speedoflight^2, 2.903e-13 * u"s"),
 )
 
 function gamma(
-    ke::Quantity{T,edim,typeof(u"GeV")},
-    m::Quantity{T,mdim,typeof(u"GeVc2")}
+    ke::Quantity{T,edim},
+    m::Quantity{T,mdim}
 )::T where {T<:Real}
     return ke / m / speedoflight^2
 end
@@ -30,7 +30,7 @@ function particle_range(
     epsilon::Float64=1e-3
 )::Quantity{T,ldim,typeof(u"m")} where {T<:Real}
     m, tau = particle_parameters[pdg_id]
-    return -gamma(energy, m) * c * tau * log(epsilon)
+    return -gamma(energy, m) * speedoflight * tau * log(epsilon)
 end
 
 function particle_range(

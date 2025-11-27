@@ -52,20 +52,8 @@ end
 
 function taurunner_interface(
     particle::Particle{T},
-    intersections::Vector{Intersection{T}},
-)::Particle{T} where {T<:Real}
-
-    if tr==PyNULL()
-        tr_init()
-    end
-
-    #if length(intersections)==0
-    #    @show(
-    #        particle.energy,
-    #        particle.position,
-    #        particle.direction
-    #    )
-    #end
+    intersections::I,
+)::Particle{T} where {T<:Real,I<:AbstractVector{Intersection{T}}}
 
     tr_particle = tr.particle.Particle(
         particle.pdg_id,
@@ -85,16 +73,12 @@ function taurunner_interface(
         )
         distance = (track.x_to_d(1)-track.x_to_d(out_tr_particle.position)) * earth.length / tr.utils.units.meter * u"m"
         position = distance * reverse(particle.direction) + particle.position
-        pdg_id = out_tr_particle.ID
-        # Also Voodoo. Please don't move
-        typeof(pdg_id)
+        pdg_id = convert(Int, out_tr_particle.ID)
         energy = out_tr_particle.energy / tr.utils.units.GeV * u"GeV"
         return Particle(pdg_id, energy, position, particle.direction)
     else
         intersections = cull_intersections(intersections)
-       if length(intersections)==0
-           @show particle
-       end
+
         total_distance = last(intersections).distance
         densities, boundaries, media = Float64[], [], String[]
         itr = Iterators.rest(reverse(intersections), 2)
@@ -139,8 +123,8 @@ function taurunner_interface(
 end
 
 function cull_intersections(
-    intersections::Vector{Intersection{T}},
-)::Vector{Intersection{T}} where {T<:Real}
+    intersections::I,
+)::Vector{Intersection{T}} where {T<:Real,I<:AbstractVector{Intersection{T}}}
     include_triangles = true
     culled_intersections = Intersection{T}[]
     for intersection in intersections
@@ -155,8 +139,8 @@ function cull_intersections(
 end
 
 function should_go_through_earth(
-    intersections::Vector{Intersection{T}}
-)::Bool where {T}
+    intersections::I
+)::Bool where {T<:Real,I<:AbstractVector{Intersection{T}}}
     sphere_counter = 0
     for intersection in intersections
         if typeof(intersection)==SphereIntersection{T}

@@ -1,9 +1,7 @@
-Unitful.register(@__MODULE__)
-
 const speedoflight = 299_792_458u"m" / u"s"
-@unit MeVc2 "MeVc2" MeVc2 u"MeV"/speedoflight^2 false
-@unit GeVc2 "GeVc2" GeVc2 u"GeV"/speedoflight^2 false
-@unit e "e" e 1.602176634e-19 * u"C" false
+const MeVc2 = u"MeV"/speedoflight^2
+const GeVc2 = u"GeV"/speedoflight^2
+const e = 1.602176634e-19 * u"C"
 
 const ldim = Unitful.𝐋
 const mdim = Unitful.𝐌

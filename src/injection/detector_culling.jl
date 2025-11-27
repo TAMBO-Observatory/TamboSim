@@ -10,18 +10,18 @@ function geometric_triangle_weight(
     if isnothing(bvh)
         bvh = build_bvh(triangles)
     end
-    backwards_mask = faces_backwards.(Ref(d), normals)
+    forewards_mask = faces_forward.(Ref(d), normals)
     vxs, faces = triangles_to_mesh(triangles)
     occlusion_mask_vxs = compute_occlusion(vxs, faces, d, bvh)
     occlusion_mask = occlusion_mask_to_faces(occlusion_mask_vxs, faces)
-    return backwards_mask .* occlusion_mask
+    return forewards_mask .* occlusion_mask
 end
 
-function faces_backwards(
+function faces_forward(
     d::Direction{T},
     normal::Direction{T}
 ) where {T<:Real}
-    return dot(normal, d) > 0
+    return dot(normal, d) < 0
 end 
 
 function compute_occlusion(
@@ -34,14 +34,13 @@ function compute_occlusion(
     occlusion_mask = BitVector(undef, length(vertices))
     revd = reverse(d)
     for (idx, vx) in enumerate(vertices)
-        #occlusion_mask[idx] = 1
         p = Coordinate(vx.point + 1e-6u"m" * revd.point, cs)
         ray = Ray(p, revd)
         a = intersect_all(bvh, ray)
-        if length(a)>0
-            occlusion_mask[idx] = 0
-        else
+        if length(a)==0
             occlusion_mask[idx] = 1
+        else
+            occlusion_mask[idx] = 0
         end
     end
     return occlusion_mask

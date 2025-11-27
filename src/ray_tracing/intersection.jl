@@ -78,7 +78,10 @@ function find_intersect(ray::Ray{T}, triangle::Triangle{T}, tri_index::Int=-1) w
 end
 
 # Find all intersections (not just closest)
-function intersect_all(bvh::BVHTree{T}, ray::Ray{T})::Vector{TriangleIntersection{T}} where {T<:Real}
+function intersect_all(
+    bvh::BVHTree{T},
+    ray::Ray{T}
+)::Vector{TriangleIntersection{T}} where {T<:Real}
     intersections = TriangleIntersection{T}[]
     intersect_node!(intersections, ray, bvh.root, bvh.triangles)
     sort!(intersections, by = x -> ustrip(x.distance))

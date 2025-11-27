@@ -28,6 +28,7 @@ include("python_interfaces/python_interfaces.jl")
 
 function __init__()
     
+    tr_init()
     commit_hash = get_git_commit_hash()
     println("Welcome to TAMBOSim version -0.1")
     println("Git commit hash: $commit_hash")

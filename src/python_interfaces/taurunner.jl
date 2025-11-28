@@ -7,9 +7,9 @@ const SlabClp = PyNULL()
 const xs = PyNULL()
 const Chord = PyNULL()
 const SlabTrack = PyNULL()
-const Rock = PyNULL()
+const tr_media = PyNULL()
+const StandardRock = PyNULL()
 const Air = PyNULL()
-prop_cache = PyNULL()
 
 function tr_init()
     copy!(tr, pyimport("taurunner"))
@@ -20,17 +20,19 @@ function tr_init()
     copy!(SlabClp, tr.proposal_interface.ChargedLeptonPropagatorSlab)
     copy!(Chord, tr.track.chord)
     copy!(SlabTrack, tr.track.SlabTrack)
-    copy!(Rock, tr.body.layered_constant_slab.Media.Rock)
+    copy!(tr_media, tr.body.layered_constant_slab.Media)
+    copy!(StandardRock, tr.body.layered_constant_slab.Media.StandardRock)
     copy!(Air, tr.body.layered_constant_slab.Media.Air)
-    # Voodoo. Please don't touch
-    try
-        copy!(prop_cache, PyDict())
-    catch e
-        global prop_cache = PyDict()
-    end
+    ## Voodoo. Please don't touch
+    #try
+    #    copy!(prop_cache, PyDict())
+    #catch e
+    #    global prop_cache = PyDict()
+    #end
 
 
     py"""
+    import taurunner as tr
     from taurunner.utils import units
     import numpy as np
     def stopping_condition(p, body, track):
@@ -86,10 +88,10 @@ function taurunner_interface(
             is_rock = dot(particle.direction, intersection.normal) > 0 || typeof(intersection)==Tambo.SphereIntersection{T}
             push!(boundaries, ustrip(total_distance - intersection.distance))
             push!(densities, is_rock ? 2.6 : 1.2e-3)
-            push!(media, is_rock ? "Rock" : "Air")
+            push!(media, is_rock ? "StandardRock" : "Air")
         end
         if last(media)=="Air"
-            push!(media, "Rock")
+            push!(media, "StandardRock")
             push!(densities, 2.6)
             push!(boundaries, ustrip(total_distance))
         end
@@ -102,7 +104,9 @@ function taurunner_interface(
             boundaries
         )
         slab_clp = SlabClp(body)
-        slab_clp._propagators = prop_cache
+
+        slab_clp._propagators = PyDict(prop_cache)
+
         out_tr_particle = tr.Propagate(
             tr_particle,
             track,
@@ -110,10 +114,6 @@ function taurunner_interface(
             slab_clp,
             condition=py"stopping_condition"
         )
-        for ((id, medium), v) in slab_clp._propagators
-            medium = medium.name=="Rock" ? Rock : Air
-            prop_cache[(id, medium)] = v
-        end
         distance = track.x_to_d(out_tr_particle.position) * body.length / tr.utils.units.meter * u"m"
         position = distance * particle.direction + last(intersections).point
         pdg_id = out_tr_particle.ID

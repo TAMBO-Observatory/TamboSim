@@ -1,2 +1,2 @@
-#include("proposal.jl")
+include("proposal/proposal.jl")
 include("taurunner.jl")

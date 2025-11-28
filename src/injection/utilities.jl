@@ -31,19 +31,23 @@ function triangles_to_mesh(
 end
 
 function mask_helper(
-    intersections::Vector{T},
-    earth::Tambo.Earth{U}
-) where {T<:Tambo.Intersection,U<:Real}
+    intersections::I,
+    earth::Earth{T},
+    revd::Direction{T}
+) where {T<:Real, I<:AbstractVector{Intersection{T}}}
     mask = ones(Bool, length(intersections))
     bad_idxs = Int[]
     for (idx, i) in enumerate(intersections)
-        if idx in bad_idxs || typeof(i)==SphereIntersection{U}
+        if idx in bad_idxs || typeof(i)==SphereIntersection{T}
             continue
         end
         if i.index in earth.detector_region
-            show_this = true
-            push!(bad_idxs, idx)
-            push!(bad_idxs, idx+1)
+            tri = earth.topography[idx]
+            entering = dot(normal(tri), revd) < 0
+            if entering && typeof(intersections[idx+1])!=SphereIntersection{T}
+                push!(bad_idxs, idx)
+                push!(bad_idxs, idx+1)
+            end
         end
     end
     mask[bad_idxs] .= 0

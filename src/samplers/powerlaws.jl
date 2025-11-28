@@ -16,14 +16,21 @@ struct UnitfulPowerLawSampler{T <: Real}
 end
 
 function UnitfulPowerLawSampler(γ, emin, emax)
+
+    norm = pl_norm(γ, emin, emax)
+    return UnitfulPowerLawSampler(γ, emin, emax, norm)
+end
+
+function pl_norm(γ, emin, emax)
     if γ == 1
         norm = 1 / (emin * log(emax / emin))
+        return norm
     else
         γ > 1
         mg = 1 - γ
         norm = mg / (emin^γ * (emax^mg - emin^mg))
+        return norm
     end
-    return UnitfulPowerLawSampler(γ, emin, emax, norm)
 end
 
 function Base.rand(

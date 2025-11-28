@@ -1,5 +1,5 @@
-air_density = 1.2e-3 * u"g"/u"cm"^3
-rock_density = 2.6 * u"g"/u"cm"^3
+air_density = 1.205e-3 * u"g"/u"cm"^3
+rock_density = 2.65 * u"g"/u"cm"^3
 
 function find_vertex_distance(
     direction::Direction{T},
@@ -8,9 +8,10 @@ function find_vertex_distance(
     epsilon::Float64=1e-3
 ) where {T<:Real, I<:AbstractVector{Intersection{T}}}
 
-    densities = compute_density(intersections, direction)
-    distances = [ix2.distance-ix1.distance for (ix1, ix2) in zip(intersections, intersections[2:end])]
+    densities = @views compute_density(intersections, direction)[2:end]
+    distances = @views compute_lengths(intersections)[2:end]
     @assert length(densities)==length(distances)
+    #@show densities
     column_depth = 0.0u"g/cm^2"
     d, cd = 0.0u"m", 0.0u"g/cm^2"
     for (dist, dens) in zip(distances, densities)
@@ -32,7 +33,7 @@ function find_vertex_distance(
             if dens < 1u"g/cm^3"
                 println("Expect air")
             end
-            break
+            return accrued_d, cd, dens
         end
         accrued_d += dist
         accrued_cd += segment_cd
@@ -44,19 +45,29 @@ function compute_density(
     ixs::I,
     d::Direction{T}
 ) where {T<:Real,I<:AbstractVector{Intersection{T}}}
-
-    #prem_densities = [rock_density, rock_density, rock_density]
-    densities = Vector{Quantity{T, mdim/ldim^3}}(undef, length(ixs)-1)
-    for (idx, ix) in enumerate(ixs[1:end-1])
+    densities = Vector{Quantity{T, mdim/ldim^3}}(undef, length(ixs))
+    for (idx, ix) in enumerate(ixs)
         if typeof(ix)==TriangleIntersection{T}
-            entering_rock = dot(d, ix.normal) < 0
-            density = entering_rock ? rock_density : air_density
+            b = dot(d, ix.normal) < 0
+            density = b ? air_density : rock_density
             densities[idx] = density
         elseif typeof(ix)==SphereIntersection{T}
-            # This is not totally try, but I think it should be okay
-            density = 2.6u"g/cm^3"
+            # This is not totally true, but I think it should be okay
+            density = rock_density
             densities[idx] = density
         end
     end
     return densities
 end
+
+function compute_lengths(
+    ixs::I
+) where {T<:Real, I<:AbstractVector{Intersection{T}}}
+    prv, lengths = 0.0u"m", Vector{Quantity{T,ldim,typeof(u"m")}}(undef, length(ixs))
+    for (idx, ix) in enumerate(ixs)
+        lengths[idx] = ix.distance - prv
+        prv = ix.distance
+    end
+    return lengths
+end
+        

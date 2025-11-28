@@ -3,12 +3,20 @@ struct Particle{T<:Real}
     energy::Quantity{T,edim,typeof(u"GeV")}
     position::Coordinate{T}
     direction::Direction{T}
+    function Particle(
+        a::Int,
+        b::Q,
+        c::Coordinate{T},
+        d::Direction{T}
+    ) where {T<:Real, Q<:Quantity{T,edim}}
+        return new{T}(a, b|> u"GeV", c, d)
+    end
 end
 
 const null_particle = Particle(
-    0, 
-    0.0u"GeV",
-    Coordinate([0.0u"m", 0.0u"m",  0.0u"m"], ecefcoordinates),
+    -1, 
+    NaN * u"GeV",
+    Coordinate([NaN * u"m", NaN * u"m",  NaN*u"m"], ecefcoordinates),
     Direction([0.0, 0.0, -1.0], ecefcoordinates)
 )
 

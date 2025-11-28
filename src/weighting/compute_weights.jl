@@ -1,108 +1,67 @@
 function p_mc(
-    egen::Real,
-    ein::Real,
-    eout::Real,
-    θ::Real,
-    ϕ::Real,
-    pos::SVector{3},
-    genX::Real,
-    pl::PowerLaw,
-    xs::CrossSection,
-    anglesampler::UniformAngularSampler,
-    injectionvolume::SymmetricInjectionCylinder,
-    geo::Geometry
-)
-    p = probability(pl, egen)
-    p *= probability(xs, ein, eout)
-    p *= probability(anglesampler, θ, ϕ)
-    p *= probability(injectionvolume)
-    p *= density(pos, geo) / genX
-end
+    area::Quantity{T,ldim^2},
+    emin::Quantity{T,edim},
+    emax::Quantity{T,edim},
+    gamma::T,
+    thetamin::T,
+    thetamax::T,
+    phimin::T,
+    phimax::T,
+    generated_initial_e::Quantity{T,edim},
+    generated_cd::Quantity{T,mdim/ldim^2},
+    generated_density::Quantity{T,mdim/ldim^3},
+    generated_xs::Quantity{T,ldim^2},
+    generated_diff_xs::Quantity{T,ldim^2},
+   )::Quantity{T,ldim^-3 * edim^-1,typeof(u"GeV^-1 * m^-3")} where {T<:Real}
 
-function p_mc(
-    event::InjectionEvent,
-    pl::PowerLaw,
-    xs::CrossSection,
-    anglesampler::UniformAngularSampler,
-    injectionvolume::SymmetricInjectionCylinder,
-    geo::Geometry
-)
-    p = probability(anglesampler, event)
-    p *= probability(injectionvolume, event)
-    p *= density(event.final_state.position, geo) / event.genX
-    p *= probability(xs, event)
-    p *= probability(pl, event)
-    return p
-end
-
-function p_phys(
-    ein::Real,
-    eout::Real,
-    physX::Real,
-    pos::SVector{3},
-    xs::CrossSection,
-    geo::Geometry
-)
-    Miso = (938.27208816units.MeV + 939.5654133units.MeV) / 2
-    p = physX / Miso
-    p *= density(pos, geo) / physX
-    p *= xs.differential_xs(ein, eout)
-    return p
-end
-
-function p_phys(
-    event::InjectionEvent,
-    xs::CrossSection,
-    geo::Geometry
-)
-    Miso = (938.27208816units.MeV + 939.5654133units.MeV) / 2
-    p = event.genX / Miso
-    p *= density(event.final_state.position, geo) / event.genX
-    p *= xs.differential_xs(event.entry_state.energy, event.final_state.energy)
-    return p
-end
-
-function oneweight(
-    event::InjectionEvent,
-    xsgen::CrossSection,
-    xsphys::CrossSection,
-    pl::PowerLaw,
-    anglesampler::UniformAngularSampler,
-    injectionvolume::SymmetricInjectionCylinder,
-    geo::Geometry
-)
-    n = p_phys(event, xsphys, geo)
-    d = p_mc(event, pl, xsgen, anglesampler, injectionvolume, geo)
-    if n==0
-        return 0
+    if generated_initial_e==0.0u"GeV" || isnan(ustrip(generated_initial_e))
+        return 0.0 * u"GeV^-1 * m^-3"
     end
-    w = n / d
-    return w
+    norm = pl_norm(gamma, emin, emax)
+    p = norm * (generated_initial_e / emin)
+    Ω = (cos(thetamin) - cos(thetamax)) * (phimax - phimin)
+    p /= Ω
+    p /= area
+    # This only applies when interadtion forced
+    # This only applies when interaction forced
+    if ~isnan(ustrip(generated_cd))
+        p *= generated_density / generated_cd
+        p *= generated_diff_xs / generated_xs
+    end
+    return p
 end
 
-function oneweight(
-    event::InjectionEvent,
-    injector::Injector,
-    xsphys::CrossSection,
-)
-    return oneweight(event, injector.xs, xsphys, injector.powerlaw, injector.anglesampler, injector.injectionvolume, injector.geo)
+function p_mc(wp::WeightParameters{T}) where {T<:Real}
+    return p_mc(
+        wp.area,
+        wp.emin,
+        wp.emax,
+        wp.gamma,
+        wp.thetamin,
+        wp.thetamax,
+        wp.phimin,
+        wp.phimax,
+        wp.generated_initial_e,
+        wp.generated_cd,
+        wp.generated_density,
+        wp.generated_xs,
+        wp.generated_diff_xs
+    )
 end
 
-function oneweight(
-    event::InjectionEvent,
-    injectors::Vector{Injector},
-    xsphyss::Vector{CrossSection},
-)
-    weights=Vector{Float64}([])
-    for (injector,xsphys) in zip(injectors, xsphyss)
-
-        n = p_phys(event, xsphys, injector.geo)
-        d = p_mc(event, injector.powerlaw, injector.xs, injector.anglesampler, injector.injectionvolume, injector.geo)
-        if n==0
-            return 0
-        end
-        push!(weights, d / n)
-    end 
-    w = sum(weights)
-    return 1 / w 
+function p_phys(
+    physical_cd::Quantity{T,mdim/ldim^2},
+    physical_density::Quantity{T,mdim/ldim^3},
+    physical_diff_xs::Quantity{T,ldim^2}
+#) where {T<:Real}
+)::Quantity{T,ldim^-1,typeof(u"m^-1")} where {T<:Real}
+    miso = speedoflight^(-2) * (938.27208816u"MeV" + 939.5654133u"MeV")/2
+    if isnan(ustrip(physical_cd))
+        return 0.0 * u"m^-1"
+    end
+    p = physical_cd / miso
+    p *= physical_density / physical_cd
+    p *= physical_diff_xs
+    return p
 end
+

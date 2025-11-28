@@ -1,7 +1,7 @@
 function inject_event(
     pdg_id::Int,
     earth::Earth,
-    angular_sampler::UniformAngularSampler,
+    as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
     xs::CrossSection;
     detector_triangles::Union{Vector{Triangle{T}}, Nothing}=nothing,
@@ -10,7 +10,7 @@ function inject_event(
     #detector_areas::Union{Vector{Quantity{T,U^2,typeof(u"m^2")}}, Nothing} = nothing,
     detector_areas::Union{Vector{Quantity{T,ldim^2,typeof(u"m^2")}}, Nothing} = nothing,
     epsilon=1e-6*u"m",
-    event_id::Int=-1
+    event_id::Int=0
 ) where {T<:Real}
 
     cs = CoordinateSystem(earth)
@@ -35,7 +35,7 @@ function inject_event(
 
     ## Construct initial state ##
     # Sample line defining neutrino trajectory
-    d = rand(angular_sampler, cs)
+    d = rand(as, cs)
     revd = reverse(d)
     geometric_mask = geometric_triangle_weight(
         detector_triangles,
@@ -45,21 +45,33 @@ function inject_event(
     )
     # Geometric is zero if all triangle are invalid
     if sum(geometric_mask)==0
-        return null_event
+        coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
+        initial_state = Particle(pdg_id, NaN*u"GeV", coord, d)
+        return null_event(-1, initial_state)
     end
     perp_areas = [-dot(norm.point, d.point) * area for (norm, area) in zip(detector_normals, detector_areas)]
     visible_areas = geometric_mask .* perp_areas
     tri = sample(detector_triangles, Weights(ustrip.(visible_areas)))
-    p = Coordinate(sample(tri).point + revd.point * epsilon, cs)
+    x = sample(tri)
+    p = Coordinate(x.point + revd.point * epsilon, cs)
     ray = Ray(p, revd)
+    r = Ray(p, Direction([0,0,1],cs))
 
     # Determine if trajectory is valid
     intersections = intersect_all(earth, ray)
+    if length(intersections)==0
+        coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
+        initial_state = Particle(pdg_id, NaN*u"GeV", coord, d)
+        return null_event(-2, initial_state)
+    end
     # No intersections means it only passed through air
-    mask = mask_helper(intersections, earth)
+    mask = mask_helper(intersections, earth, revd)
+    intersections = @views intersections[mask]
     # We won't bother simulating this because weight will be zero
     if sum(mask)==0
-        return null_event
+        coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
+        initial_state = Particle(pdg_id, NaN*u"GeV", coord, d)
+        return null_event(-3, initial_state)
     end
 
     # Sample energy and make initial state
@@ -72,45 +84,61 @@ function inject_event(
     ## Compute final state ##
     # If we got charged lepton, just throw it in
     if abs(close_state.pdg_id)+1==abs(pdg_id)
+        @show 42314234
+        weight_params = WeightParameters(
+            sum(visible_areas),
+            pl,
+            as,
+            xs,
+            initial_energy,
+            NaN * u"GeV",
+            NaN * u"g/cm^2",
+            NaN * u"g/cm^3"
+        )
         return InjectionEvent(
             event_id,
             close_state,
             initial_state,
             close_state,
-            NaN * u"g" / u"cm"^2,
-            # TODO replace these NaNs with actual values
-            NaN,
-            NaN
+            weight_params
         )
     end
 
     if close_state.energy < minimum(xs.es)
-        return InjectionEvent(event_id, close_state, initial_state, null_particle, NaN*u"g/cm^2", NaN, NaN)
+        return InjectionEvent(event_id, close_state, initial_state, null_particle, null_params)
     end
 
     # If we got a neutrino, back trace and force an interaction
     eout = rand(xs, close_state.energy)
     pdg_out = close_state.pdg_id > 0 ? close_state.pdg_id-1 : close_state.pdg_id + 1
     range = particle_range(pdg_out, eout)
-    distance, cd = find_vertex_distance(revd, range, intersections[mask]) 
-    if sum(.~mask) > 0
-        distance += sum(map(x->x.distance, intersections[.~mask]))
-    end
+    distance, cd, density = find_vertex_distance(revd, range, intersections) 
+    pout = Coordinate(first(intersections).point.point + revd.point * distance, cs)
 
     final_state = Particle(
         pdg_out,
         eout,
-        Coordinate(p.point + revd.point*distance, cs),
+        pout,
         d
     )
+
+    weight_params = WeightParameters(
+        sum(visible_areas),
+        pl,
+        as,
+        xs,
+        initial_energy,
+        eout,
+        cd |> u"g/cm^2",
+        density
+    )
+
     return InjectionEvent(
         event_id,
         close_state,
         initial_state,
         final_state,
-        cd,
-        NaN,
-        NaN
+        weight_params
     )
 
 end

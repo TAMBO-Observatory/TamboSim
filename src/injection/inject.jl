@@ -91,6 +91,7 @@ function inject_event(
             as,
             xs,
             initial_energy,
+            close_state.energy,
             NaN * u"GeV",
             NaN * u"g/cm^2",
             NaN * u"g/cm^3"
@@ -128,6 +129,7 @@ function inject_event(
         as,
         xs,
         initial_energy,
+        close_state.energy,
         eout,
         cd |> u"g/cm^2",
         density

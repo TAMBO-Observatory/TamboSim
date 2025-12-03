@@ -40,12 +40,16 @@ function WeightParameters(
     as::UniformAngularSampler,
     xs::CrossSection{T},
     generated_initial_e::Quantity{T,edim,typeof(u"GeV")},
+    generated_close_e::Quantity{T,edim,typeof(u"GeV")},
     generated_final_e::Quantity{T,edim,typeof(u"GeV")},
     generated_cd::Quantity{T,mdim/ldim^2,typeof(u"g/cm^2")},
     generated_density::Quantity{T,mdim/ldim^3,typeof(u"g/cm^3")}
 ) where {T<:Real}
-    generated_xs = xs(generated_initial_e)
-    generated_diff_xs = xs(generated_initial_e, generated_final_e)
+    generated_xs, generated_diff_xs = NaN*u"cm^2", NaN*u"cm^2"
+    if ~isnan(generated_final_e)
+        generated_xs = xs(generated_initial_e)
+        generated_diff_xs = xs(generated_close_e, generated_final_e)
+    end
     return WeightParameters(
         area,
         pl.emin,

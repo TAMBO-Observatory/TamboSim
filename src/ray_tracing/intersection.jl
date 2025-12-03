@@ -247,3 +247,32 @@ function intersect_all(
     intersections = sort(intersections; by=x->x.distance)
     return intersections
 end
+
+function find_intersection(
+    ray::Ray{T},
+    plane::Plane{T}
+) where {T<:Real}
+
+    plane_normal = plane.normal.point
+
+    # Calculate denominator
+    denominator = dot(ray.direction.point, plane.normal.point)
+
+    # Check if ray is parallel to plane
+    if abs(denominator) < 1e-10
+        return nothing, nothing  # No intersection or ray lies in plane
+    end
+
+    # Calculate parameter t
+    t = dot(plane.point.point - ray.origin.point, plane.normal.point) / denominator
+
+    # Check if intersection is in front of ray origin
+    if t < 0u"m"
+        return nothing, nothing  # Intersection behind ray origin
+    end
+
+    # Calculate intersection point
+    intersection_point = ray.origin + t * ray.direction
+
+    return intersection_point, t
+end

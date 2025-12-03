@@ -27,7 +27,7 @@ LinearAlgebra.dot(d1::Direction, d2::Direction) = dot(d1.point, d2.point)
 
 function Base.convert(coordinate_system::CoordinateSystem, dir::Direction)
     if coordinate_system==dir.coordinate_system
-        return coord
+        return dir
     end
     r1 = LinearMap(RotMatrix(dir.coordinate_system.rotation))
     r2 = LinearMap(RotMatrix(coordinate_system.rotation))

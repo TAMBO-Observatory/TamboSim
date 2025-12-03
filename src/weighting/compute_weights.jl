@@ -18,7 +18,7 @@ function p_mc(
         return 0.0 * u"GeV^-1 * m^-3"
     end
     norm = pl_norm(gamma, emin, emax)
-    p = norm * (generated_initial_e / emin)
+    p = norm * (generated_initial_e / emin) ^ -gamma
     Ω = (cos(thetamin) - cos(thetamax)) * (phimax - phimin)
     p /= Ω
     p /= area
@@ -27,6 +27,8 @@ function p_mc(
     if ~isnan(ustrip(generated_cd))
         p *= generated_density / generated_cd
         p *= generated_diff_xs / generated_xs
+    else
+        p /= u"cm"
     end
     return p
 end

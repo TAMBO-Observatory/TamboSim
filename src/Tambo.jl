@@ -9,14 +9,17 @@ using HDF5
 using JLD2: jldopen, JLDFile, load
 using LibGit2
 using LinearAlgebra
-using ProgressBars
+using Parquet2
+using ProgressMeter
 using PyCall: PyCall, PyNULL, PyObject
 using Random
 using Rotations
 using StaticArrays
 using StatsBase
+using Tables
 using TOML
 using Unitful
+using YAML
 
 include("units.jl")
 include("geometry/geometry.jl")
@@ -26,6 +29,7 @@ include("weighting/weighting.jl")
 include("particles/particles.jl")
 include("injection/injection.jl")
 include("python_interfaces/python_interfaces.jl")
+include("corsika/corsika.jl")
 
 function __init__()
     

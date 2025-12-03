@@ -9,6 +9,7 @@ notebooks/output/*
 **/Manifest.toml
 *scratch*/
 *sandbox*/
+fort*
 
 src/corsika/build/
 

@@ -55,7 +55,6 @@ function inject_event(
     x = sample(tri)
     p = Coordinate(x.point + revd.point * epsilon, cs)
     ray = Ray(p, revd)
-    r = Ray(p, Direction([0,0,1],cs))
 
     # Determine if trajectory is valid
     intersections = intersect_all(earth, ray)

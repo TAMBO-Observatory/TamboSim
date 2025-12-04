@@ -1,4 +1,4 @@
-function centroid(triangle::Triangle)
+function centroid(triangle::T) where {T<:Triangle}
     p = triangle.v1 + triangle.v2 + triangle.v3
     return p / 3
 end

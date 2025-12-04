@@ -100,56 +100,213 @@ function validate_config_file(config::Dict{String, Any})
     # Check that only expected configuration parameters are present
     # so user doesn't think they're setting parameters they aren't
 
-    expected_top_level_keys = Set(["geometry", "steering", "injection", "proposal", "corsika"])
-    unexpected_keys = setdiff(Set(keys(config)), expected_top_level_keys)
-    if !isempty(unexpected_keys)
-        error("Unexpected keys found in config file: ", unexpected_keys)
+    #expected_top_level_keys = Set(["geometry", "steering", "injection", "proposal", "corsika"])
+    #unexpected_keys = setdiff(Set(keys(config)), expected_top_level_keys)
+    #if !isempty(unexpected_keys)
+    #    error("Unexpected keys found in config file: ", unexpected_keys)
+    #end
+
+    #expected_steering_keys = Set(["nevent", "pinecone", "run_number"])
+    #unexpected_keys = setdiff(Set(keys(config["steering"])), expected_steering_keys)
+    #if !isempty(unexpected_keys)
+    #    error("Unexpected keys found in steering section of config file: ", unexpected_keys)
+    #end
+
+    #expected_geo_keys = Set(["geo_spline_path", "tambo_coordinates", "plane_orientation"])
+    #unexpected_keys = setdiff(Set(keys(config["geometry"])), expected_geo_keys)
+    #if !isempty(unexpected_keys)
+    #    error("Unexpected keys found in geometry section of config file: ", unexpected_keys)
+    #end
+
+    #expected_injection_keys = Set(["nu_pdg", "gamma", "gamma", "emin", "emax", "thetamin", "thetamax", "phimin", "phimax", "r_injection", "l_endcap", "xs_dir", "xs_model", "interaction", "track_progress", "length", "width"])
+    #unexpected_keys = setdiff(Set(keys(config["injection"])), expected_injection_keys)
+    #if !isempty(unexpected_keys)
+    #    error("Unexpected keys found in injection section of config file: ", unexpected_keys)
+    #end
+
+    #expected_proposal_keys = Set(["ecut", "vcut", "do_interpolate", "do_continuous", "tablespath", "track_progress"])
+    #unexpected_keys = setdiff(Set(keys(config["proposal"])), expected_proposal_keys)
+    #if !isempty(unexpected_keys)
+    #    error("Unexpected keys found in proposal section of config file: ", unexpected_keys)
+    #end
+
+    #expected_corsika_keys = Set(["should_run_corsika", "parallelize_corsika", "thinning", "hadron_ecut", "em_ecut", "photon_ecut", "mu_ecut", "corsika_path", "track_progress", "FLUPRO", "FLUFOR"])
+    #unexpected_keys = setdiff(Set(keys(config["corsika"])), expected_corsika_keys)
+    #if !isempty(unexpected_keys)
+    #    error("Unexpected keys found in corsika section of config file: ", unexpected_keys)
+    #end
+end
+
+function Simulation(config_file::String, injection_file::String="")
+    config = TOML.parsefile(config_file)
+    validate_config_file(config)
+    relativize!(config)
+    if injection_file == ""
+        results = Dict{String, Any}()
+
+    else
+        results = load(injection_file)
+    end
+    return Simulation(config, results)
+end
+
+function inject_ν!(
+    sim::Simulation;
+    outkey::String="injection_events",
+    config::Union{Dict{String, Any}, Nothing}=nothing,
+    earth::Union{Earth, Nothing}=nothing
+)
+    if isnothing(config)
+        config = sim.config["injection"]
+    end
+    if isnothing(earth)
+        earth = Earth(
+            sim.config["geometry"]["earth_path"],
+            sim.config["geometry"]["detector_key"],
+        )
+    end
+    relativize!(config)
+
+    sim.results[outkey] = inject_ν(
+        config,
+        earth,
+        sim.config["steering"]["nevent"]
+    )
+end
+
+function inject_ν(
+    config::Dict{String, Any},
+    earth::E,
+    nevent::Int
+) where {E<:Earth}
+    injection_events = InjectionEvent[]
+    pl = Tambo.UnitfulPowerLawSampler(
+        config["gamma"],
+        config["emin"] * u"GeV",
+        config["emax"] * u"GeV"
+    )
+    as = UniformAngularSampler(
+        deg2rad(config["thetamin"]),
+        deg2rad(config["thetamax"]),
+        deg2rad(config["phimin"]),
+        deg2rad(config["phimax"]),
+    )
+    cross_section = CrossSection(config["xs_location"])
+    detector_bvh = build_bvh(earth.topography[earth.detector_region])
+    detector_areas = area.(earth.topography[earth.detector_region])
+    detector_normals = normal.(earth.topography[earth.detector_region])
+
+    events = InjectionEvent[]
+    @showprogress for idx in 1:nevent
+        event = inject_event(
+            config["nu_pdg"],
+            earth,
+            as,
+            pl,
+            cross_section;
+            detector_areas=detector_areas,
+            detector_normals=detector_normals,
+            detector_bvh=detector_bvh,
+            event_id=idx
+        )
+        push!(events, event)
+    end
+    return events
+end
+
+function propagate_τ!(
+    sim::Simulation;
+    inkey::String="injection_events",
+    outkey::String="proposal_events",
+    config::Union{Dict{String, Any}, Nothing}=nothing,
+    earth::Union{Earth, Nothing}=nothing
+)
+    if isnothing(config)
+        config = sim.config["proposal"]
+    end
+    relativize!(config)
+    init_proposal(config)
+    
+    if isnothing(earth)
+        earth = Earth(
+            sim.config["geometry"]["earth_path"],
+            sim.config["geometry"]["detector_key"],
+        )
     end
 
-    expected_steering_keys = Set(["nevent", "pinecone", "run_number"])
-    unexpected_keys = setdiff(Set(keys(config["steering"])), expected_steering_keys)
-    if !isempty(unexpected_keys)
-        error("Unexpected keys found in steering section of config file: ", unexpected_keys)
+
+    events = ProposalResult[]
+    @showprogress for injection_event in sim.results[inkey]
+        if isnan(injection_event.final_state.energy)
+            continue
+        end
+        event = proposal_propagate(
+            injection_event.final_state,
+            earth,
+            injection_event.event_id
+        )
+        push!(events, event)
+    end
+    sim.results[outkey] = events
+end
+
+function corsika_run(
+    sim::Simulation,
+    base_outdir;
+    inkey::String="proposal_events",
+    config::Union{Dict{String, Any}, Nothing}=nothing,
+    earth::Union{Earth, Nothing}=nothing,
+    parallelize=false
+)
+    if isnothing(config)
+        config = sim.config["corsika"]
+    end
+    relativize!(config)
+
+    if isnothing(earth)
+        earth = Earth(
+            sim.config["geometry"]["earth_path"],
+            sim.config["geometry"]["detector_key"],
+        )
     end
 
-    expected_geo_keys = Set(["geo_spline_path", "tambo_coordinates", "plane_orientation"])
-    unexpected_keys = setdiff(Set(keys(config["geometry"])), expected_geo_keys)
-    if !isempty(unexpected_keys)
-        error("Unexpected keys found in geometry section of config file: ", unexpected_keys)
-    end
+    up = Direction([0.0, 0.0, 1.0], CoordinateSystem(earth))
 
-    expected_injection_keys = Set(["nu_pdg", "gamma", "gamma", "emin", "emax", "thetamin", "thetamax", "phimin", "phimax", "r_injection", "l_endcap", "xs_dir", "xs_model", "interaction", "track_progress", "length", "width"])
-    unexpected_keys = setdiff(Set(keys(config["injection"])), expected_injection_keys)
-    if !isempty(unexpected_keys)
-        error("Unexpected keys found in injection section of config file: ", unexpected_keys)
-    end
+    # Define plane
+    d = Tambo.Direction(config["plane_orientation"], ecefcoordinates)
+    d = convert(CoordinateSystem(earth), d)
+    point = Coordinate(config["plane_coordinates"] .* u"m", ecefcoordinates)
+    point = convert(CoordinateSystem(earth), point)
+    plane = Plane(point, d)
 
-    expected_proposal_keys = Set(["ecut", "vcut", "do_interpolate", "do_continuous", "tablespath", "track_progress"])
-    unexpected_keys = setdiff(Set(keys(config["proposal"])), expected_proposal_keys)
-    if !isempty(unexpected_keys)
-        error("Unexpected keys found in proposal section of config file: ", unexpected_keys)
-    end
-
-    expected_corsika_keys = Set(["should_run_corsika", "parallelize_corsika", "thinning", "hadron_ecut", "em_ecut", "photon_ecut", "mu_ecut", "corsika_path", "track_progress", "FLUPRO", "FLUFOR"])
-    unexpected_keys = setdiff(Set(keys(config["corsika"])), expected_corsika_keys)
-    if !isempty(unexpected_keys)
-        error("Unexpected keys found in corsika section of config file: ", unexpected_keys)
+    sbatch_command = parallelize ? config["sbatch_command"] : ""
+    ecuts = SVector{4, Float64}([config["em_ecut"], config["photon_ecut"], config["mu_ecut"], config["hadron_ecut"]]) * u"GeV"
+    for event in sim.results[inkey]
+        ray = Ray(event.propped_state)
+        i, t = find_intersection(ray, plane)
+        if isnothing(t)
+            continue
+        end
+        ray = Ray(event.propped_state.position, up)
+        ixs = intersect_all(earth, ray)
+        if length(ixs) > 0
+            continue
+        end
+        corsika_run(
+            event,
+            plane,
+            config["thinning"],
+            ecuts,
+            config["corsika_path"],
+            config["FLUPRO"],
+            config["FLUFOR"],
+            "$(base_outdir)/event_$(lpad(event.event_id, 6, '0'))",
+            sim.config["steering"]["pinecone"] + event.event_id;
+            sbatch_command=sbatch_command
+        )
     end
 end
 
-#function Simulation(config_file::String, injection_file::String="")
-#    config = TOML.parsefile(config_file)
-#    validate_config_file(config)
-#    relativize!(config)
-#    if injection_file == ""
-#        results = Dict{String, Any}()
-#
-#    else
-#        results = load(injection_file)
-#    end
-#    return Simulation(config, results)
-#end
-#
 #function inject_ν!(
 #    sim::Simulation,
 #    config::Dict{String, Any},

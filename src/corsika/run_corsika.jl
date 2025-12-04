@@ -1,19 +1,18 @@
 function corsika_run(
-    # The next four can be an `Particle`
     pdg::Int64,
     energy::Quantity{T,edim},
     inject_pos::Coordinate{T},
     intercept_pos::Coordinate{T},
     plane::Plane{T},
     thinning::Float64, 
-    ecuts::SVector{4, Quantity{T, edim}},
+    ecuts,
     corsika_path::String,
     corsika_FLUPRO::String,
     corsika_FLUFOR::String,
     outdir::String,
     seed::Int64; 
-    parallelize_corsika=parallelize_corsika
-) where {T<:Real}
+    sbatch_command=""
+) where {T}
     
     cs = inject_pos.coordinate_system
     rot = AngleAxis(-π/2, cs.origin...)
@@ -29,7 +28,7 @@ function corsika_run(
     ENV["FLUPRO"] = corsika_FLUPRO
     ENV["FLUFOR"] = corsika_FLUFOR
 
-    if parallelize_corsika 
+    if length(sbatch_command) > 0
         corsika_parallel_exec = "\
             $corsika_path \
             --pdg $pdg \
@@ -38,9 +37,9 @@ function corsika_run(
             --ypos $(ustrip(inject_pos.point.y |> u"km")) \
             --zpos $(ustrip(inject_pos.point.z |> u"km")) \
             -f $outdir \
-            --xdir $(plane.normal.point.x)) \
-            --ydir $(plane.normal.point.y)) \
-            --zdir $(plane.normal.point.z)) \
+            --xdir $(plane.normal.point.x) \
+            --ydir $(plane.normal.point.y) \
+            --zdir $(plane.normal.point.z) \
             --x-intercept $(ustrip(intercept_pos.point[1] |> u"km")) \
             --y-intercept $(ustrip(intercept_pos.point[2] |> u"km")) \
             --z-intercept $(ustrip(intercept_pos.point[3] |> u"km")) \
@@ -49,7 +48,7 @@ function corsika_run(
             --mucut $mucut \
             --hadcut $hadcut \
             --emthin $thinning"
-        run(`sbatch --time=$time $corsika_sbatch_path $corsika_parallel_exec`)
+        run(`sbatch $sbatch_command $corsika_parallel_exec`)
     else 
         corsika_exec = "$corsika_path \
             --pdg $pdg \
@@ -82,17 +81,22 @@ function corsika_run(
     particle::Particle{T},
     plane::Plane{T},
     thinning::Float64, 
-    ecuts::SVector{4, Quantity{T, edim}},
+    ecuts,
     corsika_path::String,
     corsika_FLUPRO::String,
     corsika_FLUFOR::String,
     outdir::String,
     seed::Int64; 
-    parallelize_corsika=parallelize_corsika
-) where {T<:Real}
+    sbatch_command=""
+) where {T}
 
     ray = Ray(particle)
     intersect_coord, t = find_intersection(ray, plane)
+    # Particle is past point
+    if isnothing(intersect_coord)
+        @show outdir
+        return
+    end
 
     corsika_run(
         particle.pdg_id,
@@ -107,22 +111,22 @@ function corsika_run(
         corsika_FLUFOR,
         outdir,
         seed;
-        parallelize_corsika=parallelize_corsika
+        sbatch_command=sbatch_command
     )
 end
 
 function corsika_run(
     result::ProposalResult{T},
-    plane::Plane{T}, 
-    thinning::Float64, 
-    ecuts::SVector{4, Quantity{T, edim}},
+    plane::Plane{T},
+    thinning::T, 
+    ecuts,
     corsika_path::String,
     corsika_FLUPRO::String,
     corsika_FLUFOR::String,
     base_outdir::String,
     seed::Int64; 
-    parallelize_corsika=parallelize_corsika
-) where {T<:Real}
+    sbatch_command::String=""
+) where {T}
     idx = 1
     for particle in result.decay_products
         if abs(particle.pdg_id) in [12,14,16]
@@ -133,12 +137,12 @@ function corsika_run(
             plane,
             thinning, 
             ecuts,
-            corsika_pathd,
+            corsika_path,
             corsika_FLUPRO,
             corsika_FLUFOR,
-            "$(outdir)/shower_$(idx)",
+            "$(base_outdir)/shower_$(idx)",
             seed; 
-            parallelize_corsika=parallelize_corsika
+            sbatch_command=sbatch_command
         )
         idx += 1
     end

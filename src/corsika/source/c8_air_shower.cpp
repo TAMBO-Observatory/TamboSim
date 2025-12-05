@@ -486,16 +486,6 @@ int main(int argc, char** argv) {
   Point const injectionPos{rootCS, {xpos, ypos, zpos + surfaceHeight}};
   Point const showerCore{rootCS, {xintercept, yintercept, surfaceHeight + zintercept}};
   auto const propVector = showerCore - injectionPos;
-  std::cout << "propVector: " << propVector << std::endl;
-  std::cout << "injectionPos: " << injectionPos << std::endl;
-  std::cout << "showerCore: " << showerCore << std::endl;
-  std::cout << "showerCore - injectionPos: " << showerCore-injectionPos << std::endl;
-  std::cout << "xpos: " << xpos << std::endl;
-  std::cout << "ypos: " << ypos << std::endl;
-  std::cout << "zpos: " << zpos << std::endl;
-  std::cout << "xintercept: " << xintercept << std::endl;
-  std::cout << "yintercept: " << yintercept << std::endl;
-  std::cout << "zintercept: " << zintercept << std::endl;
  
   // we make the axis much longer than the inj-core distance since the
   // profile will go beyond the core, depending on zenith angle
@@ -640,10 +630,6 @@ int main(int argc, char** argv) {
   auto const xdir = app["--xdir"]->as<double>();
   auto const ydir = app["--ydir"]->as<double>();
   auto const zdir = app["--zdir"]->as<double>();
-
-  std::cout << "xdir: " << xdir << std::endl;
-  std::cout << "ydir: " << ydir << std::endl;
-  std::cout << "zdir: " << zdir << std::endl;
 
   Plane const obsPlane(showerCore, DirectionVector(rootCS, {xdir,ydir,zdir}));
   ObservationPlane<TrackingType, ParticleWriterParquet> observationLevel{
@@ -792,7 +778,7 @@ int main(int argc, char** argv) {
     CORSIKA_LOG_INFO("Primary Total Energy: {}", primaryTotalEnergy);
     CORSIKA_LOG_INFO("Primary Momentum:     {}",
                      calculate_momentum(primaryTotalEnergy, get_mass(beamCode)));
-    CORSIKA_LOG_INFO("Primary Direction:    {}", propVector.getNorm());
+    CORSIKA_LOG_INFO("Primary Direction:    {}", propVector.normalized());
     CORSIKA_LOG_INFO("Point of Injection:   {}", injectionPos.getCoordinates());
     CORSIKA_LOG_INFO("Shower Axis Length:   {}",
                      (showerCore - injectionPos).getNorm() * 5.0);

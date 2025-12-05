@@ -1,9 +1,14 @@
-struct Earth{T <: Real}
+struct Earth{T<:Real}
     prem::Vector{Sphere{T}}
     topography::Vector{Triangle{T}}
-    bvh::BVHTree{T}
+    bvh::BVHTree{T, Triangle{T}}
     detector_region::Union{Vector{Int}, Nothing}
-    function Earth(prem::Vector{Sphere{T}}, topography::Vector{Triangle{T}}, bvh::BVHTree{T}, detector_region::Union{Vector{Int},Nothing}) where {T<:Real}
+    function Earth(
+        prem::Vector{Sphere{T}},
+        topography::Vector{Triangle{T}},
+        bvh::BVHTree{T, Triangle{T}},
+        detector_region::Union{Vector{Int},Nothing}
+    ) where {T<:Real}
         cs_prem = CoordinateSystem(prem[1])
         @assert all([CoordinateSystem(sphere)==cs_prem for sphere in prem]) "Incompatible coordinate systems"
         cs_topo = CoordinateSystem(topography[1])
@@ -48,7 +53,7 @@ function Earth(location::String, detectorname::String="")
         all(validate_triangle.(triangles, Ref(center))) || throw("Incorrectly oriented trinagles")
 
         # Construct or load BVH
-        bvh = build_bvh(triangles)
+        bvh = BVHTree(triangles)
 
         return Earth(prem, triangles, bvh, detector_region)
     end

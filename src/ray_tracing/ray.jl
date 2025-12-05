@@ -7,3 +7,5 @@ struct Ray{T<:Real}
         new{T}(origin, direction)
     end
 end
+
+Base.reverse(ray::Ray) = Ray(ray.origin, reverse(ray.direction))

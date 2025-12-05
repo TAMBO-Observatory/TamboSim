@@ -4,8 +4,9 @@ using Arrow
 using CoordinateTransformations
 using Dierckx: Spline1D, Spline2D
 using Distributions: Uniform, Poisson
-using Integrals
+using Glob
 using HDF5
+using Integrals
 using JLD2: jldopen, JLDFile, load
 using LibGit2
 using LinearAlgebra
@@ -167,6 +168,8 @@ function inject_ν!(
     end
     relativize!(config)
 
+    Random.seed!(sim.config["steering"]["pinecone"])
+
     sim.results[outkey] = inject_ν(
         config,
         earth,
@@ -192,7 +195,7 @@ function inject_ν(
         deg2rad(config["phimax"]),
     )
     cross_section = CrossSection(config["xs_location"])
-    detector_bvh = build_bvh(earth.topography[earth.detector_region])
+    detector_bvh = BVHTree(earth.topography[earth.detector_region])
     detector_areas = area.(earth.topography[earth.detector_region])
     detector_normals = normal.(earth.topography[earth.detector_region])
 

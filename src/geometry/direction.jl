@@ -21,9 +21,10 @@ Base.getindex(d::Direction, i) = d.point[i]
 Base.:*(s::Real, d::Direction) = Direction(s * d.point, d.coordinate_system)
 Base.:*(d::Direction, s::Real) = Direction(d.point * s, d.coordinate_system)
 Base.:*(q::Quantity, d::Direction) = Coordinate(q * d.point, d.coordinate_system)
-Base.:*(d::Direction, s::Quantity) = Coordinate(d.point * q, d.coordinate_system)
+Base.:*(d::Direction, q::Quantity) = Coordinate(d.point * q, d.coordinate_system)
 
 LinearAlgebra.dot(d1::Direction, d2::Direction) = dot(d1.point, d2.point)
+LinearAlgebra.cross(d1::Direction, d2::Direction) = cross(d1.point, d2.point)
 
 function Base.convert(coordinate_system::CoordinateSystem, dir::Direction)
     if coordinate_system==dir.coordinate_system

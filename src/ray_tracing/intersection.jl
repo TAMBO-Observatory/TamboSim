@@ -143,8 +143,8 @@ function intersect_node!(
     results::Vector{TriangleIntersection{T}},
     ray::Ray{T},
     node::BVHNode{T},
-    triangles::Vector{Triangle{T}},
-) where {T<:Real}
+    triangles::Vector{S},
+) where {T<:Real, S<:Union{Triangle{T}, OBB{T}}}
     # Check ray-AABB intersection first
     hits_bbox, tmin, tmax = find_intersect(ray, node.bbox)
     if !hits_bbox || tmax < 0
@@ -154,9 +154,9 @@ function intersect_node!(
     if node.is_leaf
         # Check intersection with all triangles in leaf
         #ixs = map(i->find_intersect(ray, triangles[i], i), node.triangles)
-        for tri_index in node.triangles
-            tri = triangles[tri_index]
-            intersection = find_intersect(ray, tri, tri_index)
+        for idx in node.indices
+            tri = triangles[idx]
+            intersection = find_intersect(ray, tri, idx)
             if isnothing(intersection)
                 continue
             end

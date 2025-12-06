@@ -47,7 +47,7 @@ function tr_init()
             remaining_depth = track.total_column_depth(body) - track.x_to_X(body, p.position)
             depth_step = p.GetTotalInteractionDepth()
             return depth_step * 1e-3 > remaining_depth
-        raise ValueError("Particle not supported")
+        return True
     prop_cache = {}
     """
 end

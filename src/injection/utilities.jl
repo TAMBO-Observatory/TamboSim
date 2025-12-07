@@ -42,8 +42,7 @@ function mask_helper(
             continue
         end
         if i.index in earth.detector_region
-            tri = earth.topography[idx]
-            entering = dot(normal(tri), revd) < 0
+            entering = dot(i.normal, revd) < 0
             if entering && typeof(intersections[idx+1])!=SphereIntersection{T}
                 push!(bad_idxs, idx)
                 push!(bad_idxs, idx+1)

@@ -243,6 +243,9 @@ function propagate_τ!(
         if isnan(injection_event.final_state.energy)
             continue
         end
+        if injection_event.final_state.energy < 106u"MeV"
+            continue
+        end
         event = proposal_propagate(
             injection_event.final_state,
             earth,

@@ -65,7 +65,6 @@ function proposal_propagate(
 
         decay_products = propped_state.decay_products()
         if length(decay_products) > 0
-            
             for sec in decay_products
                 dist = accrued_d + sec.position.z * u"cm"
                 p = dist * particle.direction + particle.position

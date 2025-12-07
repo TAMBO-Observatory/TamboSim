@@ -83,7 +83,6 @@ function inject_event(
     ## Compute final state ##
     # If we got charged lepton, just throw it in
     if abs(close_state.pdg_id)+1==abs(pdg_id)
-        @show 42314234
         weight_params = WeightParameters(
             sum(visible_areas),
             pl,
@@ -111,8 +110,13 @@ function inject_event(
     # If we got a neutrino, back trace and force an interaction
     eout = rand(xs, close_state.energy)
     pdg_out = close_state.pdg_id > 0 ? close_state.pdg_id-1 : close_state.pdg_id + 1
-    range = particle_range(pdg_out, eout)
-    distance, cd, density = find_vertex_distance(revd, range, intersections) 
+    if abs(pdg_out)==15
+        range = particle_vacuum_range(pdg_out, eout)
+        distance, cd, density = find_vertex_distance_by_distance(revd, range, intersections) 
+    else
+        range = particle_rock_range(eout, pdg_out)
+        distance, cd, density = find_vertex_distance_by_cd(revd, range, intersections) 
+    end
     pout = Coordinate(first(intersections).point.point + revd.point * distance, cs)
 
     final_state = Particle(

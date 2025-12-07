@@ -1,7 +1,7 @@
 air_density = 1.205e-3 * u"g"/u"cm"^3
 rock_density = 2.65 * u"g"/u"cm"^3
 
-function find_vertex_distance(
+function find_vertex_distance_by_distance(
     direction::Direction{T},
     distance::Quantity{T},
     intersections::I,
@@ -38,7 +38,39 @@ function find_vertex_distance(
         accrued_d += dist
         accrued_cd += segment_cd
     end
-    return accrued_d, target_column_depth
+end
+
+function find_vertex_distance_by_cd(
+    direction::Direction{T},
+    cd::Quantity{T},
+    intersections::I,
+    epsilon::Float64=1e-3
+) where {T<:Real, I<:AbstractVector{Intersection{T}}}
+
+    
+    densities = @views compute_density(intersections, direction)[2:end]
+    distances = @views compute_lengths(intersections)[2:end]
+    
+    available_cd = sum([dist*dens for (dist, dens) in zip(distances, densities)])
+    if available_cd < cd
+        cd = available_cd
+    end
+
+    target_column_depth = rand(Uniform(0, ustrip(cd |> u"g/cm^2"))) * u"g/cm^2"
+    accrued_cd = 0.0u"g/cm^2"
+    accrued_d = 0u"m"
+    for (dist, dens) in zip(distances, densities)
+        segment_cd = dist * dens
+        if segment_cd + accrued_cd > target_column_depth
+            accrued_d += (target_column_depth - accrued_cd) / dens
+            if dens < 1u"g/cm^3"
+                println("Expect air")
+            end
+            return accrued_d, cd, dens
+        end
+        accrued_d += dist
+        accrued_cd += segment_cd
+    end
 end
 
 function compute_density(

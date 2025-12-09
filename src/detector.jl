@@ -96,4 +96,3 @@ function make_detector_array(
     ext = SVector{3}([1.875, 0.8, 0.03]) * units.m
     return make_detector_array(length, ds, altmin, altmax, geo, ext)
 end
-    

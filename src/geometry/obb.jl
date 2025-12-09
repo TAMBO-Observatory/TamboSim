@@ -18,5 +18,5 @@ end
 
 function compute_vertices(center, axes, half_extents)
     x, y, z = half_extents
-    [Coordinate(axes * SVector{3}(a*x, b*z, c*z)+center.point, center.coordinate_system) for a in [-1, 1] for b in [-1, 1] for c in [-1,1]]
+    [Coordinate(axes * SVector{3}(a*x, b*y, c*z)+center.point, center.coordinate_system) for a in [-1, 1] for b in [-1, 1] for c in [-1,1]]
 end

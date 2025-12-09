@@ -31,6 +31,7 @@ include("particles/particles.jl")
 include("injection/injection.jl")
 include("python_interfaces/python_interfaces.jl")
 include("corsika/corsika.jl")
+include("frames.jl")
 
 function __init__()
     
@@ -76,7 +77,7 @@ end
 
 @Base.kwdef mutable struct Simulation
     config::Dict{String, Any}
-    results::Dict{String, Any}
+    results::Vector{Frame}
     function Simulation(config, results)
         @assert "geometry" in keys(config) "Geometry information must be provided"
         @assert "steering" in keys(config) "Steering information must be provided"
@@ -143,8 +144,7 @@ function Simulation(config_file::String, injection_file::String="")
     validate_config_file(config)
     relativize!(config)
     if injection_file == ""
-        results = Dict{String, Any}()
-
+        results = [Frame(Dict("event_id"=>idx)) for idx in 1:config["steering"]["nevent"]]
     else
         results = load(injection_file)
     end
@@ -153,56 +153,45 @@ end
 
 function inject_ν!(
     sim::Simulation;
-    outkey::String="injection_events",
+    outkey::String="injection_event",
     config::Union{Dict{String, Any}, Nothing}=nothing,
     earth::Union{Earth, Nothing}=nothing
 )
     if isnothing(config)
         config = sim.config["injection"]
     end
+
+    relativize!(config)
+
     if isnothing(earth)
         earth = Earth(
             sim.config["geometry"]["earth_path"],
             sim.config["geometry"]["detector_key"],
         )
     end
-    relativize!(config)
 
-    Random.seed!(sim.config["steering"]["pinecone"])
-
-    sim.results[outkey] = inject_ν(
-        config,
-        earth,
-        sim.config["steering"]["nevent"]
-    )
-end
-
-function inject_ν(
-    config::Dict{String, Any},
-    earth::E,
-    nevent::Int
-) where {E<:Earth}
-    injection_events = InjectionEvent[]
-    pl = Tambo.UnitfulPowerLawSampler(
-        config["gamma"],
-        config["emin"] * u"GeV",
-        config["emax"] * u"GeV"
+    cfg = sim.config["injection"]
+    pl = UnitfulPowerLawSampler(
+        cfg["gamma"],
+        cfg["emin"] * u"GeV",
+        cfg["emax"] * u"GeV"
     )
     as = UniformAngularSampler(
-        deg2rad(config["thetamin"]),
-        deg2rad(config["thetamax"]),
-        deg2rad(config["phimin"]),
-        deg2rad(config["phimax"]),
+        deg2rad(cfg["thetamin"]),
+        deg2rad(cfg["thetamax"]),
+        deg2rad(cfg["phimin"]),
+        deg2rad(cfg["phimax"]),
     )
-    cross_section = CrossSection(config["xs_location"])
+    cross_section = CrossSection(cfg["xs_location"])
     detector_bvh = BVHTree(earth.topography[earth.detector_region])
     detector_areas = area.(earth.topography[earth.detector_region])
     detector_normals = normal.(earth.topography[earth.detector_region])
+    Random.seed!(sim.config["steering"]["pinecone"])
 
-    events = InjectionEvent[]
-    @showprogress for idx in 1:nevent
-        event = inject_event(
-            config["nu_pdg"],
+    @showprogress for frame in sim.results
+        idx = 1
+        frame[outkey] = inject_event(
+            cfg["nu_pdg"],
             earth,
             as,
             pl,
@@ -212,15 +201,49 @@ function inject_ν(
             detector_bvh=detector_bvh,
             event_id=idx
         )
-        push!(events, event)
     end
-    return events
 end
+
+#function inject_ν(
+#    config::Dict{String, Any},
+#    earth::E,
+#    pl::UnitfulPowerLawSampler,
+#    as::UniformAngularSampler
+#) where {E<:Earth}
+#    pl = UnitfulPowerLawSampler(
+#        config["gamma"],
+#        config["emin"] * u"GeV",
+#        config["emax"] * u"GeV"
+#    )
+#    as = UniformAngularSampler(
+#        deg2rad(config["thetamin"]),
+#        deg2rad(config["thetamax"]),
+#        deg2rad(config["phimin"]),
+#        deg2rad(config["phimax"]),
+#    )
+#    cross_section = CrossSection(config["xs_location"])
+#    detector_bvh = BVHTree(earth.topography[earth.detector_region])
+#    detector_areas = area.(earth.topography[earth.detector_region])
+#    detector_normals = normal.(earth.topography[earth.detector_region])
+#
+#    event = inject_event(
+#        config["nu_pdg"],
+#        earth,
+#        as,
+#        pl,
+#        cross_section;
+#        detector_areas=detector_areas,
+#        detector_normals=detector_normals,
+#        detector_bvh=detector_bvh,
+#        event_id=idx
+#    )
+#    return event
+#end
 
 function propagate_τ!(
     sim::Simulation;
-    inkey::String="injection_events",
-    outkey::String="proposal_events",
+    inkey::String="injection_event",
+    outkey::String="proposal_event",
     config::Union{Dict{String, Any}, Nothing}=nothing,
     earth::Union{Earth, Nothing}=nothing
 )
@@ -238,8 +261,8 @@ function propagate_τ!(
     end
 
 
-    events = ProposalResult[]
-    @showprogress for injection_event in sim.results[inkey]
+    @showprogress for frame in sim.results
+        injection_event = frame[inkey]
         if isnan(injection_event.final_state.energy)
             continue
         end
@@ -251,15 +274,14 @@ function propagate_τ!(
             earth,
             injection_event.event_id
         )
-        push!(events, event)
+        frame[outkey] = event
     end
-    sim.results[outkey] = events
 end
 
 function corsika_run(
     sim::Simulation,
     base_outdir;
-    inkey::String="proposal_events",
+    inkey::String="proposal_event",
     config::Union{Dict{String, Any}, Nothing}=nothing,
     earth::Union{Earth, Nothing}=nothing,
     parallelize=false
@@ -287,7 +309,11 @@ function corsika_run(
 
     sbatch_command = parallelize ? config["sbatch_command"] : ""
     ecuts = SVector{4, Float64}([config["em_ecut"], config["photon_ecut"], config["mu_ecut"], config["hadron_ecut"]]) * u"GeV"
-    for event in sim.results[inkey]
+    for frame in sim.results
+        if ~(haskey(frame, inkey))
+            continue
+        end
+        event = frame[inkey]
         ray = Ray(event.propped_state)
         i, t = find_intersection(ray, plane)
         if isnothing(t)
@@ -306,8 +332,8 @@ function corsika_run(
             config["corsika_path"],
             config["FLUPRO"],
             config["FLUFOR"],
-            "$(base_outdir)/event_$(lpad(event.event_id, 6, '0'))",
-            sim.config["steering"]["pinecone"] + event.event_id;
+            "$(base_outdir)/event_$(lpad(frame["event_id"], 6, '0'))",
+            sim.config["steering"]["pinecone"] + frame["event_id"];
             sbatch_command=sbatch_command
         )
     end

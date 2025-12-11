@@ -58,7 +58,7 @@ function taurunner_interface(
 )::Particle{T} where {T<:Real,I<:AbstractVector{Intersection{T}}}
 
     tr_particle = tr.particle.Particle(
-        particle.pdg_id,
+        Int(particle.pdg),
         ustrip(particle.energy |> u"eV"),
         0.0,
         xs
@@ -75,9 +75,9 @@ function taurunner_interface(
         )
         distance = (track.x_to_d(1)-track.x_to_d(out_tr_particle.position)) * earth.length / tr.utils.units.meter * u"m"
         position = distance * reverse(particle.direction) + particle.position
-        pdg_id = convert(Int, out_tr_particle.ID)
+        pdg = convert(Int, out_tr_particle.ID)
         energy = out_tr_particle.energy / tr.utils.units.GeV * u"GeV"
-        return Particle(pdg_id, energy, position, particle.direction)
+        return Particle(ParticleType(pdg), energy, position, particle.direction)
     else
         intersections = cull_intersections(intersections)
 
@@ -116,9 +116,9 @@ function taurunner_interface(
         )
         distance = track.x_to_d(out_tr_particle.position) * body.length / tr.utils.units.meter * u"m"
         position = distance * particle.direction + last(intersections).point
-        pdg_id = out_tr_particle.ID
+        pdg = ParticleType(out_tr_particle.ID)
         energy = out_tr_particle.energy / tr.utils.units.GeV * u"GeV"
-        return Particle(pdg_id, energy, position, particle.direction)
+        return Particle(pdg, energy, position, particle.direction)
     end
 end
 

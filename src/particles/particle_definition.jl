@@ -1,11 +1,3 @@
-struct ParticleDefinition{T}
-    mass::Quantity{T,mdim}
-    lifetime::Quantity{T,tdim}
-    charge::Quantity{T,qdim}
-    α
-    β
-end
-
 particle_parameters = Dict{Int, Tuple}(
     15 => (1.77686 * u"GeV"/speedoflight^2, 2.903e-13 * u"s"),
     -15 => (1.77686 * u"GeV"/speedoflight^2, 2.903e-13 * u"s"),

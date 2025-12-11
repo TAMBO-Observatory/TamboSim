@@ -1,5 +1,5 @@
 function inject_event(
-    pdg_id::Int,
+    pdg::Int,
     earth::Earth,
     as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
@@ -46,8 +46,8 @@ function inject_event(
     # Geometric is zero if all triangle are invalid
     if sum(geometric_mask)==0
         coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
-        initial_state = Particle(pdg_id, NaN*u"GeV", coord, d)
-        return null_event(-1, initial_state)
+        initial_state = Particle(-1, ParticleType(pdg), NaN*u"GeV", coord, d)
+        return initial_state, Particle(T), Particle(T), null_params
     end
     perp_areas = [-dot(norm.point, d.point) * area for (norm, area) in zip(detector_normals, detector_areas)]
     visible_areas = geometric_mask .* perp_areas
@@ -60,8 +60,8 @@ function inject_event(
     intersections = intersect_all(earth, ray)
     if length(intersections)==0
         coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
-        initial_state = Particle(pdg_id, NaN*u"GeV", coord, d)
-        return null_event(-2, initial_state)
+        initial_state = Particle(-2, ParticleType(pdg), NaN*u"GeV", coord, d)
+        return initial_state, Particle(T), Particle(T), null_params
     end
     # No intersections means it only passed through air
     mask = mask_helper(intersections, earth, revd)
@@ -69,20 +69,20 @@ function inject_event(
     # We won't bother simulating this because weight will be zero
     if sum(mask)==0
         coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
-        initial_state = Particle(pdg_id, NaN*u"GeV", coord, d)
-        return null_event(-3, initial_state)
+        initial_state = Particle(-3, ParticleType(pdg), NaN*u"GeV", coord, d)
+        return initial_state, Particle(T), Particle(T), null_params
     end
 
     # Sample energy and make initial state
     initial_energy = rand(pl)
-    initial_state = Particle(pdg_id, initial_energy, p, d)
+    initial_state = Particle(ParticleType(pdg), initial_energy, p, d)
 
     ## Compute arrival state via TR interface ##
     close_state = taurunner_interface(initial_state, intersections)
 
     ## Compute final state ##
     # If we got charged lepton, just throw it in
-    if abs(close_state.pdg_id)+1==abs(pdg_id)
+    if abs(Int(close_state.pdg))+1==abs(Int(pdg))
         weight_params = WeightParameters(
             sum(visible_areas),
             pl,
@@ -94,23 +94,17 @@ function inject_event(
             NaN * u"g/cm^2",
             NaN * u"g/cm^3"
         )
-        return InjectionEvent(
-            event_id,
-            close_state,
-            initial_state,
-            close_state,
-            weight_params
-        )
+        return initial_state, close_state, close_state, weight_params
     end
 
     if close_state.energy < minimum(xs.es)
-        return InjectionEvent(event_id, close_state, initial_state, null_particle, null_params)
+        return initial_state, close_state, Particle(T), null_params
     end
 
     # If we got a neutrino, back trace and force an interaction
     eout = rand(xs, close_state.energy)
-    pdg_out = close_state.pdg_id > 0 ? close_state.pdg_id-1 : close_state.pdg_id + 1
-    if abs(pdg_out)==15
+    pdg_out = Int(close_state.pdg) > 0 ? ParticleType(Int(close_state.pdg)-1) : ParticleType(Int(close_state.pdg) + 1)
+    if abs(Int(pdg_out))==15
         range = particle_vacuum_range(pdg_out, eout)
         distance, cd, density = find_vertex_distance_by_distance(revd, range, intersections) 
     else
@@ -138,13 +132,7 @@ function inject_event(
         density
     )
 
-    return InjectionEvent(
-        event_id,
-        close_state,
-        initial_state,
-        final_state,
-        weight_params
-    )
+    return initial_state, close_state, final_state, weight_params
 
 end
 
@@ -156,10 +144,10 @@ function fake_tr_interface(
         return p
     else
         cs = CoordinateSystem(intersections[1].point)
-        pdg_id = p.pdg_id > 0 ? p.pdg_id - 1 : p.pdg_id + 1
+        pdg = p.pdg > 0 ? p.pdg - 1 : p.pdg + 1
         position = Coordinate(p.position.point + 5u"km" * reverse(p.direction).point, cs)
         energy = min(2e7*u"GeV", p.energy/6)
-        p = Particle(pdg_id, energy, position, p.direction)
+        p = Particle(pdg, energy, position, p.direction)
         return p
     end
 end
@@ -186,7 +174,7 @@ end
 
 
 #struct Injector
-#    pdg_id::Int
+#    pdg::Int
 #    powerlaw::PowerLaw
 #    xs::CrossSection
 #    anglesampler::UniformAngularSampler
@@ -213,7 +201,7 @@ end
 #    xs = CrossSection(
 #        config["xs_dir"],
 #        config["xs_model"],
-#        config["pdg_id"],
+#        config["pdg"],
 #        config["interaction"]
 #    )
 #    anglesampler = UniformAngularSampler(
@@ -237,13 +225,13 @@ end
 #    else
 #        error("Unknown options for loading injection shape")
 #    end
-#    return Injector(config["pdg_id"], pl, xs, anglesampler, injectionshape, geo)
+#    return Injector(config["pdg"], pl, xs, anglesampler, injectionshape, geo)
 #end
 #
 #function inject_event(injector::Injector, event_id::Int, tr_seed::Int)
 #    event = inject_event(
 #        event_id,
-#        injector.pdg_id,
+#        injector.pdg,
 #        injector.powerlaw,
 #        injector.xs,
 #        injector.anglesampler,

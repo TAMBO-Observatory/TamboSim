@@ -75,7 +75,7 @@ function get_git_commit_hash()
 end
 
 
-@Base.kwdef mutable struct Simulation
+mutable struct Simulation
     config::Dict{String, Any}
     results::Vector{Frame}
     function Simulation(config, results)
@@ -153,7 +153,7 @@ end
 
 function inject_ν!(
     sim::Simulation;
-    outkey::String="injection_event",
+    output_prefix::String="injection",
     config::Union{Dict{String, Any}, Nothing}=nothing,
     earth::Union{Earth, Nothing}=nothing
 )
@@ -190,7 +190,7 @@ function inject_ν!(
 
     @showprogress for frame in sim.results
         idx = 1
-        frame[outkey] = inject_event(
+        istate, cstate, fstate, wp = inject_event(
             cfg["nu_pdg"],
             earth,
             as,
@@ -201,6 +201,14 @@ function inject_ν!(
             detector_bvh=detector_bvh,
             event_id=idx
         )
+        frame["$(output_prefix)_initial_state"] = istate
+        if ~isnan(cstate.energy)
+            frame["$(output_prefix)_close_state"] = cstate
+        end
+        if ~isnan(fstate.energy)
+            frame["$(output_prefix)_final_state"] = fstate
+        end
+        frame["weight_params"] = wp
     end
 end
 
@@ -242,8 +250,8 @@ end
 
 function propagate_τ!(
     sim::Simulation;
-    inkey::String="injection_event",
-    outkey::String="proposal_event",
+    inkey::String="injection_final_state",
+    outprefix::String="proposal",
     config::Union{Dict{String, Any}, Nothing}=nothing,
     earth::Union{Earth, Nothing}=nothing
 )
@@ -262,29 +270,32 @@ function propagate_τ!(
 
 
     @showprogress for frame in sim.results
-        injection_event = frame[inkey]
-        if isnan(injection_event.final_state.energy)
+        if ~haskey(frame, inkey)
             continue
         end
-        if injection_event.final_state.energy < 106u"MeV"
+        final_state = frame[inkey]
+        if final_state.energy < 106u"MeV"
             continue
         end
-        event = proposal_propagate(
-            injection_event.final_state,
+        ls, contls, decay_products, propped_state = proposal_propagate(
+            final_state,
             earth,
-            injection_event.event_id
         )
-        frame[outkey] = event
+        frame["$(outprefix)_stochastic_losses"] = ls
+        frame["$(outprefix)_continuous_losses"] = contls
+        frame["$(outprefix)_decay_products"] = decay_products
+        frame["$(outprefix)_final_state"] = propped_state
     end
 end
 
 function corsika_run(
     sim::Simulation,
     base_outdir;
-    inkey::String="proposal_event",
+    inkey::String="proposal_decay_products",
     config::Union{Dict{String, Any}, Nothing}=nothing,
     earth::Union{Earth, Nothing}=nothing,
-    parallelize=false
+    parallelize=false,
+    store_paths=true
 )
     if isnothing(config)
         config = sim.config["corsika"]
@@ -313,29 +324,37 @@ function corsika_run(
         if ~(haskey(frame, inkey))
             continue
         end
-        event = frame[inkey]
-        ray = Ray(event.propped_state)
-        i, t = find_intersection(ray, plane)
-        if isnothing(t)
-            continue
+        paths = String[]
+        decay_products = frame[inkey]
+        for (idx, particle) in enumerate(decay_products)
+            ray = Ray(particle)
+            i, t = find_intersection(ray, plane)
+            if isnothing(t)
+                continue
+            end
+            ray = Ray(particle.position, up)
+            ixs = intersect_all(earth, ray)
+            if length(ixs) > 0
+                continue
+            end
+            path = "$(base_outdir)/event_$(lpad(frame["event_id"], 6, '0'))/shower_$(idx)/"
+            push!(paths, path)
+            #corsika_run(
+            #    particle,
+            #    plane,
+            #    config["thinning"],
+            #    ecuts,
+            #    config["corsika_path"],
+            #    config["FLUPRO"],
+            #    config["FLUFOR"],
+            #    output_dir,
+            #    sim.config["steering"]["pinecone"] + frame["event_id"];
+            #    sbatch_command=sbatch_command
+            #)
         end
-        ray = Ray(event.propped_state.position, up)
-        ixs = intersect_all(earth, ray)
-        if length(ixs) > 0
-            continue
+        if store_paths
+            frame["corsika_directories"] = paths
         end
-        corsika_run(
-            event,
-            plane,
-            config["thinning"],
-            ecuts,
-            config["corsika_path"],
-            config["FLUPRO"],
-            config["FLUFOR"],
-            "$(base_outdir)/event_$(lpad(frame["event_id"], 6, '0'))",
-            sim.config["steering"]["pinecone"] + frame["event_id"];
-            sbatch_command=sbatch_command
-        )
     end
 end
 

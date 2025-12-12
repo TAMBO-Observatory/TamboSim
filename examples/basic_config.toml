@@ -1,0 +1,44 @@
+[steering]
+nevent = 1000
+pinecone = 0
+run_number = 0
+
+[geometry]
+earth_path = "_TAMBOSIM_PATH_/resources/basic_geometry.h5:colca_valley_30000"
+detector_key = "detector1"
+
+[injection]
+nu_pdg = 16
+gamma = 1.5
+emin = 3.0e5 # GeV
+emax = 1.0e9
+thetamin = 0 # degrees
+thetamax = 117 # degrees
+phimin = 90 # degrees
+phimax = 290 # degrees
+xs_location = "_TAMBOSIM_PATH_/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
+track_progress = false
+
+[proposal]
+ecut = -1 # GeV. Negative <-> Infinity
+vcut = 1e-2
+do_interpolate = true
+do_continuous = true
+tablespath = "_TAMBOSIM_PATH_/resources/proposal_tables/"
+track_progress = false
+
+[corsika]
+should_run_corsika = false
+parallelize_corsika = false
+thinning = 1.0e-6
+hadron_ecut = 1.0 # GeV
+em_ecut = 1.0 # GeV
+photon_ecut = 1.0 # GeV
+mu_ecut = 1.0 # GeV
+corsika_path = "_TAMBOSIM_PATH_/src/corsika/build/bin/c8_air_shower"
+track_progress = false
+FLUPRO = "/n/holylfs05/LABS/arguelles_delgado_lab/Lab/common_software/source/fluka"
+FLUFOR = "gfortransbatch"
+plane_coordinates = [1.8684093405534932e6, -5.847356975503005e6, -1.7164083237126567e6] # m, ecef coordinate
+plane_orientation = [0.7435700725539519, -0.6274592274114552, -0.23108107914394568]
+

@@ -31,7 +31,7 @@ include("particles/particles.jl")
 include("injection/injection.jl")
 include("python_interfaces/python_interfaces.jl")
 include("corsika/corsika.jl")
-include("frames.jl")
+include("frames/frames.jl")
 
 function __init__()
     
@@ -337,20 +337,23 @@ function corsika_run(
             if length(ixs) > 0
                 continue
             end
-            path = "$(base_outdir)/event_$(lpad(frame["event_id"], 6, '0'))/shower_$(idx)/"
-            push!(paths, path)
-            #corsika_run(
-            #    particle,
-            #    plane,
-            #    config["thinning"],
-            #    ecuts,
-            #    config["corsika_path"],
-            #    config["FLUPRO"],
-            #    config["FLUFOR"],
-            #    output_dir,
-            #    sim.config["steering"]["pinecone"] + frame["event_id"];
-            #    sbatch_command=sbatch_command
-            #)
+            output_dir = "$(base_outdir)/event_$(lpad(frame["event_id"], 6, '0'))/shower_$(idx)/"
+            if abs(Int(particle.pdg)) in [12,14,16]
+                continue
+            end
+            push!(paths, output_dir)
+            corsika_run(
+                particle,
+                plane,
+                config["thinning"],
+                ecuts,
+                config["corsika_path"],
+                config["FLUPRO"],
+                config["FLUFOR"],
+                output_dir,
+                sim.config["steering"]["pinecone"] + frame["event_id"];
+                sbatch_command=sbatch_command
+            )
         end
         if store_paths
             frame["corsika_directories"] = paths

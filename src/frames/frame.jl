@@ -39,3 +39,11 @@ function Base.keys(frame::Frame)
         return union(keys(frame.data), keys(frame.parent))
     end
 end
+
+function Base.getkey(frame::Frame, k::String, default)
+    if haskey(frame, k)
+        return frame[k]
+    else
+        return default
+    end
+end

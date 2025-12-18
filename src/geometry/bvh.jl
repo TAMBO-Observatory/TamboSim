@@ -213,10 +213,10 @@ function build_bvh_node(
 
     # If no good split found, create leaf
     selected_objects = @views objects[indices]
-    if best_cost >= length(indices) * surface_area_fast(AABB(selected_objects))
-        bbox = AABB(indices, precomputed_aabbs)
-        return BVHNode(bbox, nothing, nothing, indices, true)
-    end
+    #if best_cost >= length(indices) * surface_area_fast(AABB(selected_objects))
+    #    bbox = AABB(indices, precomputed_aabbs)
+    #    return BVHNode(bbox, nothing, nothing, indices, true)
+    #end
 
     # Split triangles along the best axis
     left_indices, right_indices = split_objects(

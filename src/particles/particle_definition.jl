@@ -20,6 +20,6 @@ const muplus = ParticleDefinition(105.6583755*u"MeVc2", 2.196981e-6*u"s", 1u"e")
 const eminus = ParticleDefinition(105.6583755*u"MeVc2", 2.196981e-6*u"s", -1u"e")
 const eplus = ParticleDefinition(0.00051099895000 * u"GeV"/speedoflight^2, Inf*u"s", 1u"e")
 
-const particle_defs(
+particle_defs(
     eplus=ParticleDefinition(105.6583755*u"MeVc2", Inf*u"s", 1*electron_charge, )
 )

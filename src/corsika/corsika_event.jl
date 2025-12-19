@@ -87,7 +87,7 @@ function CorsikaEvent(
     d = Direction(rot * [row.nx, row.ny, row.nz], cs_corsika)
     p = Coordinate((rot * [row.x, row.y, row.z] .* u"m" .+ center)  .- [0.0u"km", 0.0u"km", 6371.0u"km"], cs_corsika)
     e = U(row.kinetic_energy * u"GeV")
-    pdg = Int64(row.pdg)
+    pdg = ParticleType(Int64(row.pdg))
     particle = Particle(pdg, e, convert(cs_earth, p), convert(cs_earth, d))
     return CorsikaEvent(particle, Float64(row.time*u"s"), Float64(row.weight))
 

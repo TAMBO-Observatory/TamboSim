@@ -212,42 +212,6 @@ function inject_ν!(
     end
 end
 
-#function inject_ν(
-#    config::Dict{String, Any},
-#    earth::E,
-#    pl::UnitfulPowerLawSampler,
-#    as::UniformAngularSampler
-#) where {E<:Earth}
-#    pl = UnitfulPowerLawSampler(
-#        config["gamma"],
-#        config["emin"] * u"GeV",
-#        config["emax"] * u"GeV"
-#    )
-#    as = UniformAngularSampler(
-#        deg2rad(config["thetamin"]),
-#        deg2rad(config["thetamax"]),
-#        deg2rad(config["phimin"]),
-#        deg2rad(config["phimax"]),
-#    )
-#    cross_section = CrossSection(config["xs_location"])
-#    detector_bvh = BVHTree(earth.topography[earth.detector_region])
-#    detector_areas = area.(earth.topography[earth.detector_region])
-#    detector_normals = normal.(earth.topography[earth.detector_region])
-#
-#    event = inject_event(
-#        config["nu_pdg"],
-#        earth,
-#        as,
-#        pl,
-#        cross_section;
-#        detector_areas=detector_areas,
-#        detector_normals=detector_normals,
-#        detector_bvh=detector_bvh,
-#        event_id=idx
-#    )
-#    return event
-#end
-
 function propagate_τ!(
     sim::Simulation;
     inkey::String="injection_final_state",
@@ -327,21 +291,26 @@ function corsika_run(
         paths = String[]
         decay_products = frame[inkey]
         for (idx, particle) in enumerate(decay_products)
+            # Don't run CORSIKA on neutrinos
+            if abs(Int(particle.pdg)) in [12,14,16]
+                continue
+            end
+
             ray = Ray(particle)
             i, t = find_intersection(ray, plane)
             if isnothing(t)
                 continue
             end
-            ray = Ray(particle.position, up)
-            ixs = intersect_all(earth, ray)
-            if length(ixs) > 0
-                continue
-            end
+            #ray = Ray(particle.position, up)
+            #ixs = intersect_all(earth, ray)
+            #if length(ixs) > 0
+            #    continue
+            #end
             output_dir = "$(base_outdir)/event_$(lpad(frame["event_id"], 6, '0'))/shower_$(idx)/"
-            if abs(Int(particle.pdg)) in [12,14,16]
+            push!(paths, output_dir)
+            if isdir(output_dir)
                 continue
             end
-            push!(paths, output_dir)
             corsika_run(
                 particle,
                 plane,

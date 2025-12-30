@@ -38,11 +38,12 @@ up = Tambo.Direction([0.0, 0.0, 1.0], Tambo.CoordinateSystem(earth))
 Δx = dot(up, plane.normal) * Δy * sqrt(3) / 2
 
 ps = Tambo.Coordinate[]
-base_xs = collect(-2000u"m":Δx:0u"m")
-for n in -20:20
-   xoffset = mod(n, 2)==0 ? 0.0u"m" : Δx / 2
+base_xs = collect(-1000u"m":Δx:750u"m")
+base_ys = collect(-2000u"m":Δy:2000u"m")
+
+for (idx, y) in enumerate(base_ys)
+   xoffset = mod(idx, 2)==0 ? 0.0u"m" : Δx / 2
    xs = base_xs .+ xoffset
-   y = n * Δy
    coords = [Tambo.Coordinate(x, y, 0.0u"m", cs) for x in xs]
    rays = Tambo.Ray.(coords, Ref(up))
    for ray in rays

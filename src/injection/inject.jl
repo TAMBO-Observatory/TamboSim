@@ -10,7 +10,7 @@ function inject_event(
     #detector_areas::Union{Vector{Quantity{T,U^2,typeof(u"m^2")}}, Nothing} = nothing,
     detector_areas::Union{Vector{Quantity{T,ldim^2,typeof(u"m^2")}}, Nothing} = nothing,
     epsilon=1e-6*u"m",
-    event_id::Int=0
+    tr_seed=nothing
 ) where {T<:Real}
 
     cs = CoordinateSystem(earth)
@@ -78,7 +78,7 @@ function inject_event(
     initial_state = Particle(ParticleType(pdg), initial_energy, p, d)
 
     ## Compute arrival state via TR interface ##
-    close_state = taurunner_interface(initial_state, intersections)
+    close_state = taurunner_interface(initial_state, intersections, tr_seed)
 
     ## Compute final state ##
     # If we got charged lepton, just throw it in

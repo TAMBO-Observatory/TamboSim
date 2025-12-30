@@ -151,7 +151,7 @@ function Simulation(config_file::String, injection_file::String="")
     return Simulation(config, results)
 end
 
-function inject_ν!(
+function inject!(
     sim::Simulation;
     output_prefix::String="injection",
     config::Union{Dict{String, Any}, Nothing}=nothing,
@@ -189,7 +189,7 @@ function inject_ν!(
     Random.seed!(sim.config["steering"]["pinecone"])
 
     @showprogress for frame in sim.results
-        idx = 1
+        tr_seed = rand(UInt32)
         istate, cstate, fstate, wp = inject_event(
             cfg["nu_pdg"],
             earth,
@@ -199,7 +199,7 @@ function inject_ν!(
             detector_areas=detector_areas,
             detector_normals=detector_normals,
             detector_bvh=detector_bvh,
-            event_id=idx
+            tr_seed=tr_seed
         )
         frame["$(output_prefix)_initial_state"] = istate
         if ~isnan(cstate.energy)
@@ -210,6 +210,16 @@ function inject_ν!(
         end
         frame["weight_params"] = wp
     end
+end
+
+function inject_ν!(
+    sim::Simulation;
+    output_prefix::String="injection",
+    config::Union{Dict{String, Any}, Nothing}=nothing,
+    earth::Union{Earth, Nothing}=nothing
+)
+    @warn("`inject_ν!` is deprecated. Please use `inject!`.")
+    inject!(sim; output_prefix=output_prefix, config=config, earth=earth)
 end
 
 function propagate_τ!(
@@ -224,6 +234,7 @@ function propagate_τ!(
     end
     relativize!(config)
     init_proposal(config)
+    Random.seed!(sim.config["steering"]["pinecone"])
     
     if isnothing(earth)
         earth = Earth(
@@ -244,6 +255,7 @@ function propagate_τ!(
         ls, contls, decay_products, propped_state = proposal_propagate(
             final_state,
             earth,
+            rand(Int32)
         )
         frame["$(outprefix)_stochastic_losses"] = ls
         frame["$(outprefix)_continuous_losses"] = contls

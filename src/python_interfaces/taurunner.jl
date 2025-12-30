@@ -55,6 +55,7 @@ end
 function taurunner_interface(
     particle::Particle{T},
     intersections::I,
+    seed=nothing
 )::Particle{T} where {T<:Real,I<:AbstractVector{Intersection{T}}}
 
     tr_particle = tr.particle.Particle(
@@ -63,6 +64,7 @@ function taurunner_interface(
         0.0,
         xs
     )
+    tr.Casino.np.random.seed(seed)
     if should_go_through_earth(intersections)
         theta, _ = cart_to_sph(particle.direction)
         track = Chord(theta=theta)

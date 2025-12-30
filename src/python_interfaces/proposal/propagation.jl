@@ -19,10 +19,15 @@
 function proposal_propagate(
     particle::Particle{T},
     earth::Earth{T},
+    seed=nothing
 ) where {T<:Real}
     cs = CoordinateSystem(earth)
     ray = Ray(particle)
     ixs = intersect_all(earth, ray)
+
+    
+    seed = isnothing(seed) ? rand(Int32) : seed
+    pp.RandomGenerator.get().set_seed(seed)
 
     densities = compute_density(ixs, particle.direction)
     lengths = compute_lengths(ixs)

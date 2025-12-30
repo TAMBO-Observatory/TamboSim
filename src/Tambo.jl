@@ -1,5 +1,17 @@
 module Tambo
 
+export Ray,
+       Coordinate,
+       Direction,
+       Earth,
+       intersect_all,
+       inject!,
+       proposal_propagation!,
+       cut_frames!,
+       Simulation,
+       ecefcoordinates
+
+
 using Arrow
 using CoordinateTransformations
 using Dierckx: Spline1D, Spline2D
@@ -222,7 +234,7 @@ function inject_ν!(
     inject!(sim; output_prefix=output_prefix, config=config, earth=earth)
 end
 
-function propagate_τ!(
+function proposal_propagation!(
     sim::Simulation;
     inkey::String="injection_final_state",
     outprefix::String="proposal",
@@ -264,6 +276,17 @@ function propagate_τ!(
     end
 end
 
+function propagate_τ!(
+    sim::Simulation;
+    inkey::String="injection_final_state",
+    outprefix::String="proposal",
+    config::Union{Dict{String, Any}, Nothing}=nothing,
+    earth::Union{Earth, Nothing}=nothing
+)
+    @warn("`propagate_τ!` is deprecated. Please use `proposal_propagation!`.")
+    proposal_propagation!(sim; inkey=inkey, outprefix=outprefix, config=config, earth=earth)
+end
+
 function corsika_run(
     sim::Simulation,
     base_outdir;
@@ -279,6 +302,7 @@ function corsika_run(
     relativize!(config)
 
     if isnothing(earth)
+
         earth = Earth(
             sim.config["geometry"]["earth_path"],
             sim.config["geometry"]["detector_key"],

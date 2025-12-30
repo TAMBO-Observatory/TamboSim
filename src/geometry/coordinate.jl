@@ -65,6 +65,7 @@ end
 Base.:*(a::Coordinate, s::Number) = Coordinate(a.point * s, a.coordinate_system)
 Base.:/(a::Coordinate, s::Number) = Coordinate(a.point / s, a.coordinate_system)
 Base.:*(s::Number, a::Coordinate) = Coordinate(s * a.point, a.coordinate_system)
+LinearAlgebra.normalize(c::Coordinate) = normalize(c.point)
 
 function Base.convert(coordinate_system::CoordinateSystem, coord::Coordinate)
     if coordinate_system==coord.coordinate_system

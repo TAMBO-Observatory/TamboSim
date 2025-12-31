@@ -92,7 +92,6 @@ mutable struct Simulation
     results::Vector{Frame}
     function Simulation(config, results)
         @assert "geometry" in keys(config) "Geometry information must be provided"
-        @assert "steering" in keys(config) "Steering information must be provided"
         return new(config, results)
     end
 end
@@ -151,29 +150,25 @@ function validate_config_file(config::Dict{String, Any})
     #end
 end
 
-function Simulation(config_file::String, injection_file::String="")
+function Simulation(config_file::String)
     config = TOML.parsefile(config_file)
     validate_config_file(config)
     relativize!(config)
-    if injection_file == ""
-        results = [Frame(Dict("event_id"=>idx)) for idx in 1:config["steering"]["nevent"]]
-    else
-        results = load(injection_file)
-    end
+    results = Frame[]
     return Simulation(config, results)
 end
 
 function inject!(
     sim::Simulation;
-    output_prefix::String="injection",
-    config::Union{Dict{String, Any}, Nothing}=nothing,
+    outprefix::String="injection",
     earth::Union{Earth, Nothing}=nothing
 )
-    if isnothing(config)
-        config = sim.config["injection"]
-    end
+    cfg = sim.config[outprefix]
 
-    relativize!(config)
+    relativize!(cfg)
+    for idx in 1:cfg["nevent"]
+        push!(sim.results, Frame(Dict("event_id"=>idx)))
+    end
 
     if isnothing(earth)
         earth = Earth(
@@ -182,7 +177,6 @@ function inject!(
         )
     end
 
-    cfg = sim.config["injection"]
     pl = UnitfulPowerLawSampler(
         cfg["gamma"],
         cfg["emin"] * u"GeV",
@@ -198,7 +192,7 @@ function inject!(
     detector_bvh = BVHTree(earth.topography[earth.detector_region])
     detector_areas = area.(earth.topography[earth.detector_region])
     detector_normals = normal.(earth.topography[earth.detector_region])
-    Random.seed!(sim.config["steering"]["pinecone"])
+    Random.seed!(cfg["pinecone"])
 
     @showprogress for frame in sim.results
         tr_seed = rand(UInt32)
@@ -213,12 +207,12 @@ function inject!(
             detector_bvh=detector_bvh,
             tr_seed=tr_seed
         )
-        frame["$(output_prefix)_initial_state"] = istate
+        frame["$(outprefix)_initial_state"] = istate
         if ~isnan(cstate.energy)
-            frame["$(output_prefix)_close_state"] = cstate
+            frame["$(outprefix)_close_state"] = cstate
         end
         if ~isnan(fstate.energy)
-            frame["$(output_prefix)_final_state"] = fstate
+            frame["$(outprefix)_final_state"] = fstate
         end
         frame["weight_params"] = wp
     end
@@ -226,27 +220,30 @@ end
 
 function inject_ν!(
     sim::Simulation;
-    output_prefix::String="injection",
-    config::Union{Dict{String, Any}, Nothing}=nothing,
+    outprefix::String="injection",
     earth::Union{Earth, Nothing}=nothing
 )
     @warn("`inject_ν!` is deprecated. Please use `inject!`.")
-    inject!(sim; output_prefix=output_prefix, config=config, earth=earth)
+    inject!(sim; outprefix=outprefix, earth=earth)
 end
 
 function proposal_propagation!(
     sim::Simulation;
     inkey::String="injection_final_state",
     outprefix::String="proposal",
-    config::Union{Dict{String, Any}, Nothing}=nothing,
     earth::Union{Earth, Nothing}=nothing
 )
-    if isnothing(config)
-        config = sim.config["proposal"]
+    cfg = sim.config[outprefix]
+    relativize!(cfg)
+    init_proposal(cfg)
+
+    if haskey(cfg, "pinecone")
+        Random.seed!(cfg["pinecone"])
+    else
+        @warn("Deciding seed via RNG and adding to configuration")
+        pinecone = rand(UInt32)
+        sim.config[outprefix]["pinecone"] = pinecone
     end
-    relativize!(config)
-    init_proposal(config)
-    Random.seed!(sim.config["steering"]["pinecone"])
     
     if isnothing(earth)
         earth = Earth(
@@ -280,26 +277,22 @@ function propagate_τ!(
     sim::Simulation;
     inkey::String="injection_final_state",
     outprefix::String="proposal",
-    config::Union{Dict{String, Any}, Nothing}=nothing,
     earth::Union{Earth, Nothing}=nothing
 )
     @warn("`propagate_τ!` is deprecated. Please use `proposal_propagation!`.")
-    proposal_propagation!(sim; inkey=inkey, outprefix=outprefix, config=config, earth=earth)
+    proposal_propagation!(sim; inkey=inkey, outprefix=outprefix, earth=earth)
 end
 
 function corsika_run(
     sim::Simulation,
     base_outdir;
     inkey::String="proposal_decay_products",
-    config::Union{Dict{String, Any}, Nothing}=nothing,
     earth::Union{Earth, Nothing}=nothing,
     parallelize=false,
     store_paths=true
 )
-    if isnothing(config)
-        config = sim.config["corsika"]
-    end
-    relativize!(config)
+    cfg = sim.config["corsika"]
+    relativize!(cfg)
 
     if isnothing(earth)
 
@@ -312,14 +305,14 @@ function corsika_run(
     up = Direction([0.0, 0.0, 1.0], CoordinateSystem(earth))
 
     # Define plane
-    d = Tambo.Direction(config["plane_orientation"], ecefcoordinates)
+    d = Tambo.Direction(cg["plane_orientation"], ecefcoordinates)
     d = convert(CoordinateSystem(earth), d)
-    point = Coordinate(config["plane_coordinates"] .* u"m", ecefcoordinates)
+    point = Coordinate(cfg["plane_coordinates"] .* u"m", ecefcoordinates)
     point = convert(CoordinateSystem(earth), point)
     plane = Plane(point, d)
 
-    sbatch_command = parallelize ? config["sbatch_command"] : ""
-    ecuts = SVector{4, Float64}([config["em_ecut"], config["photon_ecut"], config["mu_ecut"], config["hadron_ecut"]]) * u"GeV"
+    sbatch_command = parallelize ? cfg["sbatch_command"] : ""
+    ecuts = SVector{4, Float64}([cfg["em_ecut"], cfg["photon_ecut"], cfg["mu_ecut"], cfg["hadron_ecut"]]) * u"GeV"
     for frame in sim.results
         if ~(haskey(frame, inkey))
             continue
@@ -365,243 +358,5 @@ function corsika_run(
         end
     end
 end
-
-#function inject_ν!(
-#    sim::Simulation,
-#    config::Dict{String, Any},
-#    simset_id::Int64,
-#    seed::Int64;
-#    outkey="injected_events",
-#    track_progress=false
-#)
-#    relativize!(config)
-#    sim.config[outkey] = config
-#
-#    geo = Geometry(sim.config["geometry"])
-#    injector = Injector(config, geo)
-#    events = Vector{InjectionEvent}(undef, sim.config["steering"]["nevent"])
-#    itr = 1:sim.config["steering"]["nevent"]
-#    if track_progress
-#        println("Injecting neutrinos")
-#        itr = ProgressBar(itr)
-#    end
-#
-#    event_id_offset = simset_id * sim.config["steering"]["nevent"]
-#    for idx in itr
-#        tr_seed = seed + idx
-#        event_id = event_id_offset + idx
-#        event = inject_event(injector, event_id, tr_seed)
-#        events[idx] = event
-#    end
-#    sim.results[outkey] = events
-#end
-#
-#function inject_ν!(
-#    sim::Simulation,
-#    config_file::String;
-#    outkey="injected_events",
-#    track_progress=false
-#)
-#    config = relativize!(TOML.parsefile(config_file))
-#    inject_ν!(sim, config; outkey=outkey, track_progress=track_progress)
-#end
-#
-#function inject_ν!(
-#    sim::Simulation;
-#    outkey="injected_events",
-#    track_progress=true
-#)
-#    inject_ν!(
-#        sim,
-#        sim.config["injection"],
-#        sim.config["steering"]["run_number"],
-#        sim.config["steering"]["pinecone"];
-#        outkey=outkey,
-#        track_progress=track_progress
-#    )
-#end
-#
-#function propagate_τ!(
-#    sim::Simulation,
-#    config::Dict{String, Any},
-#    seed::Int64;
-#    inkey="injected_events",
-#    outkey="proposal_events",
-#    track_progress=false
-#)
-#    relativize!(config)
-#    sim.config[outkey] = config
-#
-#    geo = Geometry(sim.config["geometry"])
-#    events = Vector{ProposalResult}(undef, sim.config["steering"]["nevent"])
-#    propagator = ProposalPropagator(config)
-#    injected_events = sim.results[inkey]
-#    if track_progress
-#        println("Propagating taus")
-#        injected_events = ProgressBar(injected_events)
-#    end
-#    for (idx, injected_event) in enumerate(injected_events)
-#        event = propagator(
-#            injected_event.event_id,
-#            injected_event.final_state,
-#            geo,
-#            seed + idx
-#        )
-#        events[idx] = event
-#    end
-#    sim.results[outkey] = events
-#end
-#
-#function propagate_τ!(
-#    sim::Simulation,
-#    config_file::String;
-#    inkey::String="injected_events",
-#    outkey::String="proposal_events",
-#    track_progress::Bool=false
-#)
-#    config = relativize!(TOML.parsefile(config_file))
-#    propagate_τ!(sim, config; inkey=inkey, outkey=outkey, track_progress=track_progress)
-#end
-#
-#function propagate_τ!(
-#    sim::Simulation;
-#    inkey::String="injected_events",
-#    outkey::String="proposal_events",
-#    track_progress::Bool=true
-#)
-#    propagate_τ!(
-#        sim,
-#        sim.config["proposal"],
-#        sim.config["steering"]["pinecone"];
-#        inkey=inkey,
-#        outkey=outkey,
-#        track_progress=track_progress
-#    )
-#end
-#
-#function identify_taus_to_shower!(
-#    sim::Simulation,
-#    config::Dict{String, Any},
-#    inkey="proposal_events",
-#    outkey="corsika_indices",
-#    track_progress=false
-#)
-#    relativize!(config)
-#    proposal_events = sim.results[inkey]
-#
-#    #track_progress = sim.config["corsika"]["track_progress"]
-#    
-#    sim.config[outkey] = config
-#    geo = Geometry(sim.config["geometry"])
-#    # TODO wrap this into a neat little constructor
-#    #plane = Plane(
-#    #    geo.tambo_normal,
-#    #    geo.tambo_coordinates,
-#    #    geo
-#    #)
-#
-#    indices = Vector{Tuple{Int64, Int64}}()
-#
-#    if track_progress
-#        println("Identifying taus to shower")
-#        proposal_events = ProgressBar(proposal_events)
-#    end
-#    for (proposal_idx, proposal_event) in enumerate(proposal_events)
-#        if ~should_do_corsika(proposal_event, geo)
-#        #if ~should_do_corsika(proposal_event, plane,geo)
-#            continue
-#        end
-#        for (decay_idx,decay_event) in enumerate(proposal_event.decay_products)
-#            #wanted to keep indices lined up so checking one at at ime
-#            if check_neutrino(decay_event)
-#                continue 
-#            end
-#            event_id = proposal_event.event_id
-#            push!(indices, (event_id, decay_idx))
-#        end
-#    end
-#    sim.results[outkey] = indices
-#end
-#
-#function get_proposal_event_using_event_id(sim::Simulation, event_id::Int64)
-#    proposal_events = sim.results["proposal_events"]
-#    for pe in proposal_events
-#        if pe.event_id == event_id
-#            return pe
-#        end
-#    end
-#    error("No proposal event found with event_id: $event_id")
-#end
-#
-#function run_subshower!(
-#    sim::Simulation,
-#    config::Dict{String, Any},
-#    proposal_id::Int64,
-#    decay_id::Int64,
-#    seed::Int64;
-#    #output_path::String;
-#    proposal_ids_key="corsika_indices",
-#    proposal_events_key="proposal_events",
-#    track_progress=false
-#)
-#    relativize!(config)
-#
-#    sim.config["corsika"] = config
-#    geo = Geometry(sim.config["geometry"])
-#    #plane = Plane(
-#    #    geo.tambo_normal,
-#    #    geo.tambo_coordinates,
-#    #    geo
-#    #)
-#
-#    println("looking for proposal event with ID $proposal_id")
-#    proposal_event = get_proposal_event_using_event_id(sim, proposal_id)
-#    println("got proposal event:")
-#    println(proposal_event)
-#    corsika_run(
-#        proposal_event.decay_products[decay_id],
-#        sim.config["corsika"],
-#        geo,
-#        proposal_id,
-#        decay_id,
-#        seed,
-#        parallelize_corsika=false
-#    )
-#end
-#    
-#function save_simulation_to_jld2(s::Simulation, path::String)
-#    @assert length(s.results["injected_events"]) == s.config["steering"]["nevent"]
-#    @assert length(s.results["proposal_events"]) == s.config["steering"]["nevent"]
-#    jldopen(path, "w") do file
-#        file["injected_events"] = s.results["injected_events"]
-#        file["proposal_events"] = s.results["proposal_events"]
-#        file["corsika_indices"] = s.results["corsika_indices"]
-#        file["config"] = s.config
-#    end
-#end
-#
-#function save_simulation_to_arrow(s::Simulation, path::String)
-#    @assert length(s.results["injected_events"]) == s.config["steering"]["nevent"]
-#    @assert length(s.results["proposal_events"]) == s.config["steering"]["nevent"]
-#    if "corsika_indices" ∈ keys(s.results)
-#        crska_idxs = Vector{Tuple{Int, Int}}[Tuple{Int, Int}[] for _ in 1:s.config["steering"]["nevent"]]
-#        for (a, b) in s.results["corsika_indices"]
-#            push!(crska_idxs[a], (a, b))
-#        end
-#        savestuff = (
-#            proposal_events=s.results["proposal_events"],
-#            injected_events=s.results["injected_events"],
-#            corsika_indices=crska_idxs
-#        )
-#    else
-#        savestuff = (
-#            proposal_events=s.results["proposal_events"],
-#            injected_events=s.results["injected_events"],
-#        )
-#    end
-#
-#
-#    Arrow.write(path, savestuff, metadata=rec_flatten_dict(s.config))
-#end
 
 end # module

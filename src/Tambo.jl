@@ -305,12 +305,19 @@ function corsika_run(
     up = Direction([0.0, 0.0, 1.0], CoordinateSystem(earth))
 
     # Define plane
-    d = Tambo.Direction(cg["plane_orientation"], ecefcoordinates)
+    d = Tambo.Direction(cfg["plane_orientation"], ecefcoordinates)
     d = convert(CoordinateSystem(earth), d)
     point = Coordinate(cfg["plane_coordinates"] .* u"m", ecefcoordinates)
     point = convert(CoordinateSystem(earth), point)
     plane = Plane(point, d)
 
+    if haskey(cfg, "pinecone")
+        Random.seed!(cfg["pinecone"])
+    else
+        @warn("Deciding seed via RNG and adding to configuration")
+        pinecone = rand(UInt32)
+        sim.config[outprefix]["pinecone"] = pinecone
+    end
     sbatch_command = parallelize ? cfg["sbatch_command"] : ""
     ecuts = SVector{4, Float64}([cfg["em_ecut"], cfg["photon_ecut"], cfg["mu_ecut"], cfg["hadron_ecut"]]) * u"GeV"
     for frame in sim.results
@@ -340,16 +347,17 @@ function corsika_run(
             if isdir(output_dir)
                 continue
             end
+            seed = Int(rand(UInt32))
             corsika_run(
                 particle,
                 plane,
-                config["thinning"],
+                cfg["thinning"],
                 ecuts,
-                config["corsika_path"],
-                config["FLUPRO"],
-                config["FLUFOR"],
+                cfg["corsika_path"],
+                cfg["FLUPRO"],
+                cfg["FLUFOR"],
                 output_dir,
-                sim.config["steering"]["pinecone"] + frame["event_id"];
+                seed;
                 sbatch_command=sbatch_command
             )
         end

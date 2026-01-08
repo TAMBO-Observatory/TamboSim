@@ -1,3 +1,21 @@
+"""
+    serialize_bvh_to_hdf5(
+        bvh::BVHTree{T,U},
+        location::Union{HDF5.File, HDF5.Group},
+        serialize_triangle=true
+    ) where {T,U}
+
+Serializes a `BVHTree` object to an HDF5 file or group.
+
+This function stores the metadata, triangles (optional), and the tree structure
+of the `BVHTree` into the specified HDF5 location.
+
+# Arguments
+- `bvh::BVHTree`: The `BVHTree` object to serialize.
+- `location`: An HDF5 file or group object where the data will be stored.
+- `serialize_triangle`: If `true`, the triangles themselves are also serialized.
+  Set to `false` if the triangles are already stored elsewhere.
+"""
 function serialize_bvh_to_hdf5(
     bvh::BVHTree{T,U},
     location::Union{HDF5.File, HDF5.Group},
@@ -16,10 +34,19 @@ function serialize_bvh_to_hdf5(
     serialize_bvh_node(location, bvh.root, "root")
 end
 
+"""
+    serialize_bvh_to_hdf5(bvh::BVHTree{T,U}, location::String) where {T,U}
+
+Serializes a `BVHTree` to a specified path in an HDF5 file.
+
+This is a convenience method that handles opening the HDF5 file and creating the
+necessary groups. The `location` string should be in the format "filename:groupname".
+
+# Arguments
+- `bvh::BVHTree`: The `BVHTree` to serialize.
+- `location::String`: A string specifying the file and group path (e.g., "mydata.h5:geometry/bvh").
+"""
 function serialize_bvh_to_hdf5(bvh::BVHTree{T,U}, location::String) where {T,U}
-    """
-    Serialize a BVHTree to HDF5 format.
-    """
     filename, groupname = split(location, ":")
     
     if !isfile(filename)
@@ -44,10 +71,18 @@ function serialize_bvh_to_hdf5(bvh::BVHTree{T,U}, location::String) where {T,U}
     end
 end
 
+"""
+    serialize_triangles(group, triangles::Vector{Triangle{T,U}}) where {T,U}
+
+Serializes a vector of `Triangle` objects to an HDF5 group.
+
+The vertices of all triangles are stored in a single large matrix for efficiency.
+
+# Arguments
+- `group`: The HDF5 group to store the triangle data in.
+- `triangles`: A vector of `Triangle` objects.
+"""
 function serialize_triangles(group, triangles::Vector{Triangle{T,U}}) where {T,U}
-    """
-    Serialize all triangles to HDF5.
-    """
     num_triangles = length(triangles)
     
     # Create datasets for triangle vertices
@@ -66,10 +101,17 @@ function serialize_triangles(group, triangles::Vector{Triangle{T,U}}) where {T,U
     group["triangles/num_triangles"] = num_triangles
 end
 
+"""
+    serialize_bvh_node(base_group, node::BVHNode{T,U}, path::String) where {T,U}
+
+Recursively serializes a `BVHNode` and its children to an HDF5 group.
+
+# Arguments
+- `base_group`: The parent HDF5 group.
+- `node::BVHNode`: The node to serialize.
+- `path::String`: The path within the `base_group` where this node will be stored.
+"""
 function serialize_bvh_node(base_group, node::BVHNode{T,U}, path::String) where {T,U}
-    """
-    Recursively serialize a BVH node to HDF5.
-    """
     group = create_group(base_group, path)
     
     # Store AABB
@@ -93,10 +135,22 @@ function serialize_bvh_node(base_group, node::BVHNode{T,U}, path::String) where 
     end
 end
 
+"""
+    deserialize_bvh_from_hdf5(location::String, cs::CoordinateSystem) -> BVHTree
+
+Deserializes a `BVHTree` from a specified path in an HDF5 file.
+
+This is a convenience method that handles opening the HDF5 file. The `location`
+string should be in the format "filename:groupname".
+
+# Arguments
+- `location::String`: The path to the HDF5 file and group (e.g., "mydata.h5:geometry/bvh").
+- `cs::CoordinateSystem`: The coordinate system to which the `BVHTree` should be transformed.
+
+# Returns
+- A `BVHTree` object.
+"""
 function deserialize_bvh_from_hdf5(location::String, cs::CoordinateSystem)::BVHTree
-    """
-    Deserialize a BVHTree from HDF5 file.
-    """
     filename, groupname = split(location, ":")
 
     h5open(filename, "r") do file
@@ -106,13 +160,28 @@ function deserialize_bvh_from_hdf5(location::String, cs::CoordinateSystem)::BVHT
 
 end
 
+"""
+    deserialize_bvh_from_hdf5(
+        location::Union{HDF5.File, HDF5.Group},
+        cs::CoordinateSystem{T,U}
+    )::BVHTree{T,U} where {T,U}
+
+Deserializes a `BVHTree` from an HDF5 file or group.
+
+This function reads the `BVHTree` data, including triangles and the node structure,
+from the specified HDF5 location and reconstructs the `BVHTree` object.
+
+# Arguments
+- `location`: An HDF5 file or group object.
+- `cs::CoordinateSystem`: The coordinate system for the reconstructed `BVHTree`.
+
+# Returns
+- A `BVHTree` object.
+"""
 function deserialize_bvh_from_hdf5(
     location::Union{HDF5.File, HDF5.Group},
     cs::CoordinateSystem{T,U}
 )::BVHTree{T,U} where {T,U}
-    """
-    Deserialize a BVHTree from HDF5 file.
-    """
     # Deserialize triangles
     triangles = deserialize_triangles(location, cs)
     @show length(triangles)
@@ -124,13 +193,28 @@ function deserialize_bvh_from_hdf5(
     return BVHTree(root, triangles)
 end
 
+"""
+    deserialize_bvh_from_hdf5(
+        location::Union{HDF5.File, HDF5.Group},
+        triangles::Vector{Triangle{T, U}},
+    )::BVHTree{T,U} where {T,U}
+
+Deserializes a `BVHTree` from HDF5, using a pre-existing vector of triangles.
+
+This version is used when the triangles are not serialized with the `BVHTree` itself.
+It deserializes the node structure and links it to the provided triangle vector.
+
+# Arguments
+- `location`: An HDF5 file or group object containing the `BVHNode` data.
+- `triangles`: The vector of `Triangle` objects to be used by the `BVHTree`.
+
+# Returns
+- A `BVHTree` object.
+"""
 function deserialize_bvh_from_hdf5(
     location::Union{HDF5.File, HDF5.Group},
     triangles::Vector{Triangle{T, U}},
 )::BVHTree{T,U} where {T,U}
-    """
-    Deserialize a BVHTree from HDF5 file.
-    """
     cs = CoordinateSystem(first(triangles))
 
     root = deserialize_bvh_node(location, "root", triangles, cs)
@@ -138,10 +222,19 @@ function deserialize_bvh_from_hdf5(
     return BVHTree(root, triangles)
 end
 
+"""
+    deserialize_triangles(group, cs::CoordinateSystem{T, U})::Vector{Triangle{T, U}} where {T, U}
+
+Deserializes a vector of `Triangle` objects from an HDF5 group.
+
+# Arguments
+- `group`: The HDF5 group containing the triangle data.
+- `cs::CoordinateSystem`: The coordinate system to apply to the triangles.
+
+# Returns
+- A vector of `Triangle` objects.
+"""
 function deserialize_triangles(group, cs::CoordinateSystem{T, U})::Vector{Triangle{T, U}} where {T, U}
-    """
-    Deserialize triangles from HDF5.
-    """
     vertices = read(group["triangles/vertices"])
     num_triangles = read(group["triangles/num_triangles"])
 
@@ -159,15 +252,31 @@ function deserialize_triangles(group, cs::CoordinateSystem{T, U})::Vector{Triang
     return triangles
 end
 
+"""
+    deserialize_bvh_node(
+        base_group,
+        path::String,
+        triangles::Vector{Triangle{T, U}},
+        cs::CoordinateSystem{T, U}
+    )::BVHNode{T, U} where {T, U}
+
+Recursively deserializes a `BVHNode` and its children from an HDF5 group.
+
+# Arguments
+- `base_group`: The parent HDF5 group.
+- `path::String`: The path to the node's data within the `base_group`.
+- `triangles`: The vector of all triangles in the `BVHTree`.
+- `cs::CoordinateSystem`: The target coordinate system.
+
+# Returns
+- A reconstructed `BVHNode` object.
+"""
 function deserialize_bvh_node(
     base_group,
     path::String,
     triangles::Vector{Triangle{T, U}},
     cs::CoordinateSystem{T, U}
 )::BVHNode{T, U} where {T, U}
-    """
-    Recursively deserialize a BVH node from HDF5.
-    """
     group = base_group[path]
 
     # Read AABB

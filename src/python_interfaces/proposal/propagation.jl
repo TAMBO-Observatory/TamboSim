@@ -16,6 +16,27 @@
 #    end
 #end
 
+"""
+    proposal_propagate(particle::Particle, earth::Earth, seed=nothing) -> Tuple
+
+Propagates a particle through the Earth using the PROPOSAL library.
+
+The function calculates the particle's path and the densities it encounters. It then propagates
+the particle through these segments, collecting information about stochastic losses, continuous
+energy loss, and decay products.
+
+# Arguments
+- `particle::Particle`: The initial particle state.
+- `earth::Earth`: The Earth model.
+- `seed`: An optional seed for the random number generator.
+
+# Returns
+- A tuple containing:
+    - `losses`: A vector of `Particle` objects representing stochastic losses.
+    - `continuous_e`: The total continuous energy loss.
+    - `secondaries`: A vector of `Particle` objects representing decay products.
+    - `final_state`: The final `Particle` state after propagation.
+"""
 function proposal_propagate(
     particle::Particle{T},
     earth::Earth{T},

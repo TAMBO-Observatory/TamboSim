@@ -1,3 +1,49 @@
+"""
+    inject_event(
+        pdg::Int,
+        earth::Earth,
+        as::UniformAngularSampler,
+        pl::UnitfulPowerLawSampler,
+        xs::CrossSection;
+        detector_triangles::Union{Vector{Triangle{T}}, Nothing}=nothing,
+        detector_normals::Union{Vector{Direction{T}}, Nothing}=nothing,
+        detector_bvh::Union{BVHTree{T}, Nothing}=nothing,
+        detector_areas::Union{Vector{Quantity{T,ldim^2,typeof(u"m^2")}}, Nothing}=nothing,
+        epsilon=1e-6*u"m",
+        tr_seed=nothing
+    ) -> Tuple{Particle, Particle, Particle, WeightParameters}
+
+Simulates the injection and initial interaction of a particle (e.g., neutrino) into the Earth model.
+
+This function performs several steps:
+1. Samples a neutrino trajectory based on `as` and determines the detector element it targets.
+2. Constructs the initial neutrino `Particle` state, sampling its energy from `pl`.
+3. Propagates the neutrino through the Earth's media using an interface (e.g., `taurunner_interface`)
+   to determine its state near the interaction point (`close_state`).
+4. If the `close_state` is a neutrino, it forces an interaction (based on `xs`) and
+   determines the final state (`final_state`) and its interaction vertex.
+5. Calculates `WeightParameters` for the event.
+
+# Arguments
+- `pdg::Int`: The PDG ID of the injected particle (e.g., neutrino).
+- `earth::Earth`: The Earth model, including topography and material densities.
+- `as::UniformAngularSampler`: Sampler for the angular distribution of injected particles.
+- `pl::UnitfulPowerLawSampler`: Sampler for the energy distribution of injected particles.
+- `xs::CrossSection`: Cross-section data for particle interactions.
+- `detector_triangles::Union{Vector{Triangle{T}}, Nothing}`: Optional pre-computed detector triangles. If `nothing`, derived from `earth`.
+- `detector_normals::Union{Vector{Direction{T}}, Nothing}`: Optional pre-computed detector normals. If `nothing`, computed from `detector_triangles`.
+- `detector_bvh::Union{BVHTree{T}, Nothing}`: Optional pre-computed BVH for detector triangles. If `nothing`, built from `detector_triangles`.
+- `detector_areas::Union{Vector{Quantity{T,ldim^2,typeof(u"m^2")}}, Nothing}`: Optional pre-computed detector areas. If `nothing`, computed from `detector_triangles`.
+- `epsilon`: A small offset distance to avoid self-intersections when casting rays (default: 1e-6 m).
+- `tr_seed`: Seed for the `taurunner_interface` (if used).
+
+# Returns
+- `Tuple{Particle, Particle, Particle, WeightParameters}`:
+    - `initial_state`: The initial `Particle` state at injection.
+    - `close_state`: The `Particle` state just before the final interaction or at detector entry.
+    - `final_state`: The `Particle` state after interaction, or the `close_state` if it's a charged lepton.
+    - `weight_params`: Parameters used for calculating event weights.
+"""
 function inject_event(
     pdg::Int,
     earth::Earth,
@@ -136,6 +182,23 @@ function inject_event(
 
 end
 
+"""
+    fake_tr_interface(p::Particle{T}, intersections::Vector{Intersection{T}}) -> Particle{T}
+
+A placeholder or "fake" interface for simulating particle propagation through the Earth.
+
+This function randomly decides whether the input particle `p` interacts. If it does not,
+the original particle is returned. If it interacts, a new particle state is generated
+with a modified PDG ID, position, and energy, simulating a decay or interaction.
+This is not a physically accurate simulation but serves as a test or simplified model.
+
+# Arguments
+- `p::Particle{T}`: The initial `Particle` object.
+- `intersections::Vector{Intersection{T}}`: A list of `Intersection` objects (used for coordinate system reference).
+
+# Returns
+- `Particle{T}`: The propagated or interacted `Particle` object.
+"""
 function fake_tr_interface(
     p::Particle{T},
     intersections::Vector{Intersection{T}}
@@ -152,6 +215,31 @@ function fake_tr_interface(
     end
 end
 
+"""
+    select_detector_intersection(
+        earth::Earth{T},
+        revd::Direction{T},
+        detector_triangles::Vector{Triangle{T}},
+        detector_normals::Vector{Direction{T}},
+    ) -> Tuple{Union{Coordinate, Nothing}, Quantity{T,ldim^2,typeof(u"m^2")}}
+
+Selects a random intersection point on a detector surface, weighted by the scaled area of active triangles.
+
+This function first identifies `detector_triangles` that are "active" (facing the incoming `revd` direction).
+It then scales their areas by the dot product with the incoming direction and samples one of these triangles
+based on these scaled areas. Finally, it samples a point uniformly within the chosen triangle.
+
+# Arguments
+- `earth::Earth{T}`: The Earth model (not directly used, but provides context for coordinate system).
+- `revd::Direction{T}`: The reverse direction of the incoming particle, used to determine which faces are active.
+- `detector_triangles::Vector{Triangle{T}}`: The triangles defining the detector surface.
+- `detector_normals::Vector{Direction{T}}`: The normal vectors for each detector triangle.
+
+# Returns
+- `Tuple{Union{Coordinate, Nothing}, Quantity{T,ldim^2,typeof(u"m^2")}}`: A tuple containing:
+    - A `Coordinate` object representing the sampled intersection point on a detector triangle, or `nothing` if no active triangles are found.
+    - The sum of the scaled areas of all active triangles.
+"""
 function select_detector_intersection(
     earth::Earth{T},
     revd::Direction{T},

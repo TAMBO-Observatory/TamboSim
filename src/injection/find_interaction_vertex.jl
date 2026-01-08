@@ -1,6 +1,34 @@
 air_density = 1.205e-3 * u"g"/u"cm"^3
 rock_density = 2.65 * u"g"/u"cm"^3
 
+"""
+    find_vertex_distance_by_distance(
+        direction::Direction{T},
+        distance::Quantity{T},
+        intersections::AbstractVector{Intersection{T}},
+        epsilon::Float64=1e-3
+    ) -> Tuple{Quantity{T}, Quantity{T}, Quantity{T}}
+
+Finds a random interaction vertex along a given `direction` up to a specified `distance`,
+considering varying material densities from `intersections`.
+
+This function simulates a particle traveling through different media layers (defined by `intersections`).
+It calculates the total column depth encountered and then randomly selects an interaction point
+based on that column depth.
+
+# Arguments
+- `direction::Direction{T}`: The direction of particle travel.
+- `distance::Quantity{T}`: The maximum physical distance to consider for interaction.
+- `intersections::AbstractVector{Intersection{T}}`: A sorted list of `Intersection` objects
+  defining the boundaries of different material layers.
+- `epsilon::Float64`: A small value used for numerical stability (default: 1e-3, though not explicitly used in the provided code snippet).
+
+# Returns
+- `Tuple{Quantity{T}, Quantity{T}, Quantity{T}}`: A tuple containing:
+    - The physical distance to the interaction vertex.
+    - The total column depth traversed up to that vertex.
+    - The density of the material at the interaction vertex.
+"""
 function find_vertex_distance_by_distance(
     direction::Direction{T},
     distance::Quantity{T},
@@ -40,6 +68,34 @@ function find_vertex_distance_by_distance(
     end
 end
 
+"""
+    find_vertex_distance_by_cd(
+        direction::Direction{T},
+        cd::Quantity{T},
+        intersections::AbstractVector{Intersection{T}},
+        epsilon::Float64=1e-3
+    ) -> Tuple{Quantity{T}, Quantity{T}, Quantity{T}}
+
+Finds a random interaction vertex along a given `direction` up to a specified `column_depth`,
+considering varying material densities from `intersections`.
+
+This function simulates a particle traveling through different media layers (defined by `intersections`).
+It calculates the available column depth and then randomly selects an interaction point
+based on the specified and available column depth.
+
+# Arguments
+- `direction::Direction{T}`: The direction of particle travel.
+- `cd::Quantity{T}`: The maximum column depth (e.g., in g/cm^2) to consider for interaction.
+- `intersections::AbstractVector{Intersection{T}}`: A sorted list of `Intersection` objects
+  defining the boundaries of different material layers.
+- `epsilon::Float64`: A small value used for numerical stability (default: 1e-3, though not explicitly used in the provided code snippet).
+
+# Returns
+- `Tuple{Quantity{T}, Quantity{T}, Quantity{T}}`: A tuple containing:
+    - The physical distance to the interaction vertex.
+    - The total column depth traversed up to that vertex.
+    - The density of the material at the interaction vertex.
+"""
 function find_vertex_distance_by_cd(
     direction::Direction{T},
     cd::Quantity{T},
@@ -73,6 +129,23 @@ function find_vertex_distance_by_cd(
     end
 end
 
+"""
+    compute_density(ixs::AbstractVector{Intersection{T}}, d::Direction{T}) -> Vector{Quantity{T, mdim/ldim^3}}
+
+Computes the material density for each segment defined by a sequence of intersections.
+
+For `TriangleIntersection`s, the density (air or rock) is determined by whether the
+triangle's normal faces towards or away from the given `direction`. For `SphereIntersection`s,
+the density is assumed to be `rock_density`.
+
+# Arguments
+- `ixs::AbstractVector{Intersection{T}}`: A sorted list of `Intersection` objects, defining
+  the points where a ray crosses material boundaries.
+- `d::Direction{T}`: The direction of the ray's travel.
+
+# Returns
+- `Vector{Quantity{T, mdim/ldim^3}}`: A vector of densities for each segment between intersections.
+"""
 function compute_density(
     ixs::I,
     d::Direction{T}
@@ -92,6 +165,21 @@ function compute_density(
     return densities
 end
 
+"""
+    compute_lengths(ixs::AbstractVector{Intersection{T}}) -> Vector{Quantity{T,ldim,typeof(u"m")}}
+
+Computes the physical length of each segment between a sequence of intersections.
+
+Assuming `ixs` is sorted by `distance`, this function calculates the length of
+each path segment from the previous intersection point to the current one.
+
+# Arguments
+- `ixs::AbstractVector{Intersection{T}}`: A sorted list of `Intersection` objects,
+  where each intersection has a `distance` field.
+
+# Returns
+- `Vector{Quantity{T,ldim,typeof(u"m")}}`: A vector of lengths for each segment.
+"""
 function compute_lengths(
     ixs::I
 ) where {T<:Real, I<:AbstractVector{Intersection{T}}}

@@ -35,13 +35,40 @@ struct Particle{T<:Real}
             NaN*u"m/s"
         )
     end
-    function Particle(pdg::ParticleType, e::Quantity{T,edim}, pos::Coordinate{T}, dir::Direction{T}) where{T<:Real} 
+    function Particle(
+        pdg::ParticleType,
+        e::Quantity{T,edim},
+        pos::Coordinate{T},
+        dir::Direction{T}
+    ) where{T<:Real} 
         return new{T}(0, pdg, uconvert(u"GeV", e), pos, dir, 0u"s", NotSet, Null, 0.0u"m/s")
     end
-    function Particle(id::Int, pdg::ParticleType, e::Quantity{T,edim}, pos::Coordinate{T}, dir::Direction{T}) where{T<:Real} 
-        return new{T}(id, pdg, uconvert(u"GeV", e), pos, dir, 0u"s", NotSet, Null, 0.0u"m/s")
+    function Particle(
+        id::Int,
+        pdg::ParticleType,
+        e::Quantity{T,edim},
+        pos::Coordinate{T},
+        dir::Direction{T}
+    ) where{T<:Real} 
+        return new{T}(
+            id,
+            pdg,
+            uconvert(u"GeV", e),
+            pos,
+            dir,
+            0.0u"s",
+            NotSet,
+            Null,
+            0.0u"m/s"
+        )
     end
-    function Particle(pdg::ParticleType, e::Quantity{T,edim}, pos::Coordinate{T}, dir::Direction{T}, time::Quantity{T, tdim}) where{T<:Real} 
+    function Particle(
+        pdg::ParticleType,
+        e::Quantity{T,edim},
+        pos::Coordinate{T},
+        dir::Direction{T},
+        time::Quantity{T, tdim}
+    ) where{T<:Real} 
         return new{T}(0, pdg, uconvert(u"GeV", e), pos, dir, uconvert(u"s", time), NotSet, Null, 0.0u"m/s")
     end
 end
@@ -53,7 +80,7 @@ const range_parameters = Dict(
     TauPlus => (1.473684210526e3 * u"GeV*cm^3/m/g", 2.63e-5 * u"cm^3/m/g"),
 )
 
-particle_parameters = Dict{ParticleType, Tuple}(
+const particle_parameters = Dict{ParticleType, Tuple}(
     TauMinus => (1.77686 * u"GeV"/speedoflight^2, 2.903e-13 * u"s"),
     TauPlus => (1.77686 * u"GeV"/speedoflight^2, 2.903e-13 * u"s"),
     MuMinus => (0.1056583745 * u"GeV"/speedoflight^2, 2.1969811e-6 * u"s"),
@@ -95,9 +122,3 @@ function particle_vacuum_range(
 )::Quantity{T,ldim,typeof(u"m")} where {T}
     return particle_vacuum_range(particle.pdg, epsilon)
 end
-
-#const range_parameters = Dict(
-#    13 => (1.76666667e-1 * units.GeV / units.mwe, 2.0916666667e-4 / units.mwe),
-#    15 => (1.473684210526e3 * units.GeV / units.mwe, 2.63e-5 / units.mwe),
-#    -13 => (1.76666667e-1 * units.GeV / units.mwe, 2.0916666667e-4 / units.mwe),
-#    -15 => (1.473684210526e3 * units.GeV / units.mwe, 2.63e-5 / units.mwe)

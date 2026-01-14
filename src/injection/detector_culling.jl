@@ -1,3 +1,6 @@
+"""Small offset to avoid self-intersection when casting rays for occlusion testing."""
+const OCCLUSION_RAY_OFFSET = 1e-6u"m"
+
 """
     geometric_triangle_weight(
         triangles::Vector{Triangle{T}},
@@ -97,7 +100,7 @@ function compute_occlusion(
     occlusion_mask = BitVector(undef, length(vertices))
     revd = reverse(d)
     for (idx, vx) in enumerate(vertices)
-        p = Coordinate(vx.point + 1e-6u"m" * revd.point, cs)
+        p = Coordinate(vx.point + OCCLUSION_RAY_OFFSET * revd.point, cs)
         ray = Ray(p, revd)
         a = intersect_all(bvh, ray)
         if length(a)==0

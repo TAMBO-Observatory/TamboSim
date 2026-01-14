@@ -106,7 +106,7 @@ function WeightParameters(
     generated_density::Quantity{T,mdim/ldim^3,typeof(u"g/cm^3")}
 ) where {T<:Real}
     generated_xs, generated_diff_xs = NaN*u"cm^2", NaN*u"cm^2"
-    if ~isnan(generated_final_e)
+    if !isnan(generated_final_e)
         generated_xs = xs(generated_close_e)
         generated_diff_xs = xs(generated_close_e, generated_final_e)
     end

@@ -1,5 +1,5 @@
-air_density = 1.205e-3 * u"g"/u"cm"^3
-rock_density = 2.65 * u"g"/u"cm"^3
+AIR_DENSITY = 1.205e-3 * u"g"/u"cm"^3
+ROCK_DENSITY = 2.65 * u"g"/u"cm"^3
 
 """
     find_vertex_distance_by_distance(
@@ -66,6 +66,8 @@ function find_vertex_distance_by_distance(
         accrued_d += dist
         accrued_cd += segment_cd
     end
+    # Fallback: return final position if loop completes (edge case)
+    return accrued_d, cd, last(densities)
 end
 
 """
@@ -127,6 +129,8 @@ function find_vertex_distance_by_cd(
         accrued_d += dist
         accrued_cd += segment_cd
     end
+    # Fallback: return final position if loop completes (edge case)
+    return accrued_d, cd, last(densities)
 end
 
 """
@@ -136,7 +140,7 @@ Computes the material density for each segment defined by a sequence of intersec
 
 For `TriangleIntersection`s, the density (air or rock) is determined by whether the
 triangle's normal faces towards or away from the given `direction`. For `SphereIntersection`s,
-the density is assumed to be `rock_density`.
+the density is assumed to be `ROCK_DENSITY`.
 
 # Arguments
 - `ixs::AbstractVector{Intersection{T}}`: A sorted list of `Intersection` objects, defining
@@ -154,11 +158,11 @@ function compute_density(
     for (idx, ix) in enumerate(ixs)
         if typeof(ix)==TriangleIntersection{T}
             b = dot(d, ix.normal) < 0
-            density = b ? air_density : rock_density
+            density = b ? AIR_DENSITY : ROCK_DENSITY
             densities[idx] = density
         elseif typeof(ix)==SphereIntersection{T}
             # This is not totally true, but I think it should be okay
-            density = rock_density
+            density = ROCK_DENSITY
             densities[idx] = density
         end
     end

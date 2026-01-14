@@ -65,7 +65,7 @@ function p_mc(
     p /= area
     # This only applies when interadtion forced
     # This only applies when interaction forced
-    if ~isnan(ustrip(generated_cd))
+    if !isnan(ustrip(generated_cd))
         p *= generated_density / generated_cd
         p *= generated_diff_xs / generated_xs
     else

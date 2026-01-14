@@ -47,7 +47,7 @@ function Triangle(
     n = normal(v1, v2, v3)
     d = dot(n, ref)
     if d > 0 * d
-        v2, v3 = v3, v3
+        v2, v3 = v3, v2
     end
     return Triangle(v1, v2, v3)
 end
@@ -129,11 +129,3 @@ This function returns the coordinate system of the sphere's `center`.
 function CoordinateSystem(sphere::Sphere)
     return CoordinateSystem(sphere.center)
 end
-
-#function Sphere(radius::T) where T <: RealOrQuantity
-#    zero_unit = 0.0 * radius
-#    @assert radius > zero_unit "Radius not positive"
-#    center = Coordinate{T}(zero_unit, zero_unit, zero_unit)
-#    return Sphere(center, radius)
-#end
-

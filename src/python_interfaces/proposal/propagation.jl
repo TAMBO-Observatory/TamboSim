@@ -1,21 +1,3 @@
-#struct ProposalResult{T}
-#    event_id::Int
-#    stochastic_losses::Vector{StochasticLoss{T}}
-#    continuous_loss::Quantity{T,edim,typeof(u"GeV")}
-#    decay_products::Vector{Particle{T}}
-#    propped_state::Particle{T}
-#    function ProposalResult(
-#        event_id::Int,
-#        stochastic_losses::Vector{StochasticLoss{T}},
-#        continuous_losses::Quantity{T,edim},
-#        decay_products::Vector{Particle{T}},
-#        propped_state::Particle{T}
-#        ) where {T<:Real}
-#        continuous_losses |> u"GeV"
-#        return new{T}(event_id, stochastic_losses, continuous_losses, decay_products, propped_state)
-#    end
-#end
-
 """
     proposal_propagate(particle::Particle, earth::Earth, seed=nothing) -> Tuple
 
@@ -106,8 +88,3 @@ function proposal_propagate(
     end
     return losses, continuous_e, secondaries, final_state
 end
-
-
-
-#function init_proposal_cross_sections(config::Dict{String, Any})
-#end

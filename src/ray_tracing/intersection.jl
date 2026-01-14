@@ -8,6 +8,10 @@ details about the intersection point, normal, distance, and the type of shape hi
 """
 abstract type Intersection{T <: Real} end
 
+# Tolerance constants for intersection calculations
+"""Tolerance for detecting parallel rays in plane intersection tests."""
+const PLANE_PARALLELISM_TOLERANCE = 1e-10
+
 # Intersection result with units
 """
     TriangleIntersection{T<:Real} <: Intersection{T}
@@ -160,7 +164,7 @@ for numerical stability and then units are implicitly handled by the context.
 function find_intersect(ray::Ray{T}, bbox::AABB{T}) where {T<:Real}
     # Convert to unitless for computation
     ray_origin_u = ustrip.(ray.origin.point)
-    ray_dir_u = ray.direction
+    ray_dir_u = ray.direction.point
     bbox_min_u = ustrip.(bbox.min.point)
     bbox_max_u = ustrip.(bbox.max.point)
     
@@ -217,8 +221,7 @@ function find_intersect(ray::Ray{T}, bvh::BVHTree{T}) where {T<:Real}
     end
 
     # Sort by distance and return the closest
-    sort!(intersections, by = x -> ustrip(x[1].distance))
-    #sort!(intersections, by = x -> ustrip(x[1].distance))
+    sort!(intersections, by = x -> ustrip(x.distance))
     return first(intersections)
 end
 
@@ -413,7 +416,7 @@ function find_intersection(
     denominator = dot(ray.direction.point, plane.normal.point)
 
     # Check if ray is parallel to plane
-    if abs(denominator) < 1e-10
+    if abs(denominator) < PLANE_PARALLELISM_TOLERANCE
         return nothing, nothing  # No intersection or ray lies in plane
     end
 

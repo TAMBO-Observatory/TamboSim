@@ -153,54 +153,16 @@ end
 """
     validate_config_file(config::Dict{String, Any})
 
-Validates the structure and content of the simulation configuration dictionary.
+Placeholder for configuration validation.
 
 This function is intended to ensure that the configuration contains only expected parameters
-and that their values are sensible, preventing unexpected behavior from misconfigurations.
-Currently, the validation logic is commented out.
+and that their values are sensible. Currently not implemented.
 
 # Arguments
 - `config::Dict{String, Any}`: The configuration dictionary to validate.
 """
 function validate_config_file(config::Dict{String, Any})
-    # Check that only expected configuration parameters are present
-    # so user doesn't think they're setting parameters they aren't
-
-    #expected_top_level_keys = Set(["geometry", "steering", "injection", "proposal", "corsika"])
-    #unexpected_keys = setdiff(Set(keys(config)), expected_top_level_keys)
-    #if !isempty(unexpected_keys)
-    #    error("Unexpected keys found in config file: ", unexpected_keys)
-    #end
-
-    #expected_steering_keys = Set(["nevent", "pinecone", "run_number"])
-    #unexpected_keys = setdiff(Set(keys(config["steering"])), expected_steering_keys)
-    #if !isempty(unexpected_keys)
-    #    error("Unexpected keys found in steering section of config file: ", unexpected_keys)
-    #end
-
-    #expected_geo_keys = Set(["geo_spline_path", "tambo_coordinates", "plane_orientation"])
-    #unexpected_keys = setdiff(Set(keys(config["geometry"])), expected_geo_keys)
-    #if !isempty(unexpected_keys)
-    #    error("Unexpected keys found in geometry section of config file: ", unexpected_keys)
-    #end
-
-    #expected_injection_keys = Set(["nu_pdg", "gamma", "gamma", "emin", "emax", "thetamin", "thetamax", "phimin", "phimax", "r_injection", "l_endcap", "xs_dir", "xs_model", "interaction", "track_progress", "length", "width"])
-    #unexpected_keys = setdiff(Set(keys(config["injection"])), expected_injection_keys)
-    #if !isempty(unexpected_keys)
-    #    error("Unexpected keys found in injection section of config file: ", unexpected_keys)
-    #end
-
-    #expected_proposal_keys = Set(["ecut", "vcut", "do_interpolate", "do_continuous", "tablespath", "track_progress"])
-    #unexpected_keys = setdiff(Set(keys(config["proposal"])), expected_proposal_keys)
-    #if !isempty(unexpected_keys)
-    #    error("Unexpected keys found in proposal section of config file: ", unexpected_keys)
-    #end
-
-    #expected_corsika_keys = Set(["should_run_corsika", "parallelize_corsika", "thinning", "hadron_ecut", "em_ecut", "photon_ecut", "mu_ecut", "corsika_path", "track_progress", "FLUPRO", "FLUFOR"])
-    #unexpected_keys = setdiff(Set(keys(config["corsika"])), expected_corsika_keys)
-    #if !isempty(unexpected_keys)
-    #    error("Unexpected keys found in corsika section of config file: ", unexpected_keys)
-    #end
+    # TODO: Implement configuration validation
 end
 
 """
@@ -294,10 +256,10 @@ function inject!(
             tr_seed=tr_seed
         )
         frame["$(outprefix)_initial_state"] = istate
-        if ~isnan(cstate.energy)
+        if !isnan(cstate.energy)
             frame["$(outprefix)_close_state"] = cstate
         end
-        if ~isnan(fstate.energy)
+        if !isnan(fstate.energy)
             frame["$(outprefix)_final_state"] = fstate
         end
         frame["weight_params"] = wp
@@ -371,7 +333,7 @@ function proposal_propagation!(
 
 
     @showprogress for frame in sim.results
-        if ~haskey(frame, inkey)
+        if !haskey(frame, inkey)
             continue
         end
         final_state = frame[inkey]
@@ -470,12 +432,12 @@ function corsika_run(
     else
         @warn("Deciding seed via RNG and adding to configuration")
         pinecone = rand(UInt32)
-        sim.config[outprefix]["pinecone"] = pinecone
+        sim.config["corsika"]["pinecone"] = pinecone
     end
     sbatch_command = parallelize ? cfg["sbatch_command"] : ""
     ecuts = SVector{4, Float64}([cfg["em_ecut"], cfg["photon_ecut"], cfg["mu_ecut"], cfg["hadron_ecut"]]) * u"GeV"
     for frame in sim.results
-        if ~(haskey(frame, inkey))
+        if !(haskey(frame, inkey))
             continue
         end
         paths = String[]

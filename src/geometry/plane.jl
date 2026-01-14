@@ -18,7 +18,7 @@ struct Plane{T}
     point::Coordinate{T}
     normal::Direction{T}
     function Plane(point::Coordinate{T}, normal::Direction{T}) where T
-        @assert CoordinateSystem(point)==CoordinateSystem(point)
+        @assert CoordinateSystem(point)==CoordinateSystem(normal) "Point and normal must be in the same coordinate system"
         return new{T}(point, normal)
     end
 end

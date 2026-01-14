@@ -1,3 +1,19 @@
+"""
+    CrossSection{T}
+
+Represents particle interaction cross-sections using interpolated spline functions.
+
+This struct stores one-dimensional (total) and two-dimensional (differential) cross-sections
+as `Spline1D` and `Spline2D` objects, respectively. It also includes an `inverter` spline
+for efficient sampling of outgoing energies.
+
+# Fields
+- `total_xs::Spline1D`: A 1D spline representing the total cross-section as a function of energy.
+- `differential_xs::Spline2D`: A 2D spline representing the differential cross-section as a function of incoming energy and `z` (a normalized outgoing energy parameter).
+- `inverter::Spline2D`: A 2D spline used to invert the cumulative distribution function for sampling outgoing energies.
+- `es::Vector{Quantity{T,edim,typeof(u"GeV")}}`: A vector of energies (in GeV) for which the cross-sections are defined.
+- `emin::Quantity{T,edim,typeof(u"GeV")}`: The minimum energy (in GeV) considered for interactions.
+"""
 struct CrossSection{T}
     total_xs::Spline1D
     differential_xs::Spline2D
@@ -6,6 +22,23 @@ struct CrossSection{T}
     emin::Quantity{T,edim,typeof(u"GeV")}
 end
 
+"""
+    CrossSection(location::String, epsilon::Float64=1e-6) -> CrossSection
+
+Constructs a `CrossSection` object by loading and interpolating cross-section data from an HDF5 file.
+
+This constructor reads total and differential cross-section data, along with energy and `z` values,
+from the specified HDF5 location. It then creates `Spline1D` and `Spline2D` objects for interpolation
+and constructs an `inverter` spline for efficient sampling of outgoing energies.
+
+# Arguments
+- `location::String`: A string indicating the path to the HDF5 file and the group name
+  within it (e.g., "cross_sections.h5:neutrino_nu_e").
+- `epsilon::Float64`: A small value used for numerical stability during CDF inversion. Defaults to 1e-6.
+
+# Returns
+- A new `CrossSection` object.
+"""
 function CrossSection(location::String, epsilon::Float64=1e-6)
     filename, groupname = split(location, ":")
     es, zs, tot_xs, diff_xs, emin = h5open(filename) do file
@@ -69,6 +102,20 @@ function CrossSection(location::String, epsilon::Float64=1e-6)
     return CrossSection(tot_itp, diff_itp, inverter, es, emin)
 end
 
+"""
+    (xs::CrossSection)(e::Quantity{T, edim, typeof(u"GeV")}) -> Quantity{T,ldim^2,typeof(u"cm^2")}
+
+Evaluates the total cross-section for a given incoming energy.
+
+This method uses the `total_xs` spline to interpolate the total cross-section
+at the specified energy `e`. It performs a log-interpolation on the energy axis.
+
+# Arguments
+- `e::Quantity{T, edim, typeof(u"GeV")}`: The incoming particle energy.
+
+# Returns
+- `Quantity{T,ldim^2,typeof(u"cm^2")}`: The total cross-section in square centimeters.
+"""
 function (xs::CrossSection)(
     e::Quantity{T, edim, typeof(u"GeV")}
 ) where {T<:Real}
@@ -79,6 +126,21 @@ function (xs::CrossSection)(
     return v
 end
 
+"""
+    (xs::CrossSection)(ein::Quantity{T,edim,typeof(u"GeV")}, eout::Quantity{T,edim,typeof(u"GeV")}) -> Quantity{T,ldim^2,typeof(u"cm^2")}
+
+Evaluates the differential cross-section for given incoming and outgoing energies.
+
+This method uses the `differential_xs` spline to interpolate the differential cross-section.
+The outgoing energy `eout` is normalized to `z` for the interpolation.
+
+# Arguments
+- `ein::Quantity{T,edim,typeof(u"GeV")}`: The incoming particle energy.
+- `eout::Quantity{T,edim,typeof(u"GeV")}`: The outgoing particle energy.
+
+# Returns
+- `Quantity{T,ldim^2,typeof(u"cm^2")}`: The differential cross-section in square centimeters.
+"""
 function (xs::CrossSection)(
     ein::Quantity{T,edim,typeof(u"GeV")},
     eout::Quantity{T,edim,typeof(u"GeV")}
@@ -92,6 +154,21 @@ function (xs::CrossSection)(
     return v
 end
 
+"""
+    Base.rand(xs::CrossSection{T}, ein::Quantity{T,edim,typeof(u"GeV")}) -> Quantity{T,edim,typeof(u"GeV")}
+
+Randomly samples an outgoing energy from the differential cross-section distribution.
+
+This method uses the `inverter` spline to perform an inverse transform sampling,
+generating an `eout` value corresponding to a random `u` between 0 and 1.
+
+# Arguments
+- `xs::CrossSection{T}`: The `CrossSection` object.
+- `ein::Quantity{T,edim,typeof(u"GeV")}`: The incoming particle energy.
+
+# Returns
+- `Quantity{T,edim,typeof(u"GeV")}`: A randomly sampled outgoing particle energy.
+"""
 function Base.rand(
     xs::CrossSection{T},
     ein::Quantity{T,edim,typeof(u"GeV")}
@@ -104,6 +181,21 @@ function Base.rand(
     return z * (ein - xs.emin) + xs.emin
 end
 
+"""
+    Base.rand(xs::CrossSection{T}, ein::Quantity{T,edim,typeof(u"GeV")}, n::Int) -> Vector{Quantity{T,edim,typeof(u"GeV")}}
+
+Randomly samples `n` outgoing energies from the differential cross-section distribution.
+
+This method calls `rand(xs, ein)` `n` times to generate multiple outgoing energy samples.
+
+# Arguments
+- `xs::CrossSection{T}`: The `CrossSection` object.
+- `ein::Quantity{T,edim,typeof(u"GeV")}`: The incoming particle energy.
+- `n::Int`: The number of samples to generate.
+
+# Returns
+- `Vector{Quantity{T,edim,typeof(u"GeV")}}`: A vector of randomly sampled outgoing particle energies.
+"""
 function Base.rand(
     xs::CrossSection{T},
     ein::Quantity{T,edim,typeof(u"GeV")},
@@ -112,6 +204,25 @@ function Base.rand(
     return [rand(xs, ein) for _ in 1:n]
 end
 
+"""
+    probability(
+        xs::CrossSection{T},
+        ein::Quantity{T,edim,typeof(u"GeV")},
+        eout::Quantity{T,edim,typeof(u"GeV")}
+    ) -> T
+
+Calculates the probability of an interaction resulting in a specific outgoing energy.
+
+This is calculated as the ratio of the differential cross-section to the total cross-section.
+
+# Arguments
+- `xs::CrossSection{T}`: The `CrossSection` object.
+- `ein::Quantity{T,edim,typeof(u"GeV")}`: The incoming particle energy.
+- `eout::Quantity{T,edim,typeof(u"GeV")}`: The outgoing particle energy.
+
+# Returns
+- `T`: The probability (unitless).
+"""
 function probability(
     xs::CrossSection{T},
     ein::Quantity{T,edim,typeof(u"GeV")},
@@ -123,6 +234,22 @@ function probability(
     return diff_xs / tot_xs
 end
 
+"""
+    probability(xs::CrossSection, event) -> Real
+
+Calculates the probability of an interaction for a given `InjectionEvent`.
+
+This is a convenience method that extracts the incoming and outgoing energies
+from the `event` and calls the primary `probability` function.
+
+# Arguments
+- `xs::CrossSection`: The `CrossSection` object.
+- `event`: An object (e.g., `InjectionEvent`) that has `entry_state` and `final_state` fields,
+  each containing an `energy` field.
+
+# Returns
+- `Real`: The probability (unitless).
+"""
 function probability(xs::CrossSection, event)
     return probability(xs, event.entry_state.energy, event.final_state.energy)
 end

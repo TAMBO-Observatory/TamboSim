@@ -1,3 +1,21 @@
+"""
+    triangles_to_mesh(triangles::Vector{Triangle{T}}, forplot::Bool=false) -> Tuple{Vector{Coordinate{T}}, Matrix{Int}}
+
+Converts a vector of `Triangle` objects into a mesh representation (unique vertices and face indices).
+
+This function processes a list of triangles, extracts all unique vertices, assigns an index to each,
+and then generates a matrix of face indices where each row defines a triangle using the indices of its vertices.
+An optional `forplot` argument can be used to format vertices for plotting.
+
+# Arguments
+- `triangles::Vector{Triangle{T}}`: A vector of `Triangle` objects to convert.
+- `forplot::Bool`: If `true`, the vertices are converted to `Point3f` for plotting purposes. Defaults to `false`.
+
+# Returns
+- `Tuple{Vector{Coordinate{T}}, Matrix{Int}}`: A tuple containing:
+    - `unique_vertices`: A vector of unique `Coordinate` objects (or `Point3f` if `forplot` is true).
+    - `face_indices`: A `Matrix{Int}` where each row represents a face (triangle) by its vertex indices.
+"""
 function triangles_to_mesh(
     triangles::Vector{Triangle{T}},
     forplot::Bool=false
@@ -30,6 +48,27 @@ function triangles_to_mesh(
     return unique_vertices, face_indices
 end
 
+"""
+    mask_helper(
+        intersections::AbstractVector{Intersection{T}},
+        earth::Earth{T},
+        revd::Direction{T}
+    ) -> BitVector
+
+Generates a boolean mask for intersections, marking certain intersections as "bad" based on detector region entry/exit.
+
+This function is used to filter out intersections that correspond to entering and immediately
+exiting a detector region without traversing any significant material, or other conditions
+that should not be considered valid interaction points.
+
+# Arguments
+- `intersections::AbstractVector{Intersection{T}}`: A sorted list of `Intersection` objects along a ray.
+- `earth::Earth{T}`: The Earth model, containing information about detector regions.
+- `revd::Direction{T}`: The reverse direction of the particle's travel.
+
+# Returns
+- `BitVector`: A boolean mask where `false` indicates "bad" intersections to be excluded.
+"""
 function mask_helper(
     intersections::I,
     earth::Earth{T},

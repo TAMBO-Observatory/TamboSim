@@ -1,13 +1,55 @@
 using Random: seed!
 
+"""
+    accept_all(e)
+
+Returns an acceptance probability of 1.0, effectively accepting all events.
+
+This function serves as a placeholder efficiency function that always returns 1.0.
+
+# Arguments
+- `e`: The event property (e.g., energy) for which to determine acceptance.
+
+# Returns
+- `Float64`: Always returns 1.0.
+"""
 function accept_all(e) :: Float64
     return 1.0
 end
 
+"""
+    reject_all(e)
+
+Returns an acceptance probability of 0.0, effectively rejecting all events.
+
+This function serves as a placeholder efficiency function that always returns 0.0.
+
+# Arguments
+- `e`: The event property (e.g., energy) for which to determine acceptance.
+
+# Returns
+- `Float64`: Always returns 0.0.
+"""
 function reject_all(e) :: Float64
     return 0.0
 end
 
+"""
+    interpolated_electron_efficiency(e)
+
+Calculates the interpolated efficiency for electrons based on their energy.
+
+This function uses a pre-defined interpolation function (`interpolated_eff_electron`)
+to determine the efficiency. It handles energy values outside the interpolation range
+by returning 0.0 for energies below the lower limit and the efficiency at the upper limit
+for energies above it.
+
+# Arguments
+- `e`: The energy of the electron.
+
+# Returns
+- `Float64`: The interpolated efficiency for the given electron energy.
+"""
 function interpolated_electron_efficiency(e) :: Float64
     interpolated_eff = interpolated_eff_electron
     lower_limit = extrema(interpolated_eff.itp.knots[1])[begin]
@@ -22,6 +64,22 @@ function interpolated_electron_efficiency(e) :: Float64
     end
 end
 
+"""
+    interpolated_muon_efficiency(e)
+
+Calculates the interpolated efficiency for muons based on their energy.
+
+This function uses a pre-defined interpolation function (`interpolated_eff_muon`)
+to determine the efficiency. It handles energy values outside the interpolation range
+by returning 0.0 for energies below the lower limit and the efficiency at the upper limit
+for energies above it.
+
+# Arguments
+- `e`: The energy of the muon.
+
+# Returns
+- `Float64`: The interpolated efficiency for the given muon energy.
+"""
 function interpolated_muon_efficiency(e) :: Float64
     interpolated_eff = interpolated_eff_muon
     lower_limit = extrema(interpolated_eff.itp.knots[1])[begin]
@@ -36,6 +94,22 @@ function interpolated_muon_efficiency(e) :: Float64
     end
 end
 
+"""
+    interpolated_gamma_efficiency(e)
+
+Calculates the interpolated efficiency for gamma particles based on their energy.
+
+This function uses a pre-defined interpolation function (`interpolated_eff_gamma`)
+to determine the efficiency. It handles energy values outside the interpolation range
+by returning 0.0 for energies below the lower limit and the efficiency at the upper limit
+for energies above it.
+
+# Arguments
+- `e`: The energy of the gamma particle.
+
+# Returns
+- `Float64`: The interpolated efficiency for the given gamma particle energy.
+"""
 function interpolated_gamma_efficiency(e) :: Float64
     interpolated_eff = interpolated_eff_gamma
     lower_limit = extrema(interpolated_eff.itp.knots[1])[begin]
@@ -50,6 +124,24 @@ function interpolated_gamma_efficiency(e) :: Float64
     end
 end
 
+"""
+    get_nhit(hit_map, efficiencies::Dict{Int, Function}) -> Int
+
+Calculates the total number of "hits" or effective particles/photons based on a hit map and efficiencies.
+
+This function iterates through a `hit_map`, which contains lists of `CorsikaEvent`s for different
+detector modules. For each `CorsikaEvent`, it applies the relevant efficiency function from the
+`efficiencies` dictionary to determine its contribution to the total `nhit`.
+
+# Arguments
+- `hit_map`: A map (e.g., dictionary) where keys represent detector modules and values are
+  vectors of `CorsikaEvent`s that hit that module.
+- `efficiencies::Dict{Int, Function}`: A dictionary mapping particle PDG IDs (Int) to
+  efficiency functions (Function) that take a `CorsikaEvent` and return a weight or count.
+
+# Returns
+- `Int`: The total number of effective hits.
+"""
 function get_nhit(hit_map, efficiencies)
 #function get_nhit(hit_map, efficiencies::Dict{Int, Function})
     nhit = 0
@@ -59,6 +151,32 @@ function get_nhit(hit_map, efficiencies)
     return nhit
 end
 
+"""
+    did_trigger(
+        hit_map,
+        module_trigger_thresh::Int=3,
+        event_trigger_thresh::Int=30,
+        trigger_type::String="whitepaper"
+    ) -> Bool
+
+Determines if an event triggers the detector based on a hit map and specified trigger criteria.
+
+This method acts as a dispatcher, setting up the appropriate efficiency functions based on
+`trigger_type` and then calling the core `did_trigger` method. It defines the particle
+acceptance rules for different trigger types (e.g., "whitepaper", "threeamigos", "icetop_tanks").
+
+# Arguments
+- `hit_map`: A map containing `CorsikaEvent`s for each detector module.
+- `module_trigger_thresh::Int`: The minimum number of hits (particles or photons) required
+  for an individual module to be considered triggered. Defaults to 3.
+- `event_trigger_thresh::Int`: The minimum total number of hits across all triggered modules
+  for the entire event to be considered triggered. Defaults to 30.
+- `trigger_type::String`: Specifies the type of trigger logic to apply.
+  Supported types include "whitepaper", "threeamigos", "icetop_tanks", and "icetop_panels".
+
+# Returns
+- `Bool`: `true` if the event triggers the detector, `false` otherwise.
+"""
 function did_trigger(
     hit_map,
     module_trigger_thresh::Int=3,
@@ -109,6 +227,33 @@ function did_trigger(
     )
 end
 
+"""
+    did_trigger(
+        hit_map,
+        efficiencies::Dict{Int, Function},
+        module_trigger_thresh::Int=3,
+        event_trigger_thresh::Int=30
+    ) -> Bool
+
+Core function to determine if an event triggers the detector.
+
+This method applies the given `efficiencies` to the `hit_map` to calculate effective hits.
+An event triggers if a sufficient number of individual modules are triggered (each exceeding
+`module_trigger_thresh`), and the total effective hits across these modules exceeds
+`event_trigger_thresh`.
+
+# Arguments
+- `hit_map`: A map containing `CorsikaEvent`s for each detector module.
+- `efficiencies::Dict{Int, Function}`: A dictionary mapping particle PDG IDs (Int) to
+  efficiency functions (Function) that take a `CorsikaEvent` and return a weight or count.
+- `module_trigger_thresh::Int`: The minimum number of hits (particles or photons) required
+  for an individual module to be considered triggered. Defaults to 3.
+- `event_trigger_thresh::Int`: The minimum total number of effective hits across all triggered modules
+  for the entire event to be considered triggered. Defaults to 30.
+
+# Returns
+- `Bool`: `true` if the event triggers the detector, `false` otherwise.
+"""
 function did_trigger(
     hit_map,
     efficiencies,
@@ -128,6 +273,22 @@ function did_trigger(
     return nhit >= event_trigger_thresh
 end
 
+"""
+    corsika_int_weight(event::CorsikaEvent, efficiencies::Dict{Int, Function}) -> Int
+
+Calculates the interaction weight for a single `CorsikaEvent` using a generated seed.
+
+This method generates a random seed based on the event's hash and then calls the
+`corsika_int_weight` method that accepts a seed.
+
+# Arguments
+- `event::CorsikaEvent`: The CORSIKA event for which to calculate the weight.
+- `efficiencies::Dict{Int, Function}`: A dictionary mapping particle PDG IDs (Int) to
+  efficiency functions (Function).
+
+# Returns
+- `Int`: The calculated interaction weight.
+"""
 function corsika_int_weight(
     event::CorsikaEvent,
     efficiencies
@@ -136,6 +297,31 @@ function corsika_int_weight(
     return corsika_int_weight(event, efficiencies, seed)
 end
 
+"""
+    corsika_int_weight(
+        event::CorsikaEvent,
+        efficiencies::Dict{Int, Function},
+        seed::Int
+    ) -> Int
+
+Calculates the interaction weight for a single `CorsikaEvent` with a specified random seed.
+
+This is the core method for calculating the interaction weight. It uses the provided
+`seed` for reproducibility, retrieves the relevant efficiency function based on the
+particle's PDG ID, and then applies the efficiency logic. If the efficiency function
+is `accept_all` or `reject_all`, it samples based on an acceptance probability and
+may apply Poissonian weighting for `event.weight`. Otherwise, it rounds the efficiency
+output to determine the number of generated photons.
+
+# Arguments
+- `event::CorsikaEvent`: The CORSIKA event for which to calculate the weight.
+- `efficiencies::Dict{Int, Function}`: A dictionary mapping particle PDG IDs (Int) to
+  efficiency functions (Function).
+- `seed::Int`: The random seed to use for sampling.
+
+# Returns
+- `Int`: The calculated interaction weight or number of photons.
+"""
 function corsika_int_weight(
     event::CorsikaEvent,
     efficiencies,
@@ -161,6 +347,25 @@ function corsika_int_weight(
     return n_photons
 end
 
+"""
+    corsika_int_weight(
+        events::Vector{CorsikaEvent},
+        efficiencies::Dict{Int, Function}
+    ) -> Vector{Int}
+
+Calculates interaction weights for a vector of `CorsikaEvent`s.
+
+This method broadcasts the `corsika_int_weight` function (which takes a single event)
+over a vector of `CorsikaEvent`s, applying the same `efficiencies` to all.
+
+# Arguments
+- `events::Vector{CorsikaEvent}`: A vector of CORSIKA events.
+- `efficiencies::Dict{Int, Function}`: A dictionary mapping particle PDG IDs (Int) to
+  efficiency functions (Function).
+
+# Returns
+- `Vector{Int}`: A vector of calculated interaction weights, one for each event.
+"""
 function corsika_int_weight(
     events::Vector{CorsikaEvent},
     efficiencies

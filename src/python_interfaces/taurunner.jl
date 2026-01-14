@@ -11,6 +11,14 @@ const tr_media = PyNULL()
 const StandardRock = PyNULL()
 const Air = PyNULL()
 
+"""
+    tr_init()
+
+Initializes the Python `taurunner` library and its components using `PyCall`.
+
+This function sets up global Python objects that are used by the `taurunner_interface` function.
+It imports `taurunner` and its necessary submodules, and configures the Earth model and cross-section data.
+"""
 function tr_init()
     copy!(tr, pyimport("taurunner"))
     x = tr.body.earth
@@ -52,6 +60,19 @@ function tr_init()
     """
 end
 
+"""
+    taurunner_interface(particle::Particle, intersections::AbstractVector{Intersection}, seed=nothing) -> Particle
+
+Propagates a particle through a medium using the `taurunner` library.
+
+# Arguments
+- `particle::Particle`: The particle to be propagated.
+- `intersections::AbstractVector{Intersection}`: A vector of intersections defining the geometry.
+- `seed`: An optional seed for the random number generator.
+
+# Returns
+- `Particle`: The particle at its final state after propagation.
+"""
 function taurunner_interface(
     particle::Particle{T},
     intersections::I,
@@ -124,6 +145,20 @@ function taurunner_interface(
     end
 end
 
+"""
+    cull_intersections(intersections::AbstractVector{Intersection}) -> Vector{Intersection}
+
+Filters a vector of intersections to remove redundant entries.
+
+This function removes triangle intersections that occur after a sphere intersection,
+as they are considered to be inside the Earth and thus irrelevant.
+
+# Arguments
+- `intersections::AbstractVector{Intersection}`: The input vector of intersections.
+
+# Returns
+- `Vector{Intersection}`: The culled vector of intersections.
+"""
 function cull_intersections(
     intersections::I,
 )::Vector{Intersection{T}} where {T<:Real,I<:AbstractVector{Intersection{T}}}
@@ -140,6 +175,20 @@ function cull_intersections(
     return culled_intersections
 end
 
+"""
+    should_go_through_earth(intersections::AbstractVector{Intersection}) -> Bool
+
+Determines if a particle's trajectory passes through the Earth.
+
+This is decided by counting the number of sphere intersections. A count greater than 4
+indicates that the particle is passing through the Earth model.
+
+# Arguments
+- `intersections::AbstractVector{Intersection}`: The vector of intersections.
+
+# Returns
+- `Bool`: `true` if the particle should be propagated through the Earth, `false` otherwise.
+"""
 function should_go_through_earth(
     intersections::I
 )::Bool where {T<:Real,I<:AbstractVector{Intersection{T}}}

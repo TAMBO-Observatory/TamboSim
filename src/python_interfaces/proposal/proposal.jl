@@ -24,6 +24,19 @@ const cross_section_dict = Dict(
 )
 const prop_cache = Dict()
 
+"""
+    init_proposal(config)
+
+Initializes the PROPOSAL Python library and pre-computes propagator objects.
+
+This function loads the `proposal` Python module, sets the path for interpolation tables,
+and initializes particle definitions for electrons, muons, and taus. It then iterates through
+leptons and media (Air, StandardRock) to create and cache cross-sections and propagator
+objects for later use.
+
+# Arguments
+- `config`: A dictionary containing configuration parameters, including `tablespath`.
+"""
 function init_proposal(config)
     copy!(pp, pyimport("proposal"))
     pp.InterpolationSettings.tables_path = config["tablespath"]
@@ -49,6 +62,19 @@ function init_proposal(config)
     end
 end
 
+"""
+    make_pp_crosssection(particle_def, mediumname, config) -> PyObject
+
+Creates a standard cross-section object for PROPOSAL.
+
+# Arguments
+- `particle_def`: The PROPOSAL particle definition object.
+- `mediumname`: The name of the medium (e.g., "Air", "StandardRock").
+- `config`: A dictionary with configuration parameters like `ecut`, `vcut`, etc.
+
+# Returns
+- `PyObject`: A PROPOSAL cross-section object.
+"""
 function make_pp_crosssection(particle_def, mediumname, config=config)
     ecut = config["ecut"] > 0 ? config["ecut"]*u"GeV" : Inf*u"GeV"
     cuts = pp.EnergyCutSettings(
@@ -65,6 +91,18 @@ function make_pp_crosssection(particle_def, mediumname, config=config)
     )
     return cross
 end
+
+"""
+    add_propagator_to_cache!(cache, lepton_id, medium, density)
+
+Creates and caches a PROPOSAL propagator for a given particle and medium.
+
+# Arguments
+- `cache::Dict`: The dictionary where the propagator will be stored.
+- `lepton_id::Int`: The PDG ID of the lepton.
+- `medium::String`: The name of the medium.
+- `density`: The density of the medium. If `nothing`, it's inferred from the medium object.
+"""
 function add_propagator_to_cache!(
     cache::Dict,
     lepton_id::Int,
@@ -86,6 +124,21 @@ function add_propagator_to_cache!(
     cache[(lepton_id, medium)] = prop
 end
 
+"""
+    make_pp_utility(particle_def, cross) -> PyObject
+
+Creates a PROPOSAL PropagationUtility object.
+
+This utility bundles various components required for propagation, such as displacement,
+interaction, time, and decay calculators.
+
+# Arguments
+- `particle_def`: The PROPOSAL particle definition object.
+- `cross`: The PROPOSAL cross-section object.
+
+# Returns
+- `PyObject`: A PROPOSAL PropagationUtility object.
+"""
 function make_pp_utility(particle_def, cross)
     collection = pp.PropagationUtilityCollection()
     collection.displacement = pp.make_displacement(cross, true)

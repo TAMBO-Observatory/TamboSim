@@ -45,9 +45,17 @@ include("python_interfaces/python_interfaces.jl")
 include("corsika/corsika.jl")
 include("frames/frames.jl")
 
+"""
+    __init__()
+
+Initializes the TAMBOSim module.
+
+This function is automatically called when the module is loaded. It retrieves and prints
+the Git commit hash of the TAMBOSim repository and displays a welcome message with ASCII art.
+"""
 function __init__()
     
-    tr_init()
+    #tr_init()
     commit_hash = get_git_commit_hash()
     if isinteractive()
         println("Welcome to TAMBOSim version -0.1")
@@ -73,6 +81,17 @@ function __init__()
     end
 end
 
+"""
+    get_git_commit_hash() -> String
+
+Retrieves the Git commit hash of the TAMBOSim repository.
+
+This function reads the `TAMBOSIM_PATH` environment variable to find the repository path,
+opens the Git repository, and returns the hash of the current HEAD commit.
+
+# Returns
+- A string containing the Git commit hash.
+"""
 function get_git_commit_hash()
     git_repo_path = ENV["TAMBOSIM_PATH"]
 
@@ -89,6 +108,15 @@ function get_git_commit_hash()
 end
 
 
+"""
+    Simulation
+
+A mutable struct that holds the configuration and results of a TAMBOSim simulation.
+
+# Fields
+- `config::Dict{String, Any}`: A dictionary containing the simulation configuration.
+- `results::Vector{Frame}`: A vector of `Frame` objects, where each frame represents an event.
+"""
 mutable struct Simulation
     config::Dict{String, Any}
     results::Vector{Frame}
@@ -98,6 +126,17 @@ mutable struct Simulation
     end
 end
 
+"""
+    relativize!(d::Dict)
+
+Recursively replaces the placeholder `_TAMBOSIM_PATH_` in a dictionary with the value
+of the `TAMBOSIM_PATH` environment variable.
+
+This function modifies the dictionary in-place.
+
+# Arguments
+- `d::Dict`: The dictionary to modify.
+"""
 function relativize!(d::Dict)
     if "TAMBOSIM_PATH" ∉ keys(ENV)
         return
@@ -111,6 +150,18 @@ function relativize!(d::Dict)
     end
 end
 
+"""
+    validate_config_file(config::Dict{String, Any})
+
+Validates the structure and content of the simulation configuration dictionary.
+
+This function is intended to ensure that the configuration contains only expected parameters
+and that their values are sensible, preventing unexpected behavior from misconfigurations.
+Currently, the validation logic is commented out.
+
+# Arguments
+- `config::Dict{String, Any}`: The configuration dictionary to validate.
+"""
 function validate_config_file(config::Dict{String, Any})
     # Check that only expected configuration parameters are present
     # so user doesn't think they're setting parameters they aren't
@@ -152,6 +203,21 @@ function validate_config_file(config::Dict{String, Any})
     #end
 end
 
+"""
+    Simulation(config_file::String) -> Simulation
+
+Constructs a `Simulation` object from a TOML configuration file.
+
+This constructor parses the specified TOML file, validates its contents,
+and initializes an empty `Simulation` object with the loaded configuration.
+It also calls `relativize!` to make paths in the configuration absolute.
+
+# Arguments
+- `config_file::String`: The path to the TOML configuration file.
+
+# Returns
+- A new `Simulation` object.
+"""
 function Simulation(config_file::String)
     config = TOML.parsefile(config_file)
     validate_config_file(config)
@@ -160,6 +226,24 @@ function Simulation(config_file::String)
     return Simulation(config, results)
 end
 
+"""
+    inject!(
+        sim::Simulation;
+        outprefix::String="injection",
+        earth::Union{Earth, Nothing}=nothing
+    )
+
+Injects particles into the simulation based on the configuration.
+
+This function generates initial neutrino events according to the specified energy and angular distributions.
+For each event, it determines the initial, close, and final states of the particle as it interacts
+with the provided `Earth` model. The results are stored in the `sim.results` frames.
+
+# Arguments
+- `sim::Simulation`: The `Simulation` object to modify.
+- `outprefix::String`: A prefix for the keys under which the injection results are stored in the frames. Defaults to "injection".
+- `earth::Union{Earth, Nothing}`: An optional `Earth` object. If not provided, it's created from the simulation configuration.
+"""
 function inject!(
     sim::Simulation;
     outprefix::String="injection",
@@ -220,6 +304,17 @@ function inject!(
     end
 end
 
+"""
+    inject_ν!(
+        sim::Simulation;
+        outprefix::String="injection",
+        earth::Union{Earth, Nothing}=nothing
+    )
+
+**DEPRECATED**. Use `inject!` instead.
+
+Injects neutrinos into the simulation. This function is an alias for `inject!`.
+"""
 function inject_ν!(
     sim::Simulation;
     outprefix::String="injection",
@@ -229,6 +324,26 @@ function inject_ν!(
     inject!(sim; outprefix=outprefix, earth=earth)
 end
 
+"""
+    proposal_propagation!(
+        sim::Simulation;
+        inkey::String="injection_final_state",
+        outprefix::String="proposal",
+        earth::Union{Earth, Nothing}=nothing
+    )
+
+Propagates particles through the Earth model using the PROPOSAL library.
+
+This function takes the final state of particles from a previous simulation step (e.g., injection)
+and propagates them through the `Earth` model. It calculates and stores stochastic losses,
+continuous energy losses, decay products, and the final state of the particle in the `sim.results` frames.
+
+# Arguments
+- `sim::Simulation`: The `Simulation` object to modify.
+- `inkey::String`: The key for accessing the input particle state in each frame. Defaults to "injection_final_state".
+- `outprefix::String`: A prefix for the keys under which the propagation results are stored. Defaults to "proposal".
+- `earth::Union{Earth, Nothing}`: An optional `Earth` object. If not provided, it's created from the simulation configuration.
+"""
 function proposal_propagation!(
     sim::Simulation;
     inkey::String="injection_final_state",
@@ -275,6 +390,18 @@ function proposal_propagation!(
     end
 end
 
+"""
+    propagate_τ!(
+        sim::Simulation;
+        inkey::String="injection_final_state",
+        outprefix::String="proposal",
+        earth::Union{Earth, Nothing}=nothing
+    )
+
+**DEPRECATED**. Use `proposal_propagation!` instead.
+
+Propagates tau leptons through the Earth. This function is an alias for `proposal_propagation!`.
+"""
 function propagate_τ!(
     sim::Simulation;
     inkey::String="injection_final_state",
@@ -285,6 +412,31 @@ function propagate_τ!(
     proposal_propagation!(sim; inkey=inkey, outprefix=outprefix, earth=earth)
 end
 
+"""
+    corsika_run(
+        sim::Simulation,
+        base_outdir;
+        inkey::String="proposal_decay_products",
+        earth::Union{Earth, Nothing}=nothing,
+        parallelize=false,
+        store_paths=true
+    )
+
+Runs CORSIKA for the decay products of particles in the simulation.
+
+For each event in the simulation that has decay products, this function initiates
+a CORSIKA run for each decay product (that is not a neutrino). It sets up the
+CORSIKA environment, defines the observation plane, and then executes the run,
+potentially in parallel using a sbatch command.
+
+# Arguments
+- `sim::Simulation`: The `Simulation` object.
+- `base_outdir`: The base directory where CORSIKA output will be stored.
+- `inkey::String`: The key for accessing the decay products in each frame. Defaults to "proposal_decay_products".
+- `earth::Union{Earth, Nothing}`: An optional `Earth` object. If not provided, it's created from the simulation configuration.
+- `parallelize`: If `true`, submits CORSIKA jobs using the sbatch command specified in the configuration. Defaults to `false`.
+- `store_paths`: If `true`, stores the paths to the CORSIKA output directories in the frames. Defaults to `true`.
+"""
 function corsika_run(
     sim::Simulation,
     base_outdir;

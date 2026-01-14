@@ -1,14 +1,61 @@
+"""
+    world_to_local(obb::OBB, point::Coordinate) -> SVector{3}
+
+Transforms a `Coordinate` from world space to the local coordinate system of an `OBB`.
+
+This involves translating the point relative to the OBB's center and then
+rotating it by the inverse of the OBB's orientation.
+
+# Arguments
+- `obb::OBB`: The Oriented Bounding Box.
+- `point::Coordinate`: The `Coordinate` in world space.
+
+# Returns
+- `SVector{3}`: The transformed point in the OBB's local coordinate system.
+"""
 function world_to_local(obb::OBB, point::Coordinate)
     # Relative to center, then project onto OBB axes
     rel_point = point.point - obb.center.point
     return obb.axes' * rel_point  # Transpose of rotation matrix = inverse
 end
 
+"""
+    world_to_local(obb::OBB, direction::Direction) -> SVector{3}
+
+Transforms a `Direction` vector from world space to the local coordinate system of an `OBB`.
+
+This involves rotating the direction by the inverse of the OBB's orientation.
+
+# Arguments
+- `obb::OBB`: The Oriented Bounding Box.
+- `direction::Direction`: The `Direction` in world space.
+
+# Returns
+- `SVector{3}`: The transformed direction in the OBB's local coordinate system.
+"""
 function world_to_local(obb::OBB, direction::Direction)
     return obb.axes' * direction.point
 end
 
 
+"""
+    find_intersect(ray::Ray, obb::OBB, idx::Int) -> Union{TriangleIntersection, Nothing}
+
+Calculates the intersection between a `Ray` and an Oriented Bounding Box (`OBB`).
+
+This function transforms the ray into the OBB's local coordinate system and then
+performs a ray-AABB intersection test. If an intersection is found, it returns
+a `TriangleIntersection` object (used generically for OBB intersections),
+otherwise `nothing`.
+
+# Arguments
+- `ray::Ray`: The ray to test.
+- `obb::OBB`: The Oriented Bounding Box to test against.
+- `idx::Int`: The index of the OBB in its original collection.
+
+# Returns
+- `Union{TriangleIntersection, Nothing}`: A `TriangleIntersection` object (containing details about the hit point, normal, and distance), or `nothing` if no intersection occurs.
+"""
 function find_intersect(ray::Ray, obb::OBB, idx::Int)
     EPSILON = 1e-7
     

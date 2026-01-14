@@ -1,8 +1,39 @@
+"""
+    CorsikaEvent{T<:Real}
+
+Represents a particle event from a CORSIKA simulation.
+
+# Fields
+- `particle::Particle{T}`: The `Particle` object representing the event.
+- `time::Quantity{T, tdim, typeof(u"s")}`: The arrival time of the particle at the observation level.
+- `weight::T`: The statistical weight of the particle.
+"""
 struct CorsikaEvent{T<:Real}
     particle::Particle{T}
     weight::T
 end
 
+"""
+    read_corsika(
+        basedir::String,
+        cs_earth::CoordinateSystem{T},
+        filter_fxn::Function=x->true
+    ) where {T<:Real}
+
+Reads CORSIKA simulation data from a directory structure and provides an iterator over the events.
+
+This function scans a base directory for subdirectories matching "shower_*/particles/",
+reads the `config.yaml` and `particles.parquet` files within each, and sets up a
+`MultiParquetIterator` to stream `CorsikaEvent` objects.
+
+# Arguments
+- `basedir::String`: The base directory containing the CORSIKA shower data.
+- `cs_earth::CoordinateSystem{T}`: The Earth-centered coordinate system to which the event coordinates will be transformed.
+- `filter_fxn::Function`: An optional function to filter events. It should take a `CorsikaEvent` and return `true` to keep it.
+
+# Returns
+- A `MultiParquetIterator` that yields `CorsikaEvent` objects.
+"""
 function read_corsika(
     basedir::String,
     cs_earth::CoordinateSystem{T},
@@ -43,6 +74,31 @@ function read_corsika(
     return MultiParquetIterator(filenames, transforms[1]; T=CorsikaEvent)
 end
 
+"""
+    CorsikaEvent(
+        row,
+        rot::V,
+        center,
+        cs_corsika::CoordinateSystem{U},
+        cs_earth::CoordinateSystem{U},
+    ) where {U<:Real, V<:Rotation}
+
+Constructs a `CorsikaEvent` from a row of a Parquet file and associated coordinate transformation data.
+
+This function is typically used as a transformation function by `MultiParquetIterator` within `read_corsika`.
+It reads particle properties from the table row, applies the necessary rotations and translations
+to convert from CORSIKA's coordinate system to the Earth-centered one, and returns a `CorsikaEvent`.
+
+# Arguments
+- `row`: A row from a Parquet table containing particle data (pdg, energy, position, direction, etc.).
+- `rot::V`: A `Rotation` matrix to transform from the shower plane to the CORSIKA coordinate system.
+- `center`: The center of the shower plane.
+- `cs_corsika::CoordinateSystem{U}`: The CORSIKA coordinate system.
+- `cs_earth::CoordinateSystem{U}`: The target Earth-centered coordinate system.
+
+# Returns
+- A `CorsikaEvent` object.
+"""
 function CorsikaEvent(
     row,
     rot::V,

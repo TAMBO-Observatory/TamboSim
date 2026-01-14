@@ -108,7 +108,7 @@ function Earth(location::String, detectorname::String="")
 
         # Load mesh
         triangles = parse_triangles(group, enu_coordinates)
-        all(validate_triangle.(triangles, Ref(center))) || throw("Incorrectly oriented trinagles")
+        all(validate_triangle.(triangles, Ref(center))) || throw("Incorrectly oriented triangles")
 
         # Construct or load BVH
         bvh = BVHTree(triangles)
@@ -138,7 +138,6 @@ function parse_triangles(
 )::Vector{Triangle{T}} where {T}
     vertices = read(group["vertices"])
     faces = read(group["faces"])
-    vertices, faces
 
     triangles = Triangle{T}[]
     for idxs in eachrow(faces)

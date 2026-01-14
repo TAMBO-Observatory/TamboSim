@@ -1,3 +1,10 @@
+# Geometry constants
+"""Height factor for triangular grid spacing (ratio of row height to column spacing)."""
+const TRIANGULAR_GRID_HEIGHT_FACTOR = sqrt(3) / 2
+
+"""Default detection module dimensions [length, width, height] in meters."""
+const DEFAULT_MODULE_EXTENT_M = SVector{3}([1.875, 0.8, 0.03])
+
 """
     SquareDetectionModule
 
@@ -122,7 +129,7 @@ offset horizontally to create a triangular pattern.
 - A vector of `SVector{3, Float64}` representing the grid points.
 """
 function make_triangle_grid(x0::Real, x1::Real, y0::Real, y1::Real, ds::Real)
-  dy = ds * sqrt(3) / 2
+  dy = ds * TRIANGULAR_GRID_HEIGHT_FACTOR
   ys = y0:dy:y1
   dx = ds
   xs = x0:dx:x1
@@ -229,6 +236,6 @@ function make_detector_array(
     altmax::Real,
     geo::Geometry,
 )
-    ext = SVector{3}([1.875, 0.8, 0.03]) * units.m
+    ext = DEFAULT_MODULE_EXTENT_M * units.m
     return make_detector_array(length, ds, altmin, altmax, geo, ext)
 end

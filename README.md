@@ -26,7 +26,25 @@ We have found that the most straightforward way to get the Python dependencies t
 We’ll assume that you have a relatively recent version of Python installed. We have found that version 3.12.4 works well, but other relatively modern versions should work fine too. Create a fresh venv by running `python -m venv /path/to/tambo_venv`. Go ahead and activate this venv using `source /path/to/tambo_venv/bin/activate`.
 
 ### [1.2] PROPOSAL
-PROPOSAL is the library that we use to propoagate charged leptons and is easiest to install using pip. Run `pip install proposal` to install it.
+PROPOSAL is the library that we use to propagate charged leptons and is easiest to install using pip. Run `pip install proposal` to install it.
+
+#### Known Issue: macOS Apple Silicon (arm64)
+
+**PROPOSAL installation is currently broken on macOS with Apple Silicon (M1/M2/M3 chips).** There are no prebuilt wheels available for this platform, and building from source fails due to:
+
+1. **Conan build system incompatibility**: PROPOSAL uses Conan to manage C++ dependencies. The bzip2 dependency's CMakeLists.txt requires CMake < 3.5, which is incompatible with modern CMake (4.x), causing the build to fail with:
+   ```
+   Compatibility with CMake < 3.5 has been removed from CMake
+   ```
+
+2. **ABI incompatibility when bypassing Conan**: Building manually with homebrew dependencies succeeds, but the resulting Python module segfaults on import due to pybind11/Python ABI mismatches.
+
+**Workarounds:**
+- Use a Linux machine or Docker container where prebuilt wheels are available
+- Use an x86_64 Python via Rosetta 2 (though this also has Conan issues)
+- Wait for upstream PROPOSAL to fix their build system for modern macOS
+
+This is an upstream issue with PROPOSAL's packaging. See [PROPOSAL GitHub](https://github.com/tudo-astroparticlephysics/PROPOSAL) for updates.
 
 ### [1.3] TauRunner
 TauRunner is used to propagate high-energy tau neturinos thought the Earth, taking into account the effects of [tau regeneration](https://doi.org/10.48550/arXiv.hep-ph/9804354).  To install it, you will need to directly clone the [TauRunner repo](https://github.com/icecube/TauRunner.git). After cloning the repo, install TauRunner by running `pip install /path/to/TauRunner`.

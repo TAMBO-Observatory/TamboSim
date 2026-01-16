@@ -55,7 +55,7 @@ the Git commit hash of the TAMBOSim repository and displays a welcome message wi
 """
 function __init__()
     
-    #tr_init()
+    tr_init()
     commit_hash = get_git_commit_hash()
     if isinteractive()
         println("Welcome to TAMBOSim version -0.1")

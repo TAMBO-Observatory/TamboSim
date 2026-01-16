@@ -141,3 +141,139 @@ Would you like to simulate your own custom geometry? We’re working on a script
 ## Citation
 Tell people how to cite us.
 
+
+## 4. Troubleshooting
+
+This section documents common issues encountered during installation and their solutions.
+
+### [4.1] TauRunner Not Initializing (NULL PyObject Error)
+
+**Symptom:** When running examples like `inject.jl`, you encounter an error like:
+```
+ERROR: ArgumentError: ref of NULL PyObject
+```
+
+**Cause:** The TauRunner Python interface is not being initialized. In some versions, the `tr_init()` call in `src/Tambo.jl` may be commented out.
+
+**Solution:** Open `src/Tambo.jl` and locate the `__init__()` function (around line 56-60). Ensure `tr_init()` is uncommented:
+```julia
+function __init__()
+    tr_init()  # Make sure this line is NOT commented out
+    commit_hash = get_git_commit_hash()
+    ...
+end
+```
+
+After making this change, restart Julia to trigger recompilation.
+
+### [4.2] Merge Conflict Markers in Source Files
+
+**Symptom:** Precompilation fails with errors like:
+```
+ParseError: <<<<<<< HEAD
+```
+
+**Cause:** Git merge conflict markers were accidentally left in source files.
+
+**Solution:** Search for and resolve any merge conflict markers:
+```bash
+grep -rn '<<<<<<\|======\|>>>>>>' src/
+```
+Remove the conflict markers and keep the appropriate code version.
+
+### [4.3] Documentation String Errors
+
+**Symptom:** Precompilation fails with errors about documenting expressions:
+```
+ERROR: LoadError: cannot document the following expression
+```
+
+**Cause:** A docstring exists without an immediately following function definition (orphaned docstring).
+
+**Solution:** Check the file and line number mentioned in the error. Look for duplicate or orphaned docstrings and remove them.
+
+### [4.4] Running Examples from the `examples/` Directory
+
+**Symptom:** Running examples fails with:
+```
+ERROR: package `Tambo` has the same name or UUID as the active project
+```
+
+**Cause:** The example scripts contain `Pkg.develop(path=tambo_path)` which conflicts when run from within the TAMBO-MC directory.
+
+**Solution:** The examples directory has its own `Project.toml` that references the Tambo package. To run examples:
+
+1. Update `examples/Project.toml` to point to your TAMBO-MC installation:
+   ```toml
+   [sources]
+   Tambo = {path = "/your/path/to/TAMBO-MC/"}
+   ```
+
+2. Run examples from the `examples/` directory:
+   ```bash
+   cd /path/to/TAMBO-MC/examples
+   julia -e 'using Pkg; Pkg.activate("."); Pkg.instantiate()'
+   ```
+
+3. When running example scripts, you can skip the `Pkg.develop()` line since the source is already configured in `Project.toml`:
+   ```julia
+   export TAMBOSIM_PATH=/path/to/TAMBO-MC
+   cd /path/to/TAMBO-MC/examples
+   julia -e '
+   tambo_path = ENV["TAMBOSIM_PATH"]
+   import Pkg
+   Pkg.activate(".")
+   # Skip Pkg.develop since source is in Project.toml
+   using JLD2
+   using Tambo
+   # ... rest of script
+   '
+   ```
+
+### [4.5] PyCall Using Wrong Python
+
+**Symptom:** Python imports fail even though the package is installed in your venv.
+
+**Cause:** PyCall may be configured to use a different Python interpreter than your venv.
+
+**Solution:** Check which Python PyCall is using:
+```julia
+using PyCall
+println(PyCall.pyprogramname)
+```
+
+If it's not your venv Python, rebuild PyCall with the correct Python:
+```julia
+ENV["PYTHON"] = "/path/to/your/venv/bin/python"
+using Pkg
+Pkg.build("PyCall")
+```
+Then restart Julia.
+
+### [4.6] PROPOSAL Warnings During Lepton Propagation
+
+**Symptom:** When running `lepton_propagation.jl`, you see many warnings like:
+```
+[warning] Negative dNdx value for E = X.XXX MeV, vbar = 1.0000 detected in interaction type Ioniz. Setting dNdx to zero.
+```
+
+**Cause:** These are normal numerical warnings from the PROPOSAL library at very low energies.
+
+**Solution:** These warnings can be safely ignored. They do not affect the simulation results. The simulation may take significant time due to the physics calculations involved.
+
+### [4.7] TAMBOSIM_PATH Not Set
+
+**Symptom:** Loading Tambo fails with:
+```
+ERROR: InitError: KeyError: key "TAMBOSIM_PATH" not found
+```
+
+**Solution:** Set the environment variable before starting Julia:
+```bash
+export TAMBOSIM_PATH=/path/to/TAMBO-MC
+```
+
+Or within Julia before loading Tambo:
+```julia
+ENV["TAMBOSIM_PATH"] = "/path/to/TAMBO-MC"
+```

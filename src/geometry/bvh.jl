@@ -694,21 +694,6 @@ function static_extrema_per_dim(
 end
 
 """
-    static_extrema_per_dim(aabbs, mins, maxs)
-
-Computes the minimum and maximum coordinates over a collection of AABBs.
-
-This is another in-place version.
-
-# Arguments
-- `aabbs`: An iterable collection of AABBs.
-- `mins`: A mutable vector to store the minimum coordinates.
-- `maxs`: A mutable vector to store the maximum coordinates.
-
-# Returns
-- A tuple `(mins, maxs)`.
-"""
-"""
     static_extrema_per_dim(aabbs, mins::MVector, maxs::MVector) -> Tuple{MVector, MVector}
 
 Computes the minimum and maximum coordinates over a collection of Axis-Aligned Bounding Boxes (AABBs).

@@ -193,5 +193,5 @@ function particle_vacuum_range(
     particle::Particle{T},
     epsilon::Float64=1e-3
 )::Quantity{T,ldim,typeof(u"m")} where {T}
-    return particle_vacuum_range(particle.pdg, epsilon)
+    return particle_vacuum_range(particle.pdg, particle.energy, epsilon)
 end

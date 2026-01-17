@@ -24,10 +24,8 @@ Constructs a `Triangle` and potentially reorients its vertices based on a refere
 
 This constructor calculates the normal of the triangle and checks its orientation relative
 to a `ref`erence `Coordinate`. If the dot product of the normal with the reference coordinate
-is positive, it *attempts* to reverse the winding order of the vertices (by swapping `v2` and `v3`)
+is positive, it reverses the winding order of the vertices (by swapping `v2` and `v3`)
 to ensure a consistent outward-pointing normal relative to `ref`.
-(Note: The internal implementation `v2, v3 = v3, v3` appears to be a typo and likely
-intended to be `v2, v3 = v3, v2` to reverse winding.)
 
 # Arguments
 - `v1::Coordinate{T}`: The first vertex.

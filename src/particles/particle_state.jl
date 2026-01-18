@@ -194,8 +194,4 @@ function particle_vacuum_range(
     epsilon::Float64=1e-3
 )::Quantity{T,ldim,typeof(u"m")} where {T}
     return particle_vacuum_range(particle.pdg, epsilon)
-<<<<<<< HEAD
 end
-=======
-end
->>>>>>> refs/remotes/origin/new_geometry

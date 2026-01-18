@@ -26,7 +26,25 @@ We have found that the most straightforward way to get the Python dependencies t
 We’ll assume that you have a relatively recent version of Python installed. We have found that version 3.12.4 works well, but other relatively modern versions should work fine too. Create a fresh venv by running `python -m venv /path/to/tambo_venv`. Go ahead and activate this venv using `source /path/to/tambo_venv/bin/activate`.
 
 ### [1.2] PROPOSAL
-PROPOSAL is the library that we use to propoagate charged leptons and is easiest to install using pip. Run `pip install proposal` to install it.
+PROPOSAL is the library that we use to propagate charged leptons and is easiest to install using pip. Run `pip install proposal` to install it.
+
+#### Known Issue: macOS Apple Silicon (arm64)
+
+**PROPOSAL installation is currently broken on macOS with Apple Silicon (M1/M2/M3 chips).** There are no prebuilt wheels available for this platform, and building from source fails due to:
+
+1. **Conan build system incompatibility**: PROPOSAL uses Conan to manage C++ dependencies. The bzip2 dependency's CMakeLists.txt requires CMake < 3.5, which is incompatible with modern CMake (4.x), causing the build to fail with:
+   ```
+   Compatibility with CMake < 3.5 has been removed from CMake
+   ```
+
+2. **ABI incompatibility when bypassing Conan**: Building manually with homebrew dependencies succeeds, but the resulting Python module segfaults on import due to pybind11/Python ABI mismatches.
+
+**Workarounds:**
+- Use a Linux machine or Docker container where prebuilt wheels are available
+- Use an x86_64 Python via Rosetta 2 (though this also has Conan issues)
+- Wait for upstream PROPOSAL to fix their build system for modern macOS
+
+This is an upstream issue with PROPOSAL's packaging. See [PROPOSAL GitHub](https://github.com/tudo-astroparticlephysics/PROPOSAL) for updates.
 
 ### [1.3] TauRunner
 TauRunner is used to propagate high-energy tau neturinos thought the Earth, taking into account the effects of [tau regeneration](https://doi.org/10.48550/arXiv.hep-ph/9804354).  To install it, you will need to directly clone the [TauRunner repo](https://github.com/icecube/TauRunner.git). After cloning the repo, install TauRunner by running `pip install /path/to/TauRunner`.
@@ -123,3 +141,139 @@ Would you like to simulate your own custom geometry? We’re working on a script
 ## Citation
 Tell people how to cite us.
 
+
+## 4. Troubleshooting
+
+This section documents common issues encountered during installation and their solutions.
+
+### [4.1] TauRunner Not Initializing (NULL PyObject Error)
+
+**Symptom:** When running examples like `inject.jl`, you encounter an error like:
+```
+ERROR: ArgumentError: ref of NULL PyObject
+```
+
+**Cause:** The TauRunner Python interface is not being initialized. In some versions, the `tr_init()` call in `src/Tambo.jl` may be commented out.
+
+**Solution:** Open `src/Tambo.jl` and locate the `__init__()` function (around line 56-60). Ensure `tr_init()` is uncommented:
+```julia
+function __init__()
+    tr_init()  # Make sure this line is NOT commented out
+    commit_hash = get_git_commit_hash()
+    ...
+end
+```
+
+After making this change, restart Julia to trigger recompilation.
+
+### [4.2] Merge Conflict Markers in Source Files
+
+**Symptom:** Precompilation fails with errors like:
+```
+ParseError: <<<<<<< HEAD
+```
+
+**Cause:** Git merge conflict markers were accidentally left in source files.
+
+**Solution:** Search for and resolve any merge conflict markers:
+```bash
+grep -rn '<<<<<<\|======\|>>>>>>' src/
+```
+Remove the conflict markers and keep the appropriate code version.
+
+### [4.3] Documentation String Errors
+
+**Symptom:** Precompilation fails with errors about documenting expressions:
+```
+ERROR: LoadError: cannot document the following expression
+```
+
+**Cause:** A docstring exists without an immediately following function definition (orphaned docstring).
+
+**Solution:** Check the file and line number mentioned in the error. Look for duplicate or orphaned docstrings and remove them.
+
+### [4.4] Running Examples from the `examples/` Directory
+
+**Symptom:** Running examples fails with:
+```
+ERROR: package `Tambo` has the same name or UUID as the active project
+```
+
+**Cause:** The example scripts contain `Pkg.develop(path=tambo_path)` which conflicts when run from within the TAMBO-MC directory.
+
+**Solution:** The examples directory has its own `Project.toml` that references the Tambo package. To run examples:
+
+1. Update `examples/Project.toml` to point to your TAMBO-MC installation:
+   ```toml
+   [sources]
+   Tambo = {path = "/your/path/to/TAMBO-MC/"}
+   ```
+
+2. Run examples from the `examples/` directory:
+   ```bash
+   cd /path/to/TAMBO-MC/examples
+   julia -e 'using Pkg; Pkg.activate("."); Pkg.instantiate()'
+   ```
+
+3. When running example scripts, you can skip the `Pkg.develop()` line since the source is already configured in `Project.toml`:
+   ```julia
+   export TAMBOSIM_PATH=/path/to/TAMBO-MC
+   cd /path/to/TAMBO-MC/examples
+   julia -e '
+   tambo_path = ENV["TAMBOSIM_PATH"]
+   import Pkg
+   Pkg.activate(".")
+   # Skip Pkg.develop since source is in Project.toml
+   using JLD2
+   using Tambo
+   # ... rest of script
+   '
+   ```
+
+### [4.5] PyCall Using Wrong Python
+
+**Symptom:** Python imports fail even though the package is installed in your venv.
+
+**Cause:** PyCall may be configured to use a different Python interpreter than your venv.
+
+**Solution:** Check which Python PyCall is using:
+```julia
+using PyCall
+println(PyCall.pyprogramname)
+```
+
+If it's not your venv Python, rebuild PyCall with the correct Python:
+```julia
+ENV["PYTHON"] = "/path/to/your/venv/bin/python"
+using Pkg
+Pkg.build("PyCall")
+```
+Then restart Julia.
+
+### [4.6] PROPOSAL Warnings During Lepton Propagation
+
+**Symptom:** When running `lepton_propagation.jl`, you see many warnings like:
+```
+[warning] Negative dNdx value for E = X.XXX MeV, vbar = 1.0000 detected in interaction type Ioniz. Setting dNdx to zero.
+```
+
+**Cause:** These are normal numerical warnings from the PROPOSAL library at very low energies.
+
+**Solution:** These warnings can be safely ignored. They do not affect the simulation results. The simulation may take significant time due to the physics calculations involved.
+
+### [4.7] TAMBOSIM_PATH Not Set
+
+**Symptom:** Loading Tambo fails with:
+```
+ERROR: InitError: KeyError: key "TAMBOSIM_PATH" not found
+```
+
+**Solution:** Set the environment variable before starting Julia:
+```bash
+export TAMBOSIM_PATH=/path/to/TAMBO-MC
+```
+
+Or within Julia before loading Tambo:
+```julia
+ENV["TAMBOSIM_PATH"] = "/path/to/TAMBO-MC"
+```

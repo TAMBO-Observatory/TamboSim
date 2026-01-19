@@ -483,4 +483,7 @@ function corsika_run(
     end
 end
 
+# Custom display methods for Tambo types (must be at end after all types are defined)
+include("display.jl")
+
 end # module

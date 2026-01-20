@@ -212,7 +212,7 @@ This function traverses the BVH to efficiently find the first (closest) intersec
 - `Union{TriangleIntersection{T}, Nothing}`: The closest `TriangleIntersection` object if found, otherwise `nothing`.
 """
 function find_intersect(ray::Ray{T}, bvh::BVHTree{T}) where {T<:Real}
-    intersections = TriangleIntersection[]  # (intersection, triangle_index)
+    intersections = TriangleIntersection{T}[]
     intersect_node!(intersections, ray, bvh.root, bvh.triangles)
 
     # Find the closest intersection

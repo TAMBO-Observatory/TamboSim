@@ -23,7 +23,7 @@ struct Frame
     data::Dict{String, Any}
     parent::Union{Nothing, Frame}
     type::Char
-    Frame() = new(Dict{String, Any}())
+    Frame() = new(Dict{String, Any}(), nothing, 'T')
     Frame(data::Dict) = new(data, nothing, 'T')
     Frame(data::Dict, type::Char) = new(data, nothing, type)
     Frame(data::Dict, parent::Frame, type::Char) = new(data, parent, type)

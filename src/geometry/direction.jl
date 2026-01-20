@@ -57,6 +57,15 @@ Base.length(d::Direction) = 3
 Base.getindex(d::Direction, i) = d.point[i]
 
 """
+    CoordinateSystem(d::Direction)
+
+Returns the coordinate system associated with a Direction object.
+"""
+function CoordinateSystem(d::Direction)
+    return d.coordinate_system
+end
+
+"""
     Base.:*(s::Real, d::Direction) -> Direction
 
 Scales a `Direction` object by a real scalar `s`.

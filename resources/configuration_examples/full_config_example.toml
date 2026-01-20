@@ -1,4 +1,4 @@
-# You can use `_TAMBO_PATH_` and it will be replaced by the path to the Tambo source directory
+# You can use `_TAMBOSIM_PATH_` and it will be replaced by the path to the Tambo source directory
 
 [steering]
 nevent = 100
@@ -6,7 +6,7 @@ pinecone = 925
 run_number = 925
 
 [geometry]
-geo_spline_path = "_TAMBO_PATH_/../../resources/tambo_spline.jld2"
+geo_spline_path = "_TAMBOSIM_PATH_/resources/tambo_spline.jld2"
 tambo_coordinates = [-15.63863, -72.16498] # [latitude, longitude], degrees, calculated for the whitepaper location
 plane_orientation = [0.452174, -0.366163, 0.813304] # calculated for the whitepaper location
 
@@ -22,7 +22,7 @@ phimin = 0.0 # degrees
 phimax = 360.0 # degrees
 r_injection = 2000.0 # m
 l_endcap = 1000.0 # m
-xs_dir = "_TAMBO_PATH_/../../resources/cross_sections/tables/"
+xs_dir = "_TAMBOSIM_PATH_/resources/cross_sections/tables/"
 xs_model = "csms"
 interaction = "CC"
 
@@ -31,12 +31,12 @@ ecut = -1 # GeV. Negative <-> Infinity
 vcut = 1e-2
 do_interpolate = true
 do_continuous = true
-tablespath = "_TAMBO_PATH_/../..//resources/proposal_tables/"
+tablespath = "_TAMBOSIM_PATH_//resources/proposal_tables/"
 
 [corsika]
 
 parallelize_corsika = false
-batch_submit_corsika = true
+#batch_submit_corsika = true
 thinning = 1e-6
 hadron_ecut = 0.05 # GeV
 em_ecut = 0.001 # GeV

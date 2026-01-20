@@ -1,0 +1,313 @@
+        - """
+        - Tests for the geometry module including CoordinateSystem, Coordinate, Direction,
+        - Triangle, Sphere, OBB, Plane, and related utilities.
+        - 
+        - These tests use the actual Tambo types from src/ to ensure code coverage.
+        - """
+        - 
+        - # ============================================================================
+        - # Test functions
+        - # ============================================================================
+        - 
+        1 function run_geometry_tests()
+        1     @testset "CoordinateSystem" begin
+        2         test_coordinate_system_construction()
+        -     end
+        - 
+        0     @testset "Coordinate" begin
+        2         test_coordinate_construction()
+        1         test_coordinate_arithmetic()
+        1         test_coordinate_iteration()
+        -     end
+        - 
+        0     @testset "Direction" begin
+        2         test_direction_construction()
+        1         test_direction_normalization()
+        1         test_direction_operations()
+        -     end
+        - 
+        0     @testset "Triangle" begin
+        2         test_triangle_construction()
+        1         test_triangle_normal()
+        1         test_triangle_area()
+        1         test_triangle_iteration()
+        -     end
+        - 
+        0     @testset "Sphere" begin
+        2         test_sphere_construction()
+        -     end
+        - 
+        0     @testset "Plane" begin
+        2         test_plane_construction()
+        -     end
+        - 
+        0     @testset "OBB" begin
+        2         test_obb_construction()
+        1         test_obb_vertices()
+        -     end
+        - 
+        0     @testset "Geometry Utilities" begin
+        2         test_longlat_cart_conversion()
+        1         test_sph_cart_conversion()
+        -     end
+        - end
+        - 
+        - # CoordinateSystem tests
+        1 function test_coordinate_system_construction()
+        1     origin = SVector{3}([0.0u"m", 0.0u"m", 0.0u"m"])
+        1     rotation = SMatrix{3, 3, Float64, 9}([1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0])
+        1     cs = CoordinateSystem(origin, rotation)
+        - 
+        1     @test cs.origin == origin
+        1     @test cs.rotation == rotation
+        1     @test eltype(cs) == Float64
+        - end
+        - 
+        - # Coordinate tests
+        1 function test_coordinate_construction()
+        1     cs = ecefcoordinates
+        - 
+        -     # Test construction from vector
+        1     c1 = Coordinate([1.0u"m", 2.0u"m", 3.0u"m"], cs)
+        1     @test c1[1] == 1.0u"m"
+        1     @test c1[2] == 2.0u"m"
+        1     @test c1[3] == 3.0u"m"
+        - 
+        -     # Test construction from x, y, z
+        1     c2 = Coordinate(1.0u"m", 2.0u"m", 3.0u"m", cs)
+        1     @test c2[1] == 1.0u"m"
+        1     @test c2[2] == 2.0u"m"
+        1     @test c2[3] == 3.0u"m"
+        - end
+        - 
+        1 function test_coordinate_arithmetic()
+        1     cs = ecefcoordinates
+        1     c1 = Coordinate([1.0u"m", 2.0u"m", 3.0u"m"], cs)
+        1     c2 = Coordinate([4.0u"m", 5.0u"m", 6.0u"m"], cs)
+        - 
+        -     # Test addition
+        1     c_sum = c1 + c2
+        1     @test c_sum[1] == 5.0u"m"
+        1     @test c_sum[2] == 7.0u"m"
+        1     @test c_sum[3] == 9.0u"m"
+        - 
+        -     # Test subtraction
+        1     c_diff = c2 - c1
+        1     @test c_diff[1] == 3.0u"m"
+        1     @test c_diff[2] == 3.0u"m"
+        1     @test c_diff[3] == 3.0u"m"
+        - 
+        -     # Test scalar multiplication
+        1     c_scaled = c1 * 2.0
+        1     @test c_scaled[1] == 2.0u"m"
+        1     @test c_scaled[2] == 4.0u"m"
+        1     @test c_scaled[3] == 6.0u"m"
+        - 
+        -     # Test scalar division
+        1     c_div = c1 / 2.0
+        1     @test c_div[1] == 0.5u"m"
+        1     @test c_div[2] == 1.0u"m"
+        1     @test c_div[3] == 1.5u"m"
+        - end
+        - 
+        1 function test_coordinate_iteration()
+        1     cs = ecefcoordinates
+        1     c = Coordinate([1.0u"m", 2.0u"m", 3.0u"m"], cs)
+        - 
+        1     @test length(c) == 3
+        1     @test size(c) == (3,)
+        - 
+        -     # Test iteration by iterating manually
+        1     count = 0
+        1     for (i, val) in enumerate(c)
+        3         count += 1
+        3         @test val == c[i]
+        5     end
+        1     @test count == 3
+        - end
+        - 
+        - # Direction tests
+        1 function test_direction_construction()
+        1     cs = ecefcoordinates
+        - 
+        -     # Test construction - should normalize
+        1     d = Direction([1.0, 0.0, 0.0], cs)
+        1     @test d[1] ≈ 1.0
+        1     @test d[2] ≈ 0.0
+        1     @test d[3] ≈ 0.0
+        - end
+        - 
+        1 function test_direction_normalization()
+        1     cs = ecefcoordinates
+        - 
+        -     # Test that direction is automatically normalized
+        1     d = Direction([2.0, 0.0, 0.0], cs)
+        1     @test norm(d.point) ≈ 1.0
+        - 
+        1     d2 = Direction([1.0, 1.0, 1.0], cs)
+        1     @test norm(d2.point) ≈ 1.0
+        - end
+        - 
+        1 function test_direction_operations()
+        1     cs = ecefcoordinates
+        1     d1 = Direction([1.0, 0.0, 0.0], cs)
+        1     d2 = Direction([0.0, 1.0, 0.0], cs)
+        - 
+        -     # Test dot product
+        1     @test dot(d1, d2) ≈ 0.0
+        1     @test dot(d1, d1) ≈ 1.0
+        - 
+        -     # Test cross product
+        1     c = cross(d1, d2)
+        1     @test c[3] ≈ 1.0
+        - 
+        -     # Test reverse
+        1     d_rev = reverse(d1)
+        1     @test d_rev[1] ≈ -1.0
+        - 
+        -     # Test multiplication with quantity
+        1     coord = d1 * 10.0u"m"
+        1     @test coord isa Coordinate
+        1     @test coord[1] == 10.0u"m"
+        - end
+        - 
+        - # Triangle tests
+        1 function test_triangle_construction()
+        1     cs = ecefcoordinates
+        1     v1 = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     v2 = Coordinate([1.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     v3 = Coordinate([0.0u"m", 1.0u"m", 0.0u"m"], cs)
+        - 
+        1     tri = Triangle(v1, v2, v3)
+        - 
+        1     @test tri.v1 == v1
+        1     @test tri.v2 == v2
+        1     @test tri.v3 == v3
+        1     @test length(tri) == 3
+        - end
+        - 
+        1 function test_triangle_normal()
+        1     cs = ecefcoordinates
+        1     v1 = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     v2 = Coordinate([1.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     v3 = Coordinate([0.0u"m", 1.0u"m", 0.0u"m"], cs)
+        - 
+        1     tri = Triangle(v1, v2, v3)
+        1     n = normal(tri)
+        - 
+        -     # Normal should point in z direction
+        1     @test abs(n[3]) ≈ 1.0
+        - end
+        - 
+        1 function test_triangle_area()
+        1     cs = ecefcoordinates
+        1     v1 = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     v2 = Coordinate([2.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     v3 = Coordinate([0.0u"m", 2.0u"m", 0.0u"m"], cs)
+        - 
+        1     tri = Triangle(v1, v2, v3)
+        1     a = area(tri)
+        - 
+        -     # Area should be 0.5 * base * height = 0.5 * 2 * 2 = 2 m^2
+        1     @test a ≈ 2.0u"m^2"
+        - end
+        - 
+        1 function test_triangle_iteration()
+        1     cs = ecefcoordinates
+        1     v1 = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     v2 = Coordinate([1.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     v3 = Coordinate([0.0u"m", 1.0u"m", 0.0u"m"], cs)
+        - 
+        1     tri = Triangle(v1, v2, v3)
+        - 
+        4     vertices = collect(tri)
+        1     @test vertices[1] == v1
+        1     @test vertices[2] == v2
+        1     @test vertices[3] == v3
+        - end
+        - 
+        - # Sphere tests
+        1 function test_sphere_construction()
+        1     cs = ecefcoordinates
+        1     center = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     radius = 100.0u"m"
+        - 
+        1     sphere = Sphere(center, radius)
+        - 
+        1     @test sphere.center == center
+        1     @test sphere.radius == radius
+        - end
+        - 
+        - # Plane tests
+        1 function test_plane_construction()
+        1     cs = ecefcoordinates
+        1     point = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     normal_dir = Direction([0.0, 0.0, 1.0], cs)
+        - 
+        1     plane = Plane(point, normal_dir)
+        - 
+        1     @test plane.point == point
+        1     @test plane.normal == normal_dir
+        - end
+        - 
+        - # OBB tests
+        1 function test_obb_construction()
+        1     cs = ecefcoordinates
+        1     center = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     axes = AngleAxis(0.0, 0.0, 0.0, 1.0)
+        1     half_extents = SVector{3}([1.0u"m", 1.0u"m", 1.0u"m"])
+        - 
+        1     obb = OBB(center, axes, half_extents)
+        - 
+        1     @test obb.center == center
+        1     @test length(obb.half_extents) == 3
+        1     @test length(obb.vertices) == 8
+        - end
+        - 
+        1 function test_obb_vertices()
+        1     cs = ecefcoordinates
+        1     center = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     axes = AngleAxis(0.0, 0.0, 0.0, 1.0)
+        1     half_extents = SVector{3}([1.0u"m", 1.0u"m", 1.0u"m"])
+        - 
+        1     obb = OBB(center, axes, half_extents)
+        - 
+        -     # OBB should have 8 vertices
+        1     @test length(obb.vertices) == 8
+        - 
+        -     # All vertices should be 1m away in each axis from center
+        1     for v in obb.vertices
+        8         @test abs(v[1]) ≈ 1.0u"m"
+        8         @test abs(v[2]) ≈ 1.0u"m"
+        8         @test abs(v[3]) ≈ 1.0u"m"
+        8     end
+        - end
+        - 
+        - # Utility tests
+        1 function test_longlat_cart_conversion()
+        -     # Test equator at prime meridian
+        3     cart = longlat_to_cart(0.0, 0.0)
+        1     @test cart[1] ≈ 1.0
+        1     @test cart[2] ≈ 0.0
+        1     @test cart[3] ≈ 0.0
+        - 
+        -     # Test north pole
+        3     cart_pole = longlat_to_cart(0.0, π/2)
+        1     @test cart_pole[3] ≈ 1.0
+        - 
+        -     # Round trip
+        1     longlat = cart_to_longlat(cart...)
+        1     @test longlat[1] ≈ 0.0 atol=1e-10
+        1     @test longlat[2] ≈ 0.0 atol=1e-10
+        - end
+        - 
+        1 function test_sph_cart_conversion()
+        -     # Test theta=0 (along z-axis)
+        3     cart = sph_to_cart(0.0, 0.0)
+        1     @test cart[3] ≈ 1.0
+        - 
+        -     # Test theta=pi/2, phi=0 (along x-axis)
+        3     cart2 = sph_to_cart(π/2, 0.0)
+        1     @test cart2[1] ≈ 1.0 atol=1e-10
+        1     @test cart2[3] ≈ 0.0 atol=1e-10
+        - end

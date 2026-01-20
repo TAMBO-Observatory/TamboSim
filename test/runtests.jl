@@ -6,6 +6,20 @@ using Rotations
 using Distributions
 using StatsBase
 
+# Import the Tambo module to test actual source code
+using Tambo
+
+# Import internal types and functions not exported by default
+import Tambo: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
+              Triangle, Sphere, Plane, OBB, Ray,
+              AABB, BVHNode, BVHTree,
+              normal, area, centroid, longlat_to_cart, cart_to_longlat, sph_to_cart, cart_to_sph,
+              find_intersect, find_intersection, intersect_all,
+              UnitfulPowerLawSampler, UniformAngularSampler,
+              Frame, cut_frames!,
+              Particle, FitStatus, ParticleShape,
+              WeightParameters
+
 # Define unit dimension aliases that are used throughout the codebase
 const ldim = Unitful.𝐋
 const tdim = Unitful.𝐓

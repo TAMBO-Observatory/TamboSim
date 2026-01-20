@@ -1,0 +1,194 @@
+        - """
+        - Tests for ray tracing functionality using the actual Tambo types.
+        - """
+        - 
+        - # ============================================================================
+        - # Test functions
+        - # ============================================================================
+        - 
+        1 function run_ray_tracing_tests()
+        1     @testset "Ray" begin
+        2         test_ray_construction()
+        1         test_ray_reverse()
+        -     end
+        - 
+        0     @testset "Triangle Intersection" begin
+        2         test_triangle_intersection_hit()
+        1         test_triangle_intersection_miss()
+        1         test_triangle_intersection_parallel()
+        -     end
+        - 
+        0     @testset "Sphere Intersection" begin
+        2         test_sphere_intersection_through()
+        1         test_sphere_intersection_miss()
+        -     end
+        - 
+        0     @testset "Plane Intersection" begin
+        2         test_plane_intersection_hit()
+        1         test_plane_intersection_parallel()
+        -     end
+        - end
+        - 
+        1 function test_ray_construction()
+        1     cs = ecefcoordinates
+        1     origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     direction = Direction([1.0, 0.0, 0.0], cs)
+        - 
+        1     ray = Ray(origin, direction)
+        - 
+        1     @test ray.origin == origin
+        1     @test ray.direction == direction
+        - end
+        - 
+        1 function test_ray_reverse()
+        1     cs = ecefcoordinates
+        1     origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     direction = Direction([1.0, 0.0, 0.0], cs)
+        - 
+        1     ray = Ray(origin, direction)
+        1     ray_rev = reverse(ray)
+        - 
+        1     @test ray_rev.origin == ray.origin
+        1     @test ray_rev.direction[1] ≈ -ray.direction[1]
+        - end
+        - 
+        1 function test_triangle_intersection_hit()
+        1     cs = ecefcoordinates
+        - 
+        -     # Create a triangle in the XY plane at z=10
+        1     v1 = Coordinate([-5.0u"m", -5.0u"m", 10.0u"m"], cs)
+        1     v2 = Coordinate([5.0u"m", -5.0u"m", 10.0u"m"], cs)
+        1     v3 = Coordinate([0.0u"m", 5.0u"m", 10.0u"m"], cs)
+        1     tri = Triangle(v1, v2, v3)
+        - 
+        -     # Ray pointing at the triangle
+        1     origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     direction = Direction([0.0, 0.0, 1.0], cs)
+        1     ray = Ray(origin, direction)
+        - 
+        -     # Test intersection using actual Tambo function
+        1     intersection = find_intersect(ray, tri)
+        - 
+        4     @test !isnothing(intersection)
+        1     @test intersection.distance ≈ 10.0u"m"
+        1     @test intersection.hit == true
+        - end
+        - 
+        1 function test_triangle_intersection_miss()
+        1     cs = ecefcoordinates
+        - 
+        -     # Create a triangle in the XY plane at z=10
+        1     v1 = Coordinate([-5.0u"m", -5.0u"m", 10.0u"m"], cs)
+        1     v2 = Coordinate([5.0u"m", -5.0u"m", 10.0u"m"], cs)
+        1     v3 = Coordinate([0.0u"m", 5.0u"m", 10.0u"m"], cs)
+        1     tri = Triangle(v1, v2, v3)
+        - 
+        -     # Ray pointing away from the triangle
+        1     origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     direction = Direction([0.0, 0.0, -1.0], cs)
+        1     ray = Ray(origin, direction)
+        - 
+        -     # Test intersection
+        1     intersection = find_intersect(ray, tri)
+        - 
+        2     @test isnothing(intersection)
+        - end
+        - 
+        1 function test_triangle_intersection_parallel()
+        1     cs = ecefcoordinates
+        - 
+        -     # Create a triangle in the XY plane at z=10
+        1     v1 = Coordinate([-5.0u"m", -5.0u"m", 10.0u"m"], cs)
+        1     v2 = Coordinate([5.0u"m", -5.0u"m", 10.0u"m"], cs)
+        1     v3 = Coordinate([0.0u"m", 5.0u"m", 10.0u"m"], cs)
+        1     tri = Triangle(v1, v2, v3)
+        - 
+        -     # Ray parallel to the triangle
+        1     origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     direction = Direction([1.0, 0.0, 0.0], cs)
+        1     ray = Ray(origin, direction)
+        - 
+        -     # Test intersection
+        1     intersection = find_intersect(ray, tri)
+        - 
+        2     @test isnothing(intersection)
+        - end
+        - 
+        1 function test_sphere_intersection_through()
+        1     cs = ecefcoordinates
+        - 
+        -     # Create a sphere at the origin
+        1     center = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     sphere = Sphere(center, 10.0u"m")
+        - 
+        -     # Ray that passes through the sphere
+        1     origin = Coordinate([-20.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     direction = Direction([1.0, 0.0, 0.0], cs)
+        1     ray = Ray(origin, direction)
+        - 
+        -     # Test intersection using actual Tambo function
+        1     intersections = intersect_all(sphere, ray)
+        - 
+        1     @test length(intersections) == 2
+        1     @test intersections[1].distance ≈ 10.0u"m"  # Entry at x=-10
+        1     @test intersections[2].distance ≈ 30.0u"m"  # Exit at x=+10
+        - end
+        - 
+        1 function test_sphere_intersection_miss()
+        1     cs = ecefcoordinates
+        - 
+        -     # Create a sphere at the origin
+        1     center = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     sphere = Sphere(center, 10.0u"m")
+        - 
+        -     # Ray that misses the sphere
+        1     origin = Coordinate([-20.0u"m", 20.0u"m", 0.0u"m"], cs)
+        1     direction = Direction([1.0, 0.0, 0.0], cs)
+        1     ray = Ray(origin, direction)
+        - 
+        -     # Test intersection
+        1     intersections = intersect_all(sphere, ray)
+        - 
+        1     @test length(intersections) == 0
+        - end
+        - 
+        1 function test_plane_intersection_hit()
+        1     cs = ecefcoordinates
+        - 
+        -     # Create a plane at z=10
+        1     point = Coordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)
+        1     normal_dir = Direction([0.0, 0.0, 1.0], cs)
+        1     plane = Plane(point, normal_dir)
+        - 
+        -     # Ray pointing at the plane
+        1     origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     direction = Direction([0.0, 0.0, 1.0], cs)
+        1     ray = Ray(origin, direction)
+        - 
+        -     # Test intersection using actual Tambo function
+        2     hit_point, t = find_intersection(ray, plane)
+        - 
+        4     @test !isnothing(hit_point)
+        1     @test t ≈ 10.0u"m"
+        1     @test hit_point[3] ≈ 10.0u"m"
+        - end
+        - 
+        1 function test_plane_intersection_parallel()
+        1     cs = ecefcoordinates
+        - 
+        -     # Create a plane at z=10
+        1     point = Coordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)
+        1     normal_dir = Direction([0.0, 0.0, 1.0], cs)
+        1     plane = Plane(point, normal_dir)
+        - 
+        -     # Ray parallel to the plane
+        1     origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        1     direction = Direction([1.0, 0.0, 0.0], cs)
+        1     ray = Ray(origin, direction)
+        - 
+        -     # Test intersection
+        1     hit_point, t = find_intersection(ray, plane)
+        - 
+        2     @test isnothing(hit_point)
+        2     @test isnothing(t)
+        - end

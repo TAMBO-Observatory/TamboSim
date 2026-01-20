@@ -1,105 +1,6 @@
 """
-Tests for ray tracing functionality.
+Tests for ray tracing functionality using the actual Tambo types.
 """
-
-# ============================================================================
-# Ray type definitions for testing
-# ============================================================================
-
-struct TestRay{T<:Real}
-    origin::TestCoordinate{T}
-    direction::TestDirection{T}
-end
-
-function test_reverse_ray(ray::TestRay{T}) where {T}
-    return TestRay{T}(ray.origin, reverse(ray.direction))
-end
-
-# Ray-triangle intersection using Möller–Trumbore algorithm
-function test_ray_triangle_intersect(ray::TestRay{T}, tri::TestTriangle{T}) where {T}
-    EPSILON = 1e-9
-
-    e1 = tri.v2.point - tri.v1.point
-    e2 = tri.v3.point - tri.v1.point
-
-    h = cross(ray.direction.point, ustrip.(e2))
-    a = dot(ustrip.(e1), h)
-
-    if abs(a) < EPSILON
-        return nothing  # Ray is parallel to triangle
-    end
-
-    f = 1.0 / a
-    s = ray.origin.point - tri.v1.point
-    u = f * dot(ustrip.(s), h)
-
-    if u < 0.0 || u > 1.0
-        return nothing
-    end
-
-    q = cross(ustrip.(s), ustrip.(e1))
-    v = f * dot(ray.direction.point, q)
-
-    if v < 0.0 || u + v > 1.0
-        return nothing
-    end
-
-    t = f * dot(ustrip.(e2), q)
-
-    if t > EPSILON
-        return t * u"m"  # Return distance as Quantity
-    end
-
-    return nothing
-end
-
-# Ray-sphere intersection
-function test_ray_sphere_intersect(ray::TestRay{T}, sphere::TestSphere{T}) where {T}
-    oc = ray.origin.point - sphere.center.point
-    a = dot(ray.direction.point, ray.direction.point)
-    b = 2.0 * dot(ustrip.(oc), ray.direction.point)
-    c = dot(ustrip.(oc), ustrip.(oc)) - ustrip(sphere.radius)^2
-
-    discriminant = b^2 - 4*a*c
-
-    if discriminant < 0
-        return Quantity{T, ldim, typeof(u"m")}[]
-    elseif discriminant == 0
-        t = -b / (2*a)
-        return t > 0 ? [t * u"m"] : Quantity{T, ldim, typeof(u"m")}[]
-    else
-        sqrtd = sqrt(discriminant)
-        t1 = (-b - sqrtd) / (2*a)
-        t2 = (-b + sqrtd) / (2*a)
-        results = Quantity{T, ldim, typeof(u"m")}[]
-        if t1 > 0
-            push!(results, t1 * u"m")
-        end
-        if t2 > 0
-            push!(results, t2 * u"m")
-        end
-        return results
-    end
-end
-
-# Ray-plane intersection
-function test_ray_plane_intersect(ray::TestRay{T}, plane::TestPlane{T}) where {T}
-    denom = dot(ray.direction.point, plane.normal.point)
-
-    if abs(denom) < 1e-9
-        return nothing, nothing  # Ray is parallel to plane
-    end
-
-    diff = plane.point.point - ray.origin.point
-    t = dot(ustrip.(diff), plane.normal.point) / denom
-
-    if t < 0
-        return nothing, nothing
-    end
-
-    hit_point = TestCoordinate{T}(ray.origin.point + ray.direction.point * t * u"m", ray.origin.coordinate_system)
-    return hit_point, t * u"m"
-end
 
 # ============================================================================
 # Test functions
@@ -129,142 +30,143 @@ function run_ray_tracing_tests()
 end
 
 function test_ray_construction()
-    cs = test_ecef
-    origin = TestCoordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
-    direction = TestDirection([1.0, 0.0, 0.0], cs)
+    cs = ecefcoordinates
+    origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    direction = Direction([1.0, 0.0, 0.0], cs)
 
-    ray = TestRay(origin, direction)
+    ray = Ray(origin, direction)
 
     @test ray.origin == origin
     @test ray.direction == direction
 end
 
 function test_ray_reverse()
-    cs = test_ecef
-    origin = TestCoordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
-    direction = TestDirection([1.0, 0.0, 0.0], cs)
+    cs = ecefcoordinates
+    origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    direction = Direction([1.0, 0.0, 0.0], cs)
 
-    ray = TestRay(origin, direction)
-    ray_rev = test_reverse_ray(ray)
+    ray = Ray(origin, direction)
+    ray_rev = reverse(ray)
 
     @test ray_rev.origin == ray.origin
     @test ray_rev.direction[1] ≈ -ray.direction[1]
 end
 
 function test_triangle_intersection_hit()
-    cs = test_ecef
+    cs = ecefcoordinates
 
     # Create a triangle in the XY plane at z=10
-    v1 = TestCoordinate([-5.0u"m", -5.0u"m", 10.0u"m"], cs)
-    v2 = TestCoordinate([5.0u"m", -5.0u"m", 10.0u"m"], cs)
-    v3 = TestCoordinate([0.0u"m", 5.0u"m", 10.0u"m"], cs)
-    tri = TestTriangle(v1, v2, v3)
+    v1 = Coordinate([-5.0u"m", -5.0u"m", 10.0u"m"], cs)
+    v2 = Coordinate([5.0u"m", -5.0u"m", 10.0u"m"], cs)
+    v3 = Coordinate([0.0u"m", 5.0u"m", 10.0u"m"], cs)
+    tri = Triangle(v1, v2, v3)
 
     # Ray pointing at the triangle
-    origin = TestCoordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
-    direction = TestDirection([0.0, 0.0, 1.0], cs)
-    ray = TestRay(origin, direction)
+    origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    direction = Direction([0.0, 0.0, 1.0], cs)
+    ray = Ray(origin, direction)
 
-    # Test intersection
-    t = test_ray_triangle_intersect(ray, tri)
+    # Test intersection using actual Tambo function
+    intersection = find_intersect(ray, tri)
 
-    @test !isnothing(t)
-    @test t ≈ 10.0u"m"
+    @test !isnothing(intersection)
+    @test intersection.distance ≈ 10.0u"m"
+    @test intersection.hit == true
 end
 
 function test_triangle_intersection_miss()
-    cs = test_ecef
+    cs = ecefcoordinates
 
     # Create a triangle in the XY plane at z=10
-    v1 = TestCoordinate([-5.0u"m", -5.0u"m", 10.0u"m"], cs)
-    v2 = TestCoordinate([5.0u"m", -5.0u"m", 10.0u"m"], cs)
-    v3 = TestCoordinate([0.0u"m", 5.0u"m", 10.0u"m"], cs)
-    tri = TestTriangle(v1, v2, v3)
+    v1 = Coordinate([-5.0u"m", -5.0u"m", 10.0u"m"], cs)
+    v2 = Coordinate([5.0u"m", -5.0u"m", 10.0u"m"], cs)
+    v3 = Coordinate([0.0u"m", 5.0u"m", 10.0u"m"], cs)
+    tri = Triangle(v1, v2, v3)
 
     # Ray pointing away from the triangle
-    origin = TestCoordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
-    direction = TestDirection([0.0, 0.0, -1.0], cs)
-    ray = TestRay(origin, direction)
+    origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    direction = Direction([0.0, 0.0, -1.0], cs)
+    ray = Ray(origin, direction)
 
     # Test intersection
-    t = test_ray_triangle_intersect(ray, tri)
+    intersection = find_intersect(ray, tri)
 
-    @test isnothing(t)
+    @test isnothing(intersection)
 end
 
 function test_triangle_intersection_parallel()
-    cs = test_ecef
+    cs = ecefcoordinates
 
     # Create a triangle in the XY plane at z=10
-    v1 = TestCoordinate([-5.0u"m", -5.0u"m", 10.0u"m"], cs)
-    v2 = TestCoordinate([5.0u"m", -5.0u"m", 10.0u"m"], cs)
-    v3 = TestCoordinate([0.0u"m", 5.0u"m", 10.0u"m"], cs)
-    tri = TestTriangle(v1, v2, v3)
+    v1 = Coordinate([-5.0u"m", -5.0u"m", 10.0u"m"], cs)
+    v2 = Coordinate([5.0u"m", -5.0u"m", 10.0u"m"], cs)
+    v3 = Coordinate([0.0u"m", 5.0u"m", 10.0u"m"], cs)
+    tri = Triangle(v1, v2, v3)
 
     # Ray parallel to the triangle
-    origin = TestCoordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
-    direction = TestDirection([1.0, 0.0, 0.0], cs)
-    ray = TestRay(origin, direction)
+    origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    direction = Direction([1.0, 0.0, 0.0], cs)
+    ray = Ray(origin, direction)
 
     # Test intersection
-    t = test_ray_triangle_intersect(ray, tri)
+    intersection = find_intersect(ray, tri)
 
-    @test isnothing(t)
+    @test isnothing(intersection)
 end
 
 function test_sphere_intersection_through()
-    cs = test_ecef
+    cs = ecefcoordinates
 
     # Create a sphere at the origin
-    center = TestCoordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
-    sphere = TestSphere(center, 10.0u"m")
+    center = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    sphere = Sphere(center, 10.0u"m")
 
     # Ray that passes through the sphere
-    origin = TestCoordinate([-20.0u"m", 0.0u"m", 0.0u"m"], cs)
-    direction = TestDirection([1.0, 0.0, 0.0], cs)
-    ray = TestRay(origin, direction)
+    origin = Coordinate([-20.0u"m", 0.0u"m", 0.0u"m"], cs)
+    direction = Direction([1.0, 0.0, 0.0], cs)
+    ray = Ray(origin, direction)
 
-    # Test intersection
-    ts = test_ray_sphere_intersect(ray, sphere)
+    # Test intersection using actual Tambo function
+    intersections = intersect_all(sphere, ray)
 
-    @test length(ts) == 2
-    @test ts[1] ≈ 10.0u"m"  # Entry at x=-10
-    @test ts[2] ≈ 30.0u"m"  # Exit at x=+10
+    @test length(intersections) == 2
+    @test intersections[1].distance ≈ 10.0u"m"  # Entry at x=-10
+    @test intersections[2].distance ≈ 30.0u"m"  # Exit at x=+10
 end
 
 function test_sphere_intersection_miss()
-    cs = test_ecef
+    cs = ecefcoordinates
 
     # Create a sphere at the origin
-    center = TestCoordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
-    sphere = TestSphere(center, 10.0u"m")
+    center = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    sphere = Sphere(center, 10.0u"m")
 
     # Ray that misses the sphere
-    origin = TestCoordinate([-20.0u"m", 20.0u"m", 0.0u"m"], cs)
-    direction = TestDirection([1.0, 0.0, 0.0], cs)
-    ray = TestRay(origin, direction)
+    origin = Coordinate([-20.0u"m", 20.0u"m", 0.0u"m"], cs)
+    direction = Direction([1.0, 0.0, 0.0], cs)
+    ray = Ray(origin, direction)
 
     # Test intersection
-    ts = test_ray_sphere_intersect(ray, sphere)
+    intersections = intersect_all(sphere, ray)
 
-    @test length(ts) == 0
+    @test length(intersections) == 0
 end
 
 function test_plane_intersection_hit()
-    cs = test_ecef
+    cs = ecefcoordinates
 
     # Create a plane at z=10
-    point = TestCoordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)
-    normal = TestDirection([0.0, 0.0, 1.0], cs)
-    plane = TestPlane(point, normal)
+    point = Coordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)
+    normal_dir = Direction([0.0, 0.0, 1.0], cs)
+    plane = Plane(point, normal_dir)
 
     # Ray pointing at the plane
-    origin = TestCoordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
-    direction = TestDirection([0.0, 0.0, 1.0], cs)
-    ray = TestRay(origin, direction)
+    origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    direction = Direction([0.0, 0.0, 1.0], cs)
+    ray = Ray(origin, direction)
 
-    # Test intersection
-    hit_point, t = test_ray_plane_intersect(ray, plane)
+    # Test intersection using actual Tambo function
+    hit_point, t = find_intersection(ray, plane)
 
     @test !isnothing(hit_point)
     @test t ≈ 10.0u"m"
@@ -272,20 +174,20 @@ function test_plane_intersection_hit()
 end
 
 function test_plane_intersection_parallel()
-    cs = test_ecef
+    cs = ecefcoordinates
 
     # Create a plane at z=10
-    point = TestCoordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)
-    normal = TestDirection([0.0, 0.0, 1.0], cs)
-    plane = TestPlane(point, normal)
+    point = Coordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)
+    normal_dir = Direction([0.0, 0.0, 1.0], cs)
+    plane = Plane(point, normal_dir)
 
     # Ray parallel to the plane
-    origin = TestCoordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
-    direction = TestDirection([1.0, 0.0, 0.0], cs)
-    ray = TestRay(origin, direction)
+    origin = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    direction = Direction([1.0, 0.0, 0.0], cs)
+    ray = Ray(origin, direction)
 
     # Test intersection
-    hit_point, t = test_ray_plane_intersect(ray, plane)
+    hit_point, t = find_intersection(ray, plane)
 
     @test isnothing(hit_point)
     @test isnothing(t)

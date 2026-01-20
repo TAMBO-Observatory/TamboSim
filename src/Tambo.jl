@@ -464,18 +464,23 @@ function corsika_run(
                 continue
             end
             seed = Int(rand(UInt32))
-            corsika_run(
-                particle,
-                plane,
-                cfg["thinning"],
-                ecuts,
-                cfg["corsika_path"],
-                cfg["FLUPRO"],
-                cfg["FLUFOR"],
-                output_dir,
-                seed;
-                sbatch_command=sbatch_command
-            )
+            try
+                corsika_run(
+                    particle,
+                    plane,
+                    cfg["thinning"],
+                    ecuts,
+                    cfg["corsika_path"],
+                    cfg["FLUPRO"],
+                    cfg["FLUFOR"],
+                    output_dir,
+                    seed;
+                    sbatch_command=sbatch_command
+                )
+            catch e
+                event_id = frame["event_id"]
+                @warn "CORSIKA failed for event $(event_id) shower $(idx)" exception=e
+            end
         end
         if store_paths
             frame["corsika_directories"] = paths

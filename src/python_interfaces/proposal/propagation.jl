@@ -37,7 +37,7 @@ function proposal_propagate(
     lepton_id = particle.pdg
     losses = Particle{T}[]
     secondaries = Particle{T}[]
-    current_e, continuous_e, accrued_d = particle.energy, 0.0u"GeV", 0.0u"m"
+    current_e, continuous_e, accrued_d, accrued_t = particle.energy, 0.0u"GeV", 0.0u"m", particle.time
     final_state = nothing
     for (l, density) in zip(lengths, densities)
         medium = density > 1u"g/cm^3" ? "StandardRock" : "Air"
@@ -58,9 +58,10 @@ function proposal_propagate(
             int_type = loss.type
             loss_e = loss.energy * u"MeV"
             dist = accrued_d + loss.propagated_distance * u"cm"
+            loss_t = accrued_t + T(loss.time) * u"s"
             p = dist * particle.direction + particle.position
             dir = Direction([loss.direction.x, loss.direction.y, loss.direction.z], cs)
-            l = Particle(ParticleType(int_type), loss_e, p, dir)
+            l = Particle(ParticleType(int_type), loss_e, p, dir, loss_t)
             push!(losses, l)
         end
         
@@ -68,23 +69,26 @@ function proposal_propagate(
         continuous_e += x
 
         dist = accrued_d + pp_final_state.propagated_distance * u"cm"
+        final_t = accrued_t + T(pp_final_state.time) * u"s"
         p = dist * particle.direction + particle.position
-        final_state = Particle(lepton_id, current_e, p, particle.direction)
+        final_state = Particle(lepton_id, current_e, p, particle.direction, final_t)
 
         decay_products = propped_state.decay_products()
         if length(decay_products) > 0
             for sec in decay_products
                 dist = accrued_d + sec.propagated_distance * u"cm"
+                sec_t = accrued_t + T(sec.time) * u"s"
                 p = dist * particle.direction + particle.position
                 e = sec.energy * u"MeV"
                 pdg = sec.type
                 dir = Direction([sec.direction.x, sec.direction.y, sec.direction.z], cs)
-                decay_product = Particle(ParticleType(pdg), e, p, dir)
+                decay_product = Particle(ParticleType(pdg), e, p, dir, sec_t)
                 push!(secondaries, decay_product)
             end
             break
         end
         accrued_d += pp_final_state.propagated_distance * u"cm"
+        accrued_t += T(pp_final_state.time) * u"s"
     end
     return losses, continuous_e, secondaries, final_state
 end

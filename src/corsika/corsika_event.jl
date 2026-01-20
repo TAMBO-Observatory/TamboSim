@@ -5,7 +5,6 @@ Represents a particle event from a CORSIKA simulation.
 
 # Fields
 - `particle::Particle{T}`: The `Particle` object representing the event.
-- `time::Quantity{T, tdim, typeof(u"s")}`: The arrival time of the particle at the observation level.
 - `weight::T`: The statistical weight of the particle.
 """
 struct CorsikaEvent{T<:Real}
@@ -16,7 +15,8 @@ end
 """
     read_corsika(
         basedir::String,
-        cs_earth::CoordinateSystem{T},
+        cs_earth::CoordinateSystem{T};
+        t0=0.0u"s",
         filter_fxn::Function=x->true
     ) where {T<:Real}
 
@@ -29,6 +29,7 @@ reads the `config.yaml` and `particles.parquet` files within each, and sets up a
 # Arguments
 - `basedir::String`: The base directory containing the CORSIKA shower data.
 - `cs_earth::CoordinateSystem{T}`: The Earth-centered coordinate system to which the event coordinates will be transformed.
+- `t0`: Optional time offset to add to CORSIKA hit times. Defaults to `0.0u"s"`.
 - `filter_fxn::Function`: An optional function to filter events. It should take a `CorsikaEvent` and return `true` to keep it.
 
 # Returns
@@ -36,8 +37,8 @@ reads the `config.yaml` and `particles.parquet` files within each, and sets up a
 """
 function read_corsika(
     basedir::String,
-    cs_earth::CoordinateSystem{T},
-    decaytime,
+    cs_earth::CoordinateSystem{T};
+    t0=0.0u"s",
     filter_fxn::Function=x->true
 ) where {T<:Real}
     dirs = glob("shower_*/particles/", basedir)
@@ -67,7 +68,7 @@ function read_corsika(
             config["plane"]["normal"]
         ]))
         center = config["plane"]["center"] .* u"m"
-        trans(row) = CorsikaEvent(row, rot, center, decaytime, cs_corsika, cs_earth)
+        trans(row) = CorsikaEvent(row, rot, center, cs_corsika, cs_earth; t0=t0)
         push!(filenames, particles_file)
         push!(transforms, trans)
     end
@@ -80,7 +81,8 @@ end
         rot::V,
         center,
         cs_corsika::CoordinateSystem{U},
-        cs_earth::CoordinateSystem{U},
+        cs_earth::CoordinateSystem{U};
+        t0=0.0u"s"
     ) where {U<:Real, V<:Rotation}
 
 Constructs a `CorsikaEvent` from a row of a Parquet file and associated coordinate transformation data.
@@ -95,22 +97,23 @@ to convert from CORSIKA's coordinate system to the Earth-centered one, and retur
 - `center`: The center of the shower plane.
 - `cs_corsika::CoordinateSystem{U}`: The CORSIKA coordinate system.
 - `cs_earth::CoordinateSystem{U}`: The target Earth-centered coordinate system.
+- `t0`: Optional time offset to add to the CORSIKA hit time. Defaults to `0.0u"s"`.
 
 # Returns
-- A `CorsikaEvent` object.
+- A `CorsikaEvent` object containing a `Particle` with the CORSIKA hit time added to `t0`.
 """
 function CorsikaEvent(
     row,
     rot::V,
     center,
-    decaytime,
     cs_corsika::CoordinateSystem{U},
-    cs_earth::CoordinateSystem{U},
+    cs_earth::CoordinateSystem{U};
+    t0=0.0u"s"
 ) where {U<:Real, V<:Rotation}
     d = Direction(rot * [row.nx, row.ny, row.nz], cs_corsika)
     p = Coordinate((rot * [row.x, row.y, row.z] .* u"m" .+ center)  .- [0.0u"km", 0.0u"km", 6371.0u"km"], cs_corsika)
     e = U(row.kinetic_energy * u"GeV")
     pdg = ParticleType(Int64(row.pdg))
-    particle = Particle(pdg, e, convert(cs_earth, p), convert(cs_earth, d), decaytime+Float64(row.time*u"s"))
+    particle = Particle(pdg, e, convert(cs_earth, p), convert(cs_earth, d), t0 + row.time*u"s")
     return CorsikaEvent(particle, Float64(row.weight))
 end

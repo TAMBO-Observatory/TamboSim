@@ -48,10 +48,10 @@ include("frames/frames.jl")
 """
     __init__()
 
-Initializes the TAMBOSim module.
+Initializes the Tambo module.
 
 This function is automatically called when the module is loaded. It retrieves and prints
-the Git commit hash of the TAMBOSim repository and displays a welcome message with ASCII art.
+the Git commit hash of the Tambo repository and displays a welcome message with ASCII art.
 """
 function __init__()
     
@@ -84,7 +84,7 @@ end
 """
     get_git_commit_hash() -> String
 
-Retrieves the Git commit hash of the TAMBOSim repository.
+Retrieves the Git commit hash of the Tambo repository.
 
 This function reads the `TAMBOSIM_PATH` environment variable to find the repository path,
 opens the Git repository, and returns the hash of the current HEAD commit.
@@ -111,7 +111,7 @@ end
 """
     Simulation
 
-A mutable struct that holds the configuration and results of a TAMBOSim simulation.
+A mutable struct that holds the configuration and results of a Tambo simulation.
 
 # Fields
 - `config::Dict{String, Any}`: A dictionary containing the simulation configuration.
@@ -487,5 +487,8 @@ function corsika_run(
         end
     end
 end
+
+# Custom display methods for Tambo types (must be at end after all types are defined)
+include("display.jl")
 
 end # module

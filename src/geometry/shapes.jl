@@ -44,7 +44,7 @@ function Triangle(
 ) where {T}
     n = normal(v1, v2, v3)
     d = dot(n, ref)
-    if d > 0 * d
+    if ustrip(d) > 0
         v2, v3 = v3, v2
     end
     return Triangle(v1, v2, v3)

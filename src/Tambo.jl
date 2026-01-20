@@ -55,7 +55,11 @@ the Git commit hash of the Tambo repository and displays a welcome message with 
 """
 function __init__()
     
-    tr_init()
+    try
+        tr_init()
+    catch
+        @warn "TauRunner could not be loaded. Injection not possible"
+    end
     commit_hash = get_git_commit_hash()
     if isinteractive()
         println("Welcome to TAMBOSim version -0.1")

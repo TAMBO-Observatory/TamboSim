@@ -7,4 +7,4 @@ Tambo = "d9a96183-4919-46da-8188-64ea4e10e0ed"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [sources]
-Tambo = {path = "/n/home12/jlazar/TAMBO-MC/"}
+Tambo = {path = "/Users/jlazar/research/TAMBO-MC"}

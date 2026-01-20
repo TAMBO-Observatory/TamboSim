@@ -67,15 +67,15 @@ function inject_event(
         detector_triangles = earth.topography[earth.detector_region]
     end
     if isnothing(detector_normals)
-        println("Computing normals. This is likely inefficnet")
+        println("Computing normals. This is likely inefficient")
         detector_normals = normal.(detector_triangles)
     end
     if isnothing(detector_bvh)
-        println("Computing BVH. This is likely inefficnet")
+        println("Computing BVH. This is likely inefficient")
         detector_bvh = build_bvh(detector_triangles)
     end
     if isnothing(detector_areas)
-        println("Computing areas. This is likely inefficnet")
+        println("Computing areas. This is likely inefficient")
         detector_areas = area.(detector_triangles)
     end
 

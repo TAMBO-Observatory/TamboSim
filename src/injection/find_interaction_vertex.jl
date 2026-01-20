@@ -58,9 +58,6 @@ function find_vertex_distance_by_distance(
         segment_cd = dist * dens
         if segment_cd + accrued_cd > target_column_depth
             accrued_d += (target_column_depth - accrued_cd) / dens
-            if dens < 1u"g/cm^3"
-                println("Expect air")
-            end
             return accrued_d, cd, dens
         end
         accrued_d += dist
@@ -121,9 +118,6 @@ function find_vertex_distance_by_cd(
         segment_cd = dist * dens
         if segment_cd + accrued_cd > target_column_depth
             accrued_d += (target_column_depth - accrued_cd) / dens
-            if dens < 1u"g/cm^3"
-                println("Expect air")
-            end
             return accrued_d, cd, dens
         end
         accrued_d += dist
@@ -156,11 +150,11 @@ function compute_density(
 ) where {T<:Real,I<:AbstractVector{Intersection{T}}}
     densities = Vector{Quantity{T, mdim/ldim^3}}(undef, length(ixs))
     for (idx, ix) in enumerate(ixs)
-        if typeof(ix)==TriangleIntersection{T}
+        if isa(ix, TriangleIntersection)
             b = dot(d, ix.normal) < 0
             density = b ? AIR_DENSITY : ROCK_DENSITY
             densities[idx] = density
-        elseif typeof(ix)==SphereIntersection{T}
+        elseif isa(ix, SphereIntersection)
             # This is not totally true, but I think it should be okay
             density = ROCK_DENSITY
             densities[idx] = density

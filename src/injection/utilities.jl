@@ -21,7 +21,7 @@ function triangles_to_mesh(
     forplot::Bool=false
 ) where {T<:Real}
     unique_vertices = Coordinate{T}[]
-    vertex_to_index = Dict{Any, Int}()
+    vertex_to_index = Dict{Coordinate{T}, Int}()
     face_indices = Vector{Tuple{Int, Int, Int}}()
     
     current_index = 1
@@ -77,12 +77,12 @@ function mask_helper(
     mask = ones(Bool, length(intersections))
     bad_idxs = Int[]
     for (idx, i) in enumerate(intersections)
-        if idx in bad_idxs || typeof(i)==SphereIntersection{T}
+        if idx in bad_idxs || isa(i, SphereIntersection)
             continue
         end
         if i.index in earth.detector_region
             entering = dot(i.normal, revd) < 0
-            if entering && typeof(intersections[idx+1])!=SphereIntersection{T}
+            if entering && idx < length(intersections) && !isa(intersections[idx+1], SphereIntersection)
                 push!(bad_idxs, idx)
                 push!(bad_idxs, idx+1)
             end

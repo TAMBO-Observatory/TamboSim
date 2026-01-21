@@ -72,7 +72,7 @@ function inject_event(
     end
     if isnothing(detector_bvh)
         println("Computing BVH. This is likely inefficient")
-        detector_bvh = build_bvh(detector_triangles)
+        detector_bvh = BVHTree(detector_triangles)
     end
     if isnothing(detector_areas)
         println("Computing areas. This is likely inefficient")
@@ -180,4 +180,65 @@ function inject_event(
 
     return initial_state, close_state, final_state, weight_params
 
+end
+
+"""
+    DetectorProperties{T}
+
+A struct holding pre-computed detector properties for efficient injection.
+
+Pre-computing these properties once and reusing them across many injection events
+significantly improves performance compared to computing them on-the-fly.
+
+# Fields
+- `triangles::Vector{Triangle{T}}`: The detector triangles.
+- `normals::Vector{Direction{T}}`: Pre-computed normals for each triangle.
+- `bvh::BVHTree{T}`: Pre-built BVH acceleration structure.
+- `areas::Vector{Quantity{T,ldim^2,typeof(u"m^2")}}`: Pre-computed areas for each triangle.
+"""
+struct DetectorProperties{T<:Real}
+    triangles::Vector{Triangle{T}}
+    normals::Vector{Direction{T}}
+    bvh::BVHTree{T}
+    areas::Vector{Quantity{T,ldim^2,typeof(u"m^2")}}
+end
+
+"""
+    precompute_detector_properties(earth::Earth{T}) where {T<:Real}
+
+Pre-computes detector properties from an Earth model for efficient injection.
+
+This function should be called once before running multiple injection events.
+The returned `DetectorProperties` can then be passed to `inject_event` to avoid
+redundant computation of normals, BVH, and areas for each event.
+
+# Arguments
+- `earth::Earth{T}`: The Earth model containing the detector region.
+
+# Returns
+- `DetectorProperties{T}`: A struct containing pre-computed triangles, normals, BVH, and areas.
+
+# Example
+```julia
+earth = Earth(...)
+detector_props = precompute_detector_properties(earth)
+
+# Now use in injection loop
+for i in 1:n_events
+    result = inject_event(
+        pdg, earth, as, pl, xs;
+        detector_triangles=detector_props.triangles,
+        detector_normals=detector_props.normals,
+        detector_bvh=detector_props.bvh,
+        detector_areas=detector_props.areas
+    )
+end
+```
+"""
+function precompute_detector_properties(earth::Earth{T}) where {T<:Real}
+    triangles = earth.topography[earth.detector_region]
+    normals = normal.(triangles)
+    bvh = BVHTree(triangles)
+    areas = area.(triangles)
+    return DetectorProperties{T}(triangles, normals, bvh, areas)
 end

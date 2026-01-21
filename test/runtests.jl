@@ -18,7 +18,8 @@ import Tambo: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
               UnitfulPowerLawSampler, UniformAngularSampler,
               Frame, cut_frames!,
               Particle, FitStatus, ParticleShape,
-              WeightParameters
+              WeightParameters,
+              reverse
 
 # Define unit dimension aliases that are used throughout the codebase
 const ldim = Unitful.𝐋
@@ -35,6 +36,7 @@ include("test_particles.jl")
 include("test_frames.jl")
 include("test_bvh.jl")
 include("test_weighting.jl")
+include("test_detector_culling.jl")
 
 @testset "Tambo.jl" begin
     @testset "Geometry" begin
@@ -63,5 +65,9 @@ include("test_weighting.jl")
 
     @testset "Weighting" begin
         run_weighting_tests()
+    end
+
+    @testset "Detector Culling" begin
+        run_detector_culling_tests()
     end
 end

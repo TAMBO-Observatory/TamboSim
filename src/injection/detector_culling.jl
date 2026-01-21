@@ -81,6 +81,9 @@ For each vertex, a ray is cast in the reverse direction of `d`. If the ray inter
 with any other part of the mesh (using a `BVHTree` for acceleration), the vertex
 is considered occluded.
 
+This function is parallelized using `Threads.@threads` for improved performance on
+multi-core systems.
+
 # Arguments
 - `vertices`: A vector of vertex coordinates.
 - `faces`: A matrix defining the faces of the mesh.
@@ -97,17 +100,18 @@ function compute_occlusion(
     bvh::BVHTree{T},
 ) where {T<:Real}
     cs = d.coordinate_system
-    occlusion_mask = BitVector(undef, length(vertices))
+    n_vertices = length(vertices)
+    occlusion_mask = BitVector(undef, n_vertices)
     revd = reverse(d)
-    for (idx, vx) in enumerate(vertices)
+
+    # Parallelize the vertex occlusion computation
+    Threads.@threads for idx in 1:n_vertices
+        vx = vertices[idx]
         p = Coordinate(vx.point + OCCLUSION_RAY_OFFSET * revd.point, cs)
         ray = Ray(p, revd)
-        a = intersect_all(bvh, ray)
-        if length(a)==0
-            occlusion_mask[idx] = 1
-        else
-            occlusion_mask[idx] = 0
-        end
+        # Use find_intersect for early termination - we only need to know if ANY intersection exists
+        intersection = find_intersect(ray, bvh)
+        occlusion_mask[idx] = isnothing(intersection)
     end
     return occlusion_mask
 end

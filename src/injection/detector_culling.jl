@@ -81,9 +81,6 @@ For each vertex, a ray is cast in the reverse direction of `d`. If the ray inter
 with any other part of the mesh (using a `BVHTree` for acceleration), the vertex
 is considered occluded.
 
-This function is parallelized using `Threads.@threads` for improved performance on
-multi-core systems.
-
 # Arguments
 - `vertices`: A vector of vertex coordinates.
 - `faces`: A matrix defining the faces of the mesh.
@@ -104,8 +101,7 @@ function compute_occlusion(
     occlusion_mask = BitVector(undef, n_vertices)
     revd = reverse(d)
 
-    # Parallelize the vertex occlusion computation
-    Threads.@threads for idx in 1:n_vertices
+    for idx in 1:n_vertices
         vx = vertices[idx]
         p = Coordinate(vx.point + OCCLUSION_RAY_OFFSET * revd.point, cs)
         ray = Ray(p, revd)

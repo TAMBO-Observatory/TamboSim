@@ -1,21 +1,10 @@
-const units = (
-    MeV=1e6,
-    GeV=1e9,
-    TeV=1e12,
-    PeV=1e15,
-    eV=1,
-    s=1.519e15,
-    second=1.519e15,
-    m=5067730.93741,
-    km=5067730937.41,
-    cm=50677.3093741,
-    gr=5.62e32,
-    kg=5.62e35,
-    mwe=100 * 5.62e32 / 50677.3093741^2, # g / cm^2
-    ρair0=1.225e-3 * 5.62e32 / 50677.3093741^3, # 1.225e-3 gr/cm^3
-    ρrock0=2.6 * 5.62e32 / 50677.3093741^3, # 2.6 gr/cm^3
-    ρrock1=2.9 * 5.62e32 / 50677.3093741^3, # 2.9 gr/cm^3
-    ρrock2=3.374 * 5.62e32 / 50677.3093741^3, # 2.9 gr/cm^3
-    degree=π / 180,
-    earthradius=6378.14 * 5067730937.41,
-)
+const speedoflight = 299_792_458u"m" / u"s"
+const MeVc2 = u"MeV"/speedoflight^2
+const GeVc2 = u"GeV"/speedoflight^2
+const e = 1.602176634e-19 * u"C"
+
+const ldim = Unitful.𝐋
+const mdim = Unitful.𝐌
+const tdim = Unitful.𝐓
+const qdim = Unitful.𝐓 * Unitful.𝐈
+const edim = Unitful.𝐌 * Unitful.𝐋^2 / Unitful.𝐓^2

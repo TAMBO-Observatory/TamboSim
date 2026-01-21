@@ -211,14 +211,14 @@ int main(int argc, char** argv) {
   app.add_option("--eslope", "Spectral index for sampling energies, dN/dE = E^eSlope")
       ->default_val(-1.0)
       ->group("Primary");
-  app.add_option("-z,--zenith", "Primary zenith angle (deg)")
-      ->default_val(0.)
-      ->check(CLI::Range(0., 180.))
-      ->group("Primary");
-  app.add_option("-a,--azimuth", "Primary azimuth angle (deg)")
-      ->default_val(0.)
-      ->check(CLI::Range(0., 360.))
-      ->group("Primary");
+  //app.add_option("-z,--zenith", "Primary zenith angle (deg)")
+  //    ->default_val(0.)
+  //    ->check(CLI::Range(0., 180.))
+  //    ->group("Primary");
+  //app.add_option("-a,--azimuth", "Primary azimuth angle (deg)")
+  //    ->default_val(0.)
+  //    ->check(CLI::Range(0., 360.))
+  //    ->group("Primary");
 
   //////// Config options ////////
 
@@ -262,11 +262,11 @@ int main(int argc, char** argv) {
       ->default_val("both")
       ->check(CLI::IsMember({"neutral", "NC", "charged", "CC", "both"}))
       ->group("Misc.");
-  app.add_option("--observation-height",
-                 "Height above earth radius of the observation level (in km)")
-      ->default_val(0.)
-      ->check(CLI::Range(-1.e3, 1.e5))
-      ->group("Config");
+  //app.add_option("--observation-height",
+  //               "Height above earth radius of the observation level (in km)")
+  //    ->default_val(0.)
+  //    ->check(CLI::Range(-1.e3, 1.e5))
+  //    ->group("Config");
   app.add_option("--injection-height",
                  "Height above earth radius of the injection point (in km)")
       ->default_val(112.75e3)
@@ -457,8 +457,8 @@ int main(int argc, char** argv) {
   }
 
   // direction of the shower in (theta, phi) space
-  auto const thetaRad = app["--zenith"]->as<double>();
-  auto const phiRad = app["--azimuth"]->as<double>();
+  //auto const thetaRad = app["--zenith"]->as<double>();
+  //auto const phiRad = app["--azimuth"]->as<double>();
 
   auto const xpos = app["--xpos"]->as<double>() * 1_km; 
   auto const ypos = app["--ypos"]->as<double>() * 1_km; 
@@ -466,21 +466,22 @@ int main(int argc, char** argv) {
   auto const xintercept = app["--x-intercept"]->as<double>() * 1_km; 
   auto const yintercept = app["--y-intercept"]->as<double>() * 1_km;
   auto const zintercept = app["--z-intercept"]->as<double>() * 1_km;
-  auto const obsHeight = app["--observation-height"]->as<double>();
+  // auto const obsHeight = app["--observation-height"]->as<double>();
     
-  auto const particle_xdir = sin(thetaRad) * cos(phiRad);
-  auto const particle_ydir = sin(thetaRad) * sin(phiRad);
-  auto const particle_zdir = cos(thetaRad); 
+  //auto const particle_xdir = sin(thetaRad) * cos(phiRad);
+  //auto const particle_ydir = sin(thetaRad) * sin(phiRad);
+  //auto const particle_zdir = cos(thetaRad); 
 
-  auto propDir = DirectionVector(rootCS, {particle_xdir,particle_ydir,particle_zdir});
+  //auto propDir = DirectionVector(rootCS, {particle_xdir, particle_ydir, particle_zdir});
   /* === END: CONSTRUCT PRIMARY PARTICLE === */
 
   /* === START: CONSTRUCT GEOMETRY === */
-  auto const observationHeight = 1_km * obsHeight + constants::EarthRadius::Mean;
-  Point const showerCore{rootCS, 0_m, 0_m, observationHeight};
-  Point const injectionPos{rootCS,xpos,ypos,observationHeight+zpos};
-  Point const interceptPos{rootCS,xintercept,yintercept,observationHeight+zintercept};
-
+  auto const surfaceHeight = constants::EarthRadius::Mean;
+  //Point const showerCore{rootCS, 0_m, 0_m, surfaceHeight + zintercept};
+  //Point const injectionPos{rootCS, {xpos, ypos, surfaceHeight + zpos}};
+  Point const injectionPos{rootCS, {xpos, ypos, zpos + surfaceHeight}};
+  Point const showerCore{rootCS, {xintercept, yintercept, surfaceHeight + zintercept}};
+  auto const propVector = showerCore - injectionPos;
  
   // we make the axis much longer than the inj-core distance since the
   // profile will go beyond the core, depending on zenith angle
@@ -630,8 +631,9 @@ int main(int argc, char** argv) {
   ObservationPlane<TrackingType, ParticleWriterParquet> observationLevel{
       obsPlane, DirectionVector(rootCS, {0, -zdir/sqrt(pow(ydir,2)+pow(zdir,2)), ydir/sqrt(pow(ydir,2)+pow(zdir,2))}),
       true,   // plane should "absorb" particles
-      1e-6 * 1_m, // ignored for absorbing planes
-      true}; // do not print z-coordinate
+      1e-6 * 1_m,
+      true
+  }; // do not print z-coordinate
   // register ground particle output
   output.add("particles", observationLevel);
 
@@ -701,14 +703,14 @@ int main(int argc, char** argv) {
     CORSIKA_LOG_INFO("Primary Total Energy: {}", primaryTotalEnergy);
     CORSIKA_LOG_INFO("Primary Momentum:     {}",
                      calculate_momentum(primaryTotalEnergy, get_mass(beamCode)));
-    CORSIKA_LOG_INFO("Primary Direction:    {}", propDir.getNorm());
+    CORSIKA_LOG_INFO("Primary Direction:    {}", propVector.normalized());
     CORSIKA_LOG_INFO("Point of Injection:   {}", injectionPos.getCoordinates());
     CORSIKA_LOG_INFO("Shower Axis Length:   {}",
                      (showerCore - injectionPos).getNorm() * 5.0);
 
     // add the desired particle to the stack
     auto const primaryProperties =
-        std::make_tuple(beamCode, eKin, propDir.normalized(), injectionPos, 0_ns);
+        std::make_tuple(beamCode, eKin, propVector.normalized(), injectionPos, 0_ns);
     stack.addParticle(primaryProperties);
 
     // if we want to fix the first location of the shower
@@ -722,7 +724,7 @@ int main(int argc, char** argv) {
       EAS.forceDecay();
     }
 
-    primaryWriter.recordPrimary(primaryProperties);
+    //primaryWriter.recordPrimary(primaryProperties);
 
     // run the shower
     EAS.run();

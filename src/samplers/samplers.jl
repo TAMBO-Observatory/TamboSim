@@ -1,9 +1,4 @@
-using Distributions: Uniform
-
-abstract type AbstractInjectionShape end
-
 include("crosssections.jl")
-include("angularsamplers.jl")
-include("injectionvolumes.jl")
+include("uniform_angle_sampler.jl")
 include("powerlaws.jl")
-include("injectionplane.jl")
+include("utilities.jl")

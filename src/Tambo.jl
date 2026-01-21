@@ -54,14 +54,19 @@ This function is automatically called when the module is loaded. It retrieves an
 the Git commit hash of the Tambo repository and displays a welcome message with ASCII art.
 """
 function __init__()
-    
+
     try
         tr_init()
-    catch
-        @warn "TauRunner could not be loaded. Injection not possible"
+    catch e
+        @warn "TauRunner could not be loaded. Injection not possible" exception=(e, catch_backtrace())
     end
-    commit_hash = get_git_commit_hash()
+
     if isinteractive()
+        commit_hash = try
+            get_git_commit_hash()
+        catch e
+            "unknown"
+        end
         println("Welcome to TAMBOSim version -0.1")
         println("Git commit hash: $commit_hash")
         println(raw"""
@@ -75,12 +80,12 @@ function __init__()
      /    |   \ .'       `.  /    |   \
     /     |    /           \/     |    \ """)
         println(raw"""
-        ████████╗ █████╗ ███╗   ███╗██████╗  ██████╗ 
+        ████████╗ █████╗ ███╗   ███╗██████╗  ██████╗
         ╚══██╔══╝██╔══██╗████╗ ████║██╔══██╗██╔═══██╗
            ██║   ███████║██╔████╔██║██████╔╝██║   ██║
            ██║   ██╔══██║██║╚██╔╝██║██╔══██╗██║   ██║
            ██║   ██║  ██║██║ ╚═╝ ██║██████╔╝╚██████╔╝
-           ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═════╝  ╚═════╝ 
+           ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═════╝  ╚═════╝
                                                      """)
     end
 end

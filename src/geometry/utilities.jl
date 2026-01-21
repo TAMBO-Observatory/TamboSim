@@ -160,12 +160,12 @@ Input vectors are expected to be 3-dimensional.
 - A `Vector{Float64}` representing the normalized normal vector.
 """
 function normal(v1::AbstractVector, v2::AbstractVector, v3::AbstractVector)
-    (length(v1)==3 && length(v3)==3 && length(v3)==3) || throw("Can't take cross product")
+    (length(v1)==3 && length(v2)==3 && length(v3)==3) || throw(ArgumentError("All vectors must have length 3 for cross product"))
     edge1 = v1 - v2
     edge2 = v1 - v3
     n = cross(edge1, edge2)
     n /= norm(n)
-
+    return n
 end
 
 """

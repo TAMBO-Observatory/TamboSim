@@ -13,7 +13,7 @@ This function serves as a placeholder efficiency function that always returns 1.
 # Returns
 - `Float64`: Always returns 1.0.
 """
-function accept_all(e) :: Float64
+function accept_all(e)::Float64
     return 1.0
 end
 
@@ -30,8 +30,36 @@ This function serves as a placeholder efficiency function that always returns 0.
 # Returns
 - `Float64`: Always returns 0.0.
 """
-function reject_all(e) :: Float64
+function reject_all(e)::Float64
     return 0.0
+end
+
+"""
+    _interpolated_efficiency(e, interpolated_eff)::Float64
+
+Internal helper function that calculates interpolated efficiency for a given energy.
+
+Handles energy values outside the interpolation range by returning 0.0 for energies
+below the lower limit and the efficiency at the upper limit for energies above it.
+
+# Arguments
+- `e`: The energy of the particle.
+- `interpolated_eff`: The interpolation function to use.
+
+# Returns
+- `Float64`: The interpolated efficiency for the given energy.
+"""
+function _interpolated_efficiency(e, interpolated_eff)::Float64
+    lower_limit = extrema(interpolated_eff.itp.knots[1])[begin]
+    upper_limit = extrema(interpolated_eff.itp.knots[1])[end]
+
+    if e < lower_limit
+        return 0.0
+    elseif e > upper_limit
+        return interpolated_eff(upper_limit)
+    else
+        return interpolated_eff(e)
+    end
 end
 
 """
@@ -39,40 +67,18 @@ end
 
 Calculates the interpolated efficiency for electrons based on their energy.
 
-This function uses a pre-defined interpolation function (`interpolated_eff_electron`)
-to determine the efficiency. It handles energy values outside the interpolation range
-by returning 0.0 for energies below the lower limit and the efficiency at the upper limit
-for energies above it.
-
 # Arguments
 - `e`: The energy of the electron.
 
 # Returns
 - `Float64`: The interpolated efficiency for the given electron energy.
 """
-function interpolated_electron_efficiency(e) :: Float64
-    interpolated_eff = interpolated_eff_electron
-    lower_limit = extrema(interpolated_eff.itp.knots[1])[begin]
-    upper_limit = extrema(interpolated_eff.itp.knots[1])[end]
-
-    if e < lower_limit
-        return 0.0
-    elseif e > upper_limit
-        return interpolated_eff(upper_limit)
-    else
-        return interpolated_eff(e)
-    end
-end
+interpolated_electron_efficiency(e)::Float64 = _interpolated_efficiency(e, interpolated_eff_electron)
 
 """
     interpolated_muon_efficiency(e)
 
 Calculates the interpolated efficiency for muons based on their energy.
-
-This function uses a pre-defined interpolation function (`interpolated_eff_muon`)
-to determine the efficiency. It handles energy values outside the interpolation range
-by returning 0.0 for energies below the lower limit and the efficiency at the upper limit
-for energies above it.
 
 # Arguments
 - `e`: The energy of the muon.
@@ -80,29 +86,12 @@ for energies above it.
 # Returns
 - `Float64`: The interpolated efficiency for the given muon energy.
 """
-function interpolated_muon_efficiency(e) :: Float64
-    interpolated_eff = interpolated_eff_muon
-    lower_limit = extrema(interpolated_eff.itp.knots[1])[begin]
-    upper_limit = extrema(interpolated_eff.itp.knots[1])[end]
-
-    if e < lower_limit
-        return 0.0
-    elseif e > upper_limit
-        return interpolated_eff(upper_limit)
-    else
-        return interpolated_eff(e)
-    end
-end
+interpolated_muon_efficiency(e)::Float64 = _interpolated_efficiency(e, interpolated_eff_muon)
 
 """
     interpolated_gamma_efficiency(e)
 
 Calculates the interpolated efficiency for gamma particles based on their energy.
-
-This function uses a pre-defined interpolation function (`interpolated_eff_gamma`)
-to determine the efficiency. It handles energy values outside the interpolation range
-by returning 0.0 for energies below the lower limit and the efficiency at the upper limit
-for energies above it.
 
 # Arguments
 - `e`: The energy of the gamma particle.
@@ -110,19 +99,7 @@ for energies above it.
 # Returns
 - `Float64`: The interpolated efficiency for the given gamma particle energy.
 """
-function interpolated_gamma_efficiency(e) :: Float64
-    interpolated_eff = interpolated_eff_gamma
-    lower_limit = extrema(interpolated_eff.itp.knots[1])[begin]
-    upper_limit = extrema(interpolated_eff.itp.knots[1])[end]
-
-    if e < lower_limit
-        return 0.0
-    elseif e > upper_limit
-        return interpolated_eff(upper_limit)
-    else
-        return interpolated_eff(e)
-    end
-end
+interpolated_gamma_efficiency(e)::Float64 = _interpolated_efficiency(e, interpolated_eff_gamma)
 
 """
     get_nhit(hit_map, efficiencies::Dict{Int, Function}) -> Int
@@ -326,7 +303,7 @@ function corsika_int_weight(
     event::CorsikaEvent,
     efficiencies,
     seed::Int
-) :: Int
+)::Int
     seed!(seed)
     efficiency = efficiencies[event.pdg]
 
@@ -369,7 +346,7 @@ over a vector of `CorsikaEvent`s, applying the same `efficiencies` to all.
 function corsika_int_weight(
     events::Vector{CorsikaEvent},
     efficiencies
-) :: Vector{Int}
+)::Vector{Int}
     return [corsika_int_weight(event, efficiencies) for event in events]
 end
 

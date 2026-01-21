@@ -1,47 +1,14 @@
 """
 Tests for the weighting module including weight parameters and calculations.
+
+These tests use the actual Tambo types from src/ to ensure code coverage.
 """
 
-# ============================================================================
-# Weight Parameters for testing
-# ============================================================================
-
-struct TestWeightParameters{T<:Real}
-    area::Quantity{T, ldim^2, typeof(u"m^2")}
-    emin::Quantity{T, edim, typeof(u"GeV")}
-    emax::Quantity{T, edim, typeof(u"GeV")}
-    gamma::T
-    thetamin::T
-    thetamax::T
-    phimin::T
-    phimax::T
-    generated_initial_e::Quantity{T, edim, typeof(u"GeV")}
-    generated_final_e::Quantity{T, edim, typeof(u"GeV")}
-    generated_cd::Quantity{T, mdim/ldim^2, typeof(u"g/cm^2")}
-    generated_density::Quantity{T, mdim/ldim^3, typeof(u"g/cm^3")}
-    generated_xs::Quantity{T, ldim^2, typeof(u"cm^2")}
-    generated_diff_xs::Quantity{T, ldim^2, typeof(u"cm^2")}
-end
-
-const test_null_params = TestWeightParameters{Float64}(
-    NaN * u"m^2",
-    NaN * u"GeV",
-    NaN * u"GeV",
-    NaN,
-    NaN,
-    NaN,
-    NaN,
-    NaN,
-    NaN * u"GeV",
-    NaN * u"GeV",
-    NaN * u"g/cm^2",
-    NaN * u"g/cm^3",
-    NaN * u"cm^2",
-    NaN * u"cm^2"
-)
+# Import weighting-related types and functions
+import Tambo: null_params
 
 # ============================================================================
-# Weighting functions for testing
+# Weighting helper functions for testing
 # ============================================================================
 
 """
@@ -98,7 +65,7 @@ function test_p_mc(
     return p
 end
 
-function test_p_mc(wp::TestWeightParameters)
+function test_p_mc(wp::WeightParameters)
     return test_p_mc(
         wp.area,
         wp.emin,
@@ -164,7 +131,7 @@ end
 
 # Weight Parameters tests
 function test_weight_parameters_construction()
-    wp = TestWeightParameters(
+    wp = WeightParameters(
         100.0u"m^2",      # area
         1.0u"GeV",        # emin
         1000.0u"GeV",     # emax
@@ -189,7 +156,7 @@ function test_weight_parameters_construction()
 end
 
 function test_null_weight_parameters()
-    null_wp = test_null_params
+    null_wp = null_params
 
     @test isnan(ustrip(null_wp.area))
     @test isnan(ustrip(null_wp.emin))
@@ -220,7 +187,7 @@ function test_p_mc_basic()
 end
 
 function test_p_mc_with_weight_params()
-    wp = TestWeightParameters(
+    wp = WeightParameters(
         100.0u"m^2",
         1.0u"GeV",
         1000.0u"GeV",

@@ -184,37 +184,3 @@ function corsika_run(
         sbatch_command=sbatch_command
     )
 end
-
-#function corsika_run(
-#    result::ProposalResult{T},
-#    plane::Plane{T},
-#    thinning::T, 
-#    ecuts,
-#    corsika_path::String,
-#    corsika_FLUPRO::String,
-#    corsika_FLUFOR::String,
-#    base_outdir::String,
-#    seed::Int64; 
-#    sbatch_command::String=""
-#) where {T}
-#    idx = 1
-#    for particle in result.decay_products
-#        if abs(particle.pdg_id) in [12,14,16]
-#            continue
-#        end
-#        corsika_run(
-#            particle,
-#            plane,
-#            thinning, 
-#            ecuts,
-#            corsika_path,
-#            corsika_FLUPRO,
-#            corsika_FLUFOR,
-#            "$(base_outdir)/shower_$(idx)",
-#            seed; 
-#            sbatch_command=sbatch_command
-#        )
-#        idx += 1
-#    end
-#    
-#end

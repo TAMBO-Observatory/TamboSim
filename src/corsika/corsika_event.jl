@@ -1,3 +1,6 @@
+"""Mean Earth radius in kilometers, used for coordinate transformations."""
+const EARTH_RADIUS = 6371.0u"km"
+
 """
     CorsikaEvent{T<:Real}
 
@@ -91,6 +94,10 @@ This function is typically used as a transformation function by `MultiParquetIte
 It reads particle properties from the table row, applies the necessary rotations and translations
 to convert from CORSIKA's coordinate system to the Earth-centered one, and returns a `CorsikaEvent`.
 
+The particle speed is calculated from the kinetic energy and particle mass using relativistic kinematics
+(γ = 1 + ke/(mc²), β = √(1 - 1/γ²), v = βc). If the particle mass is not in the lookup table,
+the speed defaults to the speed of light.
+
 # Arguments
 - `row`: A row from a Parquet table containing particle data (pdg, energy, position, direction, etc.).
 - `rot::V`: A `Rotation` matrix to transform from the shower plane to the CORSIKA coordinate system.
@@ -100,7 +107,8 @@ to convert from CORSIKA's coordinate system to the Earth-centered one, and retur
 - `t0`: Optional time offset to add to the CORSIKA hit time. Defaults to `0.0u"s"`.
 
 # Returns
-- A `CorsikaEvent` object containing a `Particle` with the CORSIKA hit time added to `t0`.
+- A `CorsikaEvent` object containing a `Particle` with the CORSIKA hit time added to `t0` and
+  the calculated relativistic speed.
 """
 function CorsikaEvent(
     row,
@@ -111,9 +119,18 @@ function CorsikaEvent(
     t0=0.0u"s"
 ) where {U<:Real, V<:Rotation}
     d = Direction(rot * [row.nx, row.ny, row.nz], cs_corsika)
-    p = Coordinate((rot * [row.x, row.y, row.z] .* u"m" .+ center)  .- [0.0u"km", 0.0u"km", 6371.0u"km"], cs_corsika)
+    p = Coordinate((rot * [row.x, row.y, row.z] .* u"m" .+ center)  .- [0.0u"km", 0.0u"km", EARTH_RADIUS], cs_corsika)
     e = U(row.kinetic_energy * u"GeV")
     pdg = ParticleType(Int64(row.pdg))
-    particle = Particle(pdg, e, convert(cs_earth, p), convert(cs_earth, d), t0 + row.time*u"s")
+
+    # Calculate particle speed from kinetic energy and mass
+    speed = try
+        particle_speed(e, pdg)
+    catch
+        # Fall back to speed of light if mass is not known for this particle
+        speedoflight
+    end
+
+    particle = Particle(pdg, e, convert(cs_earth, p), convert(cs_earth, d), U(t0 + row.time*u"s"), U(speed))
     return CorsikaEvent(particle, Float64(row.weight))
 end

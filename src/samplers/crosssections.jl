@@ -120,7 +120,7 @@ function (xs::CrossSection)(
     e::Quantity{T, edim, typeof(u"GeV")}
 ) where {T<:Real}
     # Epsilon for floating point precision issues
-    e - minimum(xs.es) > -1e-6u"GeV" || throw("Energy $(e) out of range for splines")
+    e - minimum(xs.es) > -1e-6u"GeV" || throw(ArgumentError("Energy $(e) out of range for splines"))
     egev = ustrip(e |> u"GeV")
     v = exp(xs.total_xs(log(egev))) * u"cm^2"
     return v
@@ -145,7 +145,7 @@ function (xs::CrossSection)(
     ein::Quantity{T,edim,typeof(u"GeV")},
     eout::Quantity{T,edim,typeof(u"GeV")}
 )::Quantity{T,ldim^2, typeof(u"cm^2")} where {T}
-    ein >= eout || throw("Outgoing energy cannot be greater than incoming energy")
+    ein >= eout || throw(ArgumentError("Outgoing energy cannot be greater than incoming energy"))
     eingev = ustrip(ein |> u"GeV")
     eoutgev = ustrip(eout |> u"GeV")
     emin = ustrip(xs.emin)
@@ -174,7 +174,7 @@ function Base.rand(
     ein::Quantity{T,edim,typeof(u"GeV")}
 )::Quantity{T,edim,typeof(u"GeV")} where {T<:Real}
     # Epsilon for floating point precision issues
-    ein - minimum(xs.es) > -1e-6u"GeV" || throw("Energy $(ein) out of range for splines")
+    ein - minimum(xs.es) > -1e-6u"GeV" || throw(ArgumentError("Energy $(ein) out of range for splines"))
     u = rand()
     # Catch numerical instabilities for u~1e-20.
     z = max(0, xs.inverter(log(ustrip(ein |> u"GeV")), u))

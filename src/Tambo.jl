@@ -25,12 +25,12 @@ using Glob
 using HDF5
 using Integrals
 using JLD2: jldopen, JLDFile, load
+using JSON3
 using LibGit2
 using LinearAlgebra
 using Parquet2
 using PrecompileTools
 using ProgressMeter
-using PyCall: PyCall, PyNULL, PyObject
 using Random
 using Rotations
 using StaticArrays
@@ -47,7 +47,7 @@ include("samplers/samplers.jl")
 include("weighting/weighting.jl")
 include("particles/particles.jl")
 include("injection/injection.jl")
-include("python_interfaces/python_interfaces.jl")
+include("julia_interfaces/julia_interfaces.jl")
 include("corsika/corsika.jl")
 include("frames/frames.jl")
 include("llama_progress.jl")

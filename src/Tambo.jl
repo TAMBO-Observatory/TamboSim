@@ -9,7 +9,12 @@ export Ray,
        proposal_propagation!,
        cut_frames!,
        Simulation,
-       ecefcoordinates
+       ecefcoordinates,
+       # Llama progress utilities
+       print_llama,
+       llama_progress,
+       @llama_showprogress,
+       LlamaBarGlyphs
 
 
 using Arrow
@@ -45,6 +50,7 @@ include("injection/injection.jl")
 include("python_interfaces/python_interfaces.jl")
 include("corsika/corsika.jl")
 include("frames/frames.jl")
+include("llama_progress.jl")
 
 """
     __init__()
@@ -252,7 +258,7 @@ function inject!(
     detector_normals = normal.(earth.topography[earth.detector_region])
     Random.seed!(cfg["pinecone"])
 
-    @showprogress for frame in sim.results
+    @llama_showprogress "Injecting" for frame in sim.results
         tr_seed = rand(UInt32)
         istate, cstate, fstate, wp = inject_event(
             cfg["nu_pdg"],
@@ -342,7 +348,7 @@ function proposal_propagation!(
     end
 
 
-    @showprogress for frame in sim.results
+    @llama_showprogress "Propagating" for frame in sim.results
         if !haskey(frame, inkey)
             continue
         end

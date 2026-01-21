@@ -23,6 +23,7 @@ using JLD2: jldopen, JLDFile, load
 using LibGit2
 using LinearAlgebra
 using Parquet2
+using PrecompileTools
 using ProgressMeter
 using PyCall: PyCall, PyNULL, PyObject
 using Random
@@ -499,5 +500,63 @@ end
 
 # Custom display methods for Tambo types (must be at end after all types are defined)
 include("display.jl")
+
+# Precompilation workloads to reduce time-to-first-use latency
+@setup_workload begin
+    @compile_workload begin
+        # Geometry primitives
+        cs = ecefcoordinates
+        c1 = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        c2 = Coordinate([1.0u"m", 0.0u"m", 0.0u"m"], cs)
+        c3 = Coordinate([0.0u"m", 1.0u"m", 0.0u"m"], cs)
+        c4 = Coordinate([0.0u"m", 0.0u"m", 1.0u"m"], cs)
+
+        d = Direction([0.0, 0.0, 1.0], cs)
+        revd = reverse(d)
+
+        # Triangle operations
+        tri = Triangle(c1, c2, c3)
+        n = normal(tri)
+        a = area(tri)
+        cent = centroid(tri)
+
+        # Multiple triangles for BVH
+        tri2 = Triangle(c1, c2, c4)
+        tri3 = Triangle(c2, c3, c4)
+        triangles = [tri, tri2, tri3]
+
+        # BVH construction and intersection
+        bvh = BVHTree(triangles)
+        ray = Ray(Coordinate([0.1u"m", 0.1u"m", -1.0u"m"], cs), d)
+        find_intersect(ray, bvh)
+        intersect_all(bvh, ray)
+
+        # AABB operations
+        aabb = AABB(tri)
+        aabb2 = AABB(tri2)
+        merged = merge(aabb, aabb2)
+
+        # Sphere operations
+        sphere = Sphere(c1, 1.0u"m")
+        intersect_all(sphere, ray)
+
+        # Samplers
+        pl = UnitfulPowerLawSampler(-2.0, 1e3u"GeV", 1e6u"GeV")
+        rand(pl)
+
+        as = UniformAngularSampler(0.0, π/2, 0.0, 2π)
+        rand(as, cs)
+
+        # Particles
+        p = Particle(ParticleType(16), 1e5u"GeV", c1, d)
+
+        # Detector culling operations
+        normals = normal.(triangles)
+        faces_forward(d, normals[1])
+        verts, faces = triangles_to_mesh(triangles)
+        compute_occlusion(verts, faces, d, bvh)
+        geometric_triangle_weight(triangles, d, normals, bvh)
+    end
+end
 
 end # module

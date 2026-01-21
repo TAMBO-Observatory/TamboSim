@@ -68,14 +68,6 @@
 #endif
 #include <corsika/modules/TAUOLA.hpp>
 
-#include <corsika/modules/radio/CoREAS.hpp>
-#include <corsika/modules/radio/RadioProcess.hpp>
-#include <corsika/modules/radio/ZHS.hpp>
-#include <corsika/modules/radio/observers/Observer.hpp>
-#include <corsika/modules/radio/observers/TimeDomainObserver.hpp>
-#include <corsika/modules/radio/detectors/ObserverCollection.hpp>
-#include <corsika/modules/radio/propagators/TabulatedFlatAtmospherePropagator.hpp>
-
 #include <corsika/setup/SetupStack.hpp>
 #include <corsika/setup/SetupTrajectory.hpp>
 #include <corsika/setup/SetupC7trackedParticles.hpp>
@@ -307,9 +299,9 @@ int main(int argc, char** argv) {
   app.add_flag("--disable-interaction-histograms", disable_interaction_hists,
                "Store interaction histograms")
       ->group("Misc.");
-  app.add_option("-v,--verbosity", "Verbosity level: warn, info, debug, trace.")
+  app.add_option("-v,--verbosity", "Verbosity level: critical, err, warn, info, debug, trace.")
       ->default_val("info")
-      ->check(CLI::IsMember({"warn", "info", "debug", "trace"}))
+      ->check(CLI::IsMember({"criticial", "err", "warn", "info", "debug", "trace"}))
       ->group("Misc.");
   app.add_option("-M,--hadronModel", "High-energy hadronic interaction model")
       ->default_val("SIBYLL-2.3d")
@@ -375,7 +367,11 @@ int main(int argc, char** argv) {
 
   if (app.count("--verbosity")) {
     auto const loglevel = app["--verbosity"]->as<std::string>();
-    if (loglevel == "warn") {
+    if (loglevel == "critical") {
+      logging::set_level(logging::level::critical);
+    } else if (loglevel == "err") {
+      logging::set_level(logging::level::err);
+    } else if (loglevel == "warn") {
       logging::set_level(logging::level::warn);
     } else if (loglevel == "info") {
       logging::set_level(logging::level::info);
@@ -489,7 +485,7 @@ int main(int argc, char** argv) {
  
   // we make the axis much longer than the inj-core distance since the
   // profile will go beyond the core, depending on zenith angle
-  ShowerAxis const showerAxis{injectionPos, (showerCore - injectionPos) * 5.0, env};
+  ShowerAxis const showerAxis{injectionPos, (interceptPos - injectionPos) * 5.0, env};
   auto const dX = 10_g / square(1_cm); // Binning of the writers along the shower axis
   /* === END: CONSTRUCT GEOMETRY === */
 
@@ -643,77 +639,6 @@ int main(int argc, char** argv) {
 
   PrimaryWriter<TrackingType, ParticleWriterParquet> primaryWriter(observationLevel);
   output.add("primary", primaryWriter);
-
-  int ring_number{app["--ring"]->as<int>()};
-  auto const radius_{ring_number * 25_m};
-  const int rr_ = static_cast<int>(radius_ / 1_m);
-
-  // Radio observers and relevant information
-  // the observer time variables
-  const TimeType duration_{4e-7_s};
-  const InverseTimeType sampleRate_{1e+9_Hz};
-
-  // the observer collection for CoREAS and ZHS
-  ObserverCollection<TimeDomainObserver> detectorCoREAS;
-  ObserverCollection<TimeDomainObserver> detectorZHS;
-
-  auto const showerCoreX_{showerCore.getCoordinates().getX()};
-  auto const showerCoreY_{showerCore.getCoordinates().getY()};
-  auto const injectionPosX_{injectionPos.getCoordinates().getX()};
-  auto const injectionPosY_{injectionPos.getCoordinates().getY()};
-  auto const injectionPosZ_{injectionPos.getCoordinates().getZ()};
-  auto const triggerpoint_{Point(rootCS, injectionPosX_, injectionPosY_, injectionPosZ_)};
-
-  if (ring_number != 0) {
-    // setup CoREAS observers - use the for loop for star shape pattern
-    for (auto phi_1 = 0; phi_1 <= 315; phi_1 += 45) {
-      auto phiRad_1 = phi_1 / 180. * M_PI;
-      auto const point_1{Point(rootCS, showerCoreX_ + radius_ * cos(phiRad_1),
-                               showerCoreY_ + radius_ * sin(phiRad_1),
-                               constants::EarthRadius::Mean)};
-      std::cout << "Observer point CoREAS: " << point_1 << std::endl;
-      auto triggertime_1{(triggerpoint_ - point_1).getNorm() / constants::c};
-      std::string name_1 = "CoREAS_R=" + std::to_string(rr_) +
-                           "_m--Phi=" + std::to_string(phi_1) + "degrees";
-      TimeDomainObserver observer_1(name_1, point_1, rootCS, triggertime_1, duration_,
-                                    sampleRate_, triggertime_1);
-      detectorCoREAS.addObserver(observer_1);
-    }
-
-    // setup ZHS observers - use the for loop for star shape pattern
-    for (auto phi_ = 0; phi_ <= 315; phi_ += 45) {
-      auto phiRad_ = phi_ / 180. * M_PI;
-      auto const point_{Point(rootCS, showerCoreX_ + radius_ * cos(phiRad_),
-                              showerCoreY_ + radius_ * sin(phiRad_),
-                              constants::EarthRadius::Mean)};
-      std::cout << "Observer point ZHS: " << point_ << std::endl;
-      auto triggertime_{(triggerpoint_ - point_).getNorm() / constants::c};
-      std::string name_ =
-          "ZHS_R=" + std::to_string(rr_) + "_m--Phi=" + std::to_string(phi_) + "degrees";
-      TimeDomainObserver observer_2(name_, point_, rootCS, triggertime_, duration_,
-                                    sampleRate_, triggertime_);
-      detectorZHS.addObserver(observer_2);
-    }
-  }
-  LengthType const step = 1_m;
-  auto TP =
-      make_tabulated_flat_atmosphere_radio_propagator(env, injectionPos, surface_, step);
-
-  // initiate CoREAS
-  RadioProcess<decltype(detectorCoREAS), CoREAS<decltype(detectorCoREAS), decltype(TP)>,
-               decltype(TP)>
-      coreas(detectorCoREAS, TP);
-
-  // register CoREAS with the output manager
-  output.add("CoREAS", coreas);
-
-  // initiate ZHS
-  RadioProcess<decltype(detectorZHS), ZHS<decltype(detectorZHS), decltype(TP)>,
-               decltype(TP)>
-      zhs(detectorZHS, TP);
-
-  // register ZHS with the output manager
-  output.add("ZHS", zhs);
 
   // make and register the first interaction writer
   InteractionWriter<setup::Tracking, ParticleWriterParquet> inter_writer(

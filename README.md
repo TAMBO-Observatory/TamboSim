@@ -106,14 +106,14 @@ julia> using Tambo
 ### [2.3] PyCall
 Now you can work on getting these Python packages to play nice with Julia. 
 
-Start an interactive Julia session with `julia` and activate the TAMBOSim project environment as above (`using Pkg; Pkg.activate(ENV["PYTHON"])`. 
+Start an interactive Julia session with `julia` and activate the TAMBOSim project environment as above (`using Pkg; Pkg.activate(ENV["TAMBOSIM_PATH"])`. 
 
 To get PyCall working, first run `ENV["PYTHON"]="/path/to/tambo_env/bin/python"` (you can get this path by running `which python` on the command line while inside your TAMBO venv). This tells PyCall which Python executable it should use. Now run `using Tambo; Pkg.build("PyCall")` to build PyCall. After this completes, you’ll need to exit and reënter Julia for the changes to take effect. After reëntry, reactivate the TAMBOSim Julia environment and execute `using PyCall; pyimport("taurunner")`. If this succeeds, the PyCall installation was successful!
 
 Note: when setting the `PYTHON` Julia environmental variable, `~` is not automatically expanded into your home directory. This means if you do not manually replace `~` with the path to your home directory, PyCall will fail to find your Python install. For I so love the users of TAMBOSim, that I sacrificed hours of my life figuring out this excentricity so that you shall not suffer as I did.
 
 ### [2.4] Snakemake
-Lastly, we will install Snakemake. While all the elements in the TAMBOSim chain can be run manually, it also supports the use of Snakemake. Install Snakemake and some other needed packages by running `pip install snakemake toml h5py` inside your TAMBOSim venv.
+Lastly, we will install Snakemake. While all the elements in the TAMBOSim chain can be run manually, it also supports the use of Snakemake. Install Snakemake and some other needed packages by running `pip install snakemake toml h5py snakemake-executor-plugin-slurm` inside your TAMBOSim venv.
 
 ## 3. Running the Code
 ### [3.1] Let’s Simulate Some Events

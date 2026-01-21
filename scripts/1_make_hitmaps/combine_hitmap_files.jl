@@ -33,9 +33,9 @@ function get_filename_list(directory::String, simset_id::String)
     end
 
     # Check only one division of files exists and that we have all files expected
-    num_expected_files = parse(Int64, split(split(filelist[1], ".")[begin], "_")[end])
+    num_expected_files = parse(Int64, split(split(filelist[1], ".")[end-1], "_")[end])
     for i in eachindex(filelist[begin+1:end])
-        if parse(Int64, split(split(filelist[i], ".")[begin], "_")[end]) != num_expected_files
+        if parse(Int64, split(split(filelist[i], ".")[end-1], "_")[end]) != num_expected_files
             error("Unexpected file: $directory/hitmaps_$(simset_id)_$num_expected_files.jld2\nMultiple hitmap file divisions in same directory is not supported.")
         end
     end

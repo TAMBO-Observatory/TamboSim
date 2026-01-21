@@ -102,6 +102,15 @@ function validate_config_file(config::Dict{String, Any})
     end
 end
 
+function get_injected_event_using_event_id(injected_events::Vector{Tambo.InjectionEvent}, event_id::Int64)
+    for event in injected_events
+        if event.event_id == event_id
+            return event
+        end
+    end
+    error("No injected event found with event_id: $event_id")
+end
+
 function main()
     # Parse config file and command line arguments
     args = parse_commandline()
@@ -134,7 +143,7 @@ function main()
     end
 
     sim_file = load(sim_file)
-    triggered_events = sim_file["injected_events"][triggered_event_ids]
+    triggered_events = [get_injected_event_using_event_id(sim_file["injected_events"], id) for id in triggered_event_ids]
 
     # Now apply the column depth requirement. This is actually a physics-level cut,
     # but given it's currently the only one, we'll do it here for now

@@ -18,7 +18,7 @@ Also, I highly recommend joining the [Julia Slack](https://julialang.org/slack/)
 TAMBOSim also relies on the new C++ implementation of CORSIKA, CORSIKA 8. We assume here that you have installed and built CORSIKA 8; you can find instructions for doing so [here](https://gitlab.iap.kit.edu/AirShowerPhysics/corsika).
 
 ## [1] Installing Dependencies
-The physics of TAMBOSim relies primarily on three external software packages: PROPOSAL, TauRunner, and CORSIKA. On the `full-julia` branch, PROPOSAL and TauRunner have native Julia implementations that do not require Python. CORSIKA is written in C++ and TAMBOSim interfaces directly with its executable.
+The physics of TAMBOSim relies primarily on three external software packages: PROPOSAL, TauRunner, and CORSIKA. PROPOSAL and TauRunner have native Julia implementations. CORSIKA is written in C++ and TAMBOSim interfaces directly with its executable.
 
 Neither [PROPOSAL.jl](https://github.com/jlazar17/PROPOSAL.jl) nor [TauRunner.jl](https://github.com/icecube/TauRunner) are registered in the Julia General registry yet, so they must be installed from source as development dependencies.
 
@@ -195,8 +195,8 @@ To use `TAMBOSim` run:
 julia> using Tambo
 ```
 
-### [2.4] Snakemake
-Lastly, we will install Snakemake. While all the elements in the TAMBOSim chain can be run manually, it also supports the use of Snakemake. Install Snakemake and some other needed packages by running `pip install snakemake toml h5py snakemake-executor-plugin-slurm` inside your TAMBOSim venv.
+### [2.3] Snakemake
+Lastly, we will install Snakemake. While all the elements in the TAMBOSim chain can be run manually, it also supports the use of Snakemake. Install Snakemake and some other needed packages by running `pip install snakemake toml h5py snakemake-executor-plugin-slurm`.
 
 ## 3. Running the Code
 ### [3.1] Let’s Simulate Some Events
@@ -229,53 +229,7 @@ Tell people how to cite us.
 
 This section documents common issues encountered during installation and their solutions.
 
-### [4.1] TauRunner Not Initializing (NULL PyObject Error)
-
-**Symptom:** When running examples like `inject.jl`, you encounter an error like:
-```
-ERROR: ArgumentError: ref of NULL PyObject
-```
-
-**Cause:** The TauRunner Python interface is not being initialized. In some versions, the `tr_init()` call in `src/Tambo.jl` may be commented out.
-
-**Solution:** Open `src/Tambo.jl` and locate the `__init__()` function (around line 56-60). Ensure `tr_init()` is uncommented:
-```julia
-function __init__()
-    tr_init()  # Make sure this line is NOT commented out
-    commit_hash = get_git_commit_hash()
-    ...
-end
-```
-
-After making this change, restart Julia to trigger recompilation.
-
-### [4.2] Merge Conflict Markers in Source Files
-
-**Symptom:** Precompilation fails with errors like:
-```
-ParseError: <<<<<<< HEAD
-```
-
-**Cause:** Git merge conflict markers were accidentally left in source files.
-
-**Solution:** Search for and resolve any merge conflict markers:
-```bash
-grep -rn '<<<<<<\|======\|>>>>>>' src/
-```
-Remove the conflict markers and keep the appropriate code version.
-
-### [4.3] Documentation String Errors
-
-**Symptom:** Precompilation fails with errors about documenting expressions:
-```
-ERROR: LoadError: cannot document the following expression
-```
-
-**Cause:** A docstring exists without an immediately following function definition (orphaned docstring).
-
-**Solution:** Check the file and line number mentioned in the error. Look for duplicate or orphaned docstrings and remove them.
-
-### [4.4] Running Examples from the `examples/` Directory
+### [4.1] Running Examples from the `examples/` Directory
 
 **Symptom:** Running examples fails with:
 ```
@@ -313,27 +267,7 @@ ERROR: package `Tambo` has the same name or UUID as the active project
    '
    ```
 
-### [4.5] PyCall Using Wrong Python
-
-**Symptom:** Python imports fail even though the package is installed in your venv.
-
-**Cause:** PyCall may be configured to use a different Python interpreter than your venv.
-
-**Solution:** Check which Python PyCall is using:
-```julia
-using PyCall
-println(PyCall.pyprogramname)
-```
-
-If it's not your venv Python, rebuild PyCall with the correct Python:
-```julia
-ENV["PYTHON"] = "/path/to/your/venv/bin/python"
-using Pkg
-Pkg.build("PyCall")
-```
-Then restart Julia.
-
-### [4.6] PROPOSAL Warnings During Lepton Propagation
+### [4.2] PROPOSAL Warnings During Lepton Propagation
 
 **Symptom:** When running `lepton_propagation.jl`, you see many warnings like:
 ```
@@ -344,7 +278,7 @@ Then restart Julia.
 
 **Solution:** These warnings can be safely ignored. They do not affect the simulation results. The simulation may take significant time due to the physics calculations involved.
 
-### [4.7] TAMBOSIM_PATH Not Set
+### [4.3] TAMBOSIM_PATH Not Set
 
 **Symptom:** Loading Tambo fails with:
 ```

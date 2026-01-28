@@ -5,6 +5,7 @@ using StaticArrays
 using Rotations
 using Distributions
 using StatsBase
+using Random
 
 # Import the Tambo module to test actual source code
 using Tambo
@@ -15,11 +16,18 @@ import Tambo: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
               AABB, BVHNode, BVHTree,
               normal, area, centroid, longlat_to_cart, cart_to_longlat, sph_to_cart, cart_to_sph,
               find_intersect, find_intersection, intersect_all,
-              UnitfulPowerLawSampler, UniformAngularSampler,
+              UnitfulPowerLawSampler, UniformAngularSampler, pl_norm, probability,
               Frame, cut_frames!,
               Particle, FitStatus, ParticleShape,
               WeightParameters,
-              reverse
+              reverse,
+              # Particle types
+              TauMinus, TauPlus, NuTau, NuTauBar,
+              # Julia interfaces types
+              Intersection, SphereIntersection, TriangleIntersection,
+              StochasticLoss,
+              # Julia interfaces functions
+              cull_intersections, should_go_through_earth, is_proposal_available
 
 # Define unit dimension aliases that are used throughout the codebase
 const ldim = Unitful.𝐋
@@ -37,6 +45,8 @@ include("test_frames.jl")
 include("test_bvh.jl")
 include("test_weighting.jl")
 include("test_detector_culling.jl")
+include("test_julia_interfaces.jl")
+include("test_regression.jl")
 
 @testset "Tambo.jl" begin
     @testset "Geometry" begin
@@ -69,5 +79,13 @@ include("test_detector_culling.jl")
 
     @testset "Detector Culling" begin
         run_detector_culling_tests()
+    end
+
+    @testset "Julia Interfaces" begin
+        run_julia_interfaces_tests()
+    end
+
+    @testset "Regression" begin
+        run_regression_tests()
     end
 end

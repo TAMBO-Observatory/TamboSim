@@ -10,6 +10,8 @@ import TauRunner as TR
 # Module-level cached objects
 const _tr_earth = Ref{Union{TR.SphericalBody, Nothing}}(nothing)
 const _tr_xs = Ref{Union{TR.CrossSections, Nothing}}(nothing)
+const _tr_sphere_clp = Ref{Union{TR.SphericalBodyPropagator, Nothing}}(nothing)
+const _tr_slab_prop_cache = Dict{TR.ParticleType, Any}()
 const _tr_initialized = Ref(false)
 
 """
@@ -19,6 +21,7 @@ Initializes the TauRunner.jl library and its components.
 
 This function sets up the Earth model with PREM density profile and
 initializes the CSMS cross-sections for neutrino interactions.
+The SphericalBodyPropagator is created once and cached for reuse.
 """
 function tr_init()
     # Create Earth with PREM density model
@@ -27,6 +30,9 @@ function tr_init()
 
     # Create cross-sections using CSMS model
     _tr_xs[] = TR.CrossSections(TR.CSMS)
+
+    # Create and cache spherical body propagator (expensive — involves PROPOSAL init)
+    _tr_sphere_clp[] = TR.SphericalBodyPropagator(_tr_earth[])
 
     _tr_initialized[] = true
 end
@@ -74,8 +80,8 @@ function taurunner_interface(
         # Create TauRunner particle
         tr_particle = TR.Particle(tr_particle_type, energy_eV, 0.0, xs)
 
-        # Create charged lepton propagator
-        clp = TR.SphericalBodyPropagator(earth)
+        # Use cached charged lepton propagator
+        clp = _tr_sphere_clp[]
 
         # Define stopping condition similar to Python version
         stopping_condition = make_stopping_condition()
@@ -98,6 +104,10 @@ function taurunner_interface(
     else
         # Local topography case: use layered slab model
         culled_ixs = cull_intersections(intersections)
+
+        if isempty(culled_ixs)
+            error("No valid intersections after culling. Input had $(length(intersections)) intersections.")
+        end
 
         total_distance = last(culled_ixs).distance
         layers = Tuple{Float64, Float64}[]
@@ -126,9 +136,12 @@ function taurunner_interface(
         total_length_km = ustrip(last(culled_ixs).distance |> u"km")
         body = TR.LayeredConstantSlab(layers, total_length_km)
 
-        # Create track and propagator
+        # Create track and propagator, reusing cached PROPOSAL propagators
         track = TR.SlabTrack()
         clp = TR.SlabPropagator(body)
+        # Share the cached PROPOSAL propagators across events to avoid
+        # expensive re-initialization of C++ PROPOSAL objects
+        merge!(clp.propagators, _tr_slab_prop_cache)
 
         # Create TauRunner particle
         tr_particle = TR.Particle(tr_particle_type, energy_eV, 0.0, xs)
@@ -139,6 +152,9 @@ function taurunner_interface(
         # Propagate
         TR.propagate!(tr_particle, track, body, clp;
                       condition=stopping_condition, rng=rng)
+
+        # Save any newly-created propagators back to the persistent cache
+        merge!(_tr_slab_prop_cache, clp.propagators)
 
         # Convert back to Tambo format
         body_length = TR.length(body)

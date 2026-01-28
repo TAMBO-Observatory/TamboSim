@@ -18,36 +18,126 @@ Also, I highly recommend joining the [Julia Slack](https://julialang.org/slack/)
 TAMBOSim also relies on the new C++ implementation of CORSIKA, CORSIKA 8. We assume here that you have installed and built CORSIKA 8; you can find instructions for doing so [here](https://gitlab.iap.kit.edu/AirShowerPhysics/corsika).
 
 ## [1] Installing Dependencies
-The physics of TAMBOSim relies primarily on three external software packages: PROPOSAL, TauRunner, and CORSIKA. PROPOSAL and TauRunner can both be run using Python. Of course we are using Julia, not Python, so we will interface with these packages using the Julia package PyCall. CORSIKA, in contrast, is written in C++. TAMBOSim interfaces directly with the CORSIKA executable, so it must be compiled directly, which will be covered later in this section.
+The physics of TAMBOSim relies primarily on three external software packages: PROPOSAL, TauRunner, and CORSIKA. On the `full-julia` branch, PROPOSAL and TauRunner have native Julia implementations that do not require Python. CORSIKA is written in C++ and TAMBOSim interfaces directly with its executable.
 
-We have found that the most straightforward way to get the Python dependencies to play nice in TAMBOSim is by setting up a clean Python virtual environment, or venv. Let’s do that first.
+Neither [PROPOSAL.jl](https://github.com/jlazar17/PROPOSAL.jl) nor [TauRunner.jl](https://github.com/icecube/TauRunner) are registered in the Julia General registry yet, so they must be installed from source as development dependencies.
 
-### [1.1] Python venv
-We’ll assume that you have a relatively recent version of Python installed. We have found that version 3.12.4 works well, but other relatively modern versions should work fine too. Create a fresh venv by running `python -m venv /path/to/tambo_venv`. Go ahead and activate this venv using `source /path/to/tambo_venv/bin/activate`.
+### [1.1] Prerequisites
 
-### [1.2] PROPOSAL
-PROPOSAL is the library that we use to propagate charged leptons and is easiest to install using pip. Run `pip install proposal` to install it.
+You will need:
+- Julia 1.11+ (see section [0.1])
+- A C++17-compatible compiler
+- CMake 3.15+
+- The following system libraries (installable via Homebrew on macOS or your system package manager):
+  - Boost (`brew install boost`)
+  - nlohmann-json (`brew install nlohmann-json`)
+  - spdlog (`brew install spdlog`)
 
-#### Known Issue: macOS Apple Silicon (arm64)
+### [1.2] PROPOSAL.jl (Julia bindings)
 
-**PROPOSAL installation is currently broken on macOS with Apple Silicon (M1/M2/M3 chips).** There are no prebuilt wheels available for this platform, and building from source fails due to:
+PROPOSAL.jl provides native Julia bindings for the [PROPOSAL](https://github.com/tudo-astroparticlephysics/PROPOSAL) C++ charged lepton propagation library. Installation has three stages: building the C++ library, building the Julia wrapper, and registering the Julia package.
 
-1. **Conan build system incompatibility**: PROPOSAL uses Conan to manage C++ dependencies. The bzip2 dependency's CMakeLists.txt requires CMake < 3.5, which is incompatible with modern CMake (4.x), causing the build to fail with:
+#### 1.2.1 Install CxxWrap.jl
+
+CxxWrap bridges C++ and Julia. Install it first:
+```julia
+using Pkg
+Pkg.add("CxxWrap")
+```
+
+#### 1.2.2 Build the PROPOSAL C++ library
+
+```bash
+git clone https://github.com/tudo-astroparticlephysics/PROPOSAL.git /path/to/PROPOSAL-cpp
+cd /path/to/PROPOSAL-cpp
+mkdir build && cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local -DBUILD_SHARED_LIBS=ON
+cmake --build . --parallel
+cmake --install .
+```
+
+**Known issue:** The installed `PROPOSALConfig.cmake` (at `$HOME/.local/lib/cmake/PROPOSAL/PROPOSALConfig.cmake`) has broken paths. You must fix it by editing the file:
+
+1. Change the prefix calculation from `../../` to `../../../`:
+   ```cmake
+   get_filename_component(PACKAGE_PREFIX_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../" ABSOLUTE)
    ```
-   Compatibility with CMake < 3.5 has been removed from CMake
+2. Prefix the legacy variable paths with `${PACKAGE_PREFIX_DIR}`:
+   ```cmake
+   set_and_check(PROPOSAL_INCLUDE_DIR  "${PACKAGE_PREFIX_DIR}/include")
+   set_and_check(PROPOSAL_INCLUDE_DIRS "${PACKAGE_PREFIX_DIR}/include")
+   set_and_check(PROPOSAL_LIBRARIES    "${PACKAGE_PREFIX_DIR}/lib/libPROPOSAL.dylib")
    ```
+   (On Linux, replace `.dylib` with `.so`.)
 
-2. **ABI incompatibility when bypassing Conan**: Building manually with homebrew dependencies succeeds, but the resulting Python module segfaults on import due to pybind11/Python ABI mismatches.
+#### 1.2.3 Build the CxxWrap wrapper
 
-**Workarounds:**
-- Use a Linux machine or Docker container where prebuilt wheels are available
-- Use an x86_64 Python via Rosetta 2 (though this also has Conan issues)
-- Wait for upstream PROPOSAL to fix their build system for modern macOS
+```bash
+git clone https://github.com/jlazar17/PROPOSAL.jl.git /path/to/PROPOSAL.jl
 
-This is an upstream issue with PROPOSAL's packaging. See [PROPOSAL GitHub](https://github.com/tudo-astroparticlephysics/PROPOSAL) for updates.
+JLCXX_DIR=$(julia -e 'using CxxWrap; print(CxxWrap.prefix_path())')/lib/cmake/JlCxx
 
-### [1.3] TauRunner
-TauRunner is used to propagate high-energy tau neturinos thought the Earth, taking into account the effects of [tau regeneration](https://doi.org/10.48550/arXiv.hep-ph/9804354).  To install it, you will need to directly clone the [TauRunner repo](https://github.com/icecube/TauRunner.git). After cloning the repo, install TauRunner by running `pip install /path/to/TauRunner`.
+cd /path/to/PROPOSAL.jl/deps/binarybuilder/wrapper_src
+mkdir build && cd build
+cmake .. \
+    -DJlCxx_DIR=$JLCXX_DIR \
+    -DPROPOSAL_DIR=$HOME/.local/lib/cmake/PROPOSAL \
+    -DCMAKE_BUILD_TYPE=Release
+cmake --build . --parallel
+```
+
+#### 1.2.4 Install the wrapper library
+
+The Julia package expects a library named `libPROPOSAL_cxxwrap`. Copy and rename it:
+
+```bash
+mkdir -p /path/to/PROPOSAL.jl/build/lib
+# macOS:
+cp build/libPROPOSAL_jl.dylib /path/to/PROPOSAL.jl/build/lib/libPROPOSAL_cxxwrap.dylib
+# Linux:
+# cp build/libPROPOSAL_jl.so /path/to/PROPOSAL.jl/build/lib/libPROPOSAL_cxxwrap.so
+```
+
+Alternatively, place the library anywhere and set the environment variable:
+```bash
+export PROPOSAL_JL_LIB_PATH=/path/to/directory/containing/libPROPOSAL_cxxwrap
+```
+
+Clear the precompile cache so Julia picks up the new library:
+```bash
+rm -rf ~/.julia/compiled/v1.*/PROPOSAL
+```
+
+#### 1.2.5 Register PROPOSAL.jl as a development package
+
+```julia
+using Pkg
+Pkg.develop(path="/path/to/PROPOSAL.jl")
+```
+
+Verify the installation:
+```julia
+using PROPOSAL
+is_library_available()  # should return true
+```
+
+**Apple Silicon note:** Ensure all components (Julia, CxxWrap, PROPOSAL C++, and the wrapper) are built for the same architecture (arm64). Run `file /path/to/library.dylib` to check.
+
+### [1.3] TauRunner.jl
+
+TauRunner is used to propagate high-energy tau neutrinos through the Earth, taking into account the effects of [tau regeneration](https://doi.org/10.48550/arXiv.hep-ph/9804354). The Julia implementation lives inside the TauRunner repository.
+
+```bash
+git clone https://github.com/icecube/TauRunner.git /path/to/TauRunner
+```
+
+Register the Julia package (note the `TauRunner.jl` subdirectory):
+```julia
+using Pkg
+Pkg.develop(path="/path/to/TauRunner/TauRunner.jl")
+```
+
+TauRunner.jl depends on PROPOSAL.jl, so make sure PROPOSAL.jl is installed first (section 1.2).
 
 ### [1.4] CORSIKA TAMBO application
 In addition to building and installing CORISKA8, you will need to build the specific CORSIKA application that is used to simulate air showers in TAMBOSim. This ships with TAMBOSim, so go ahead and clone this repo. Next, navigate to `/path/to/TAMBOSim/src/corsika/`. In this directory, execute the following:
@@ -76,9 +166,9 @@ This will build our CORSIKA executable, named `c8_air_shower`.
 
 ## 2. Setting up the Julia environment
 ### [2.1] Configuring Your Environment
-After downloading and seting up the required packages as described above, we now need to configure your environment. If you haven’t already, activate your Python venv using `source /path/to/tambo_venv/bin/activate`.
+After installing the required packages as described above, we now need to configure your environment.
 
-You should also define environemental variables that specify where `TAMBOSim` is installed and where your top-level data directory for all `TAMBOSim` simulations is located. In a shell, run
+You should define environmental variables that specify where `TAMBOSim` is installed and where your top-level data directory for all `TAMBOSim` simulations is located. In a shell, run
 ```
 export TAMBOSIM_PATH=/path/to/TAMBOSim
 export TAMBO_DATA_PATH=/path/to/data
@@ -88,29 +178,22 @@ We also need to tell `TAMBOSim` where to find `CORSIKA` and files needed by `COR
 * `FLUFOR` to point to the version of `FORTRAN` used by `FLUKA`
 
 ### [2.2] Precompile `TAMBOSim`
-Now that many of our dependencies and much of the environment is ready to go, we’ll now setup the Juila TAMBOSim package. Launch up a Julia REPL session and setup the TAMBO environment by running
+Now that our dependencies are ready, we'll set up the Julia TAMBOSim package. Launch a Julia REPL session and set up the TAMBO environment by running:
 ```julia-repl
 julia> using Pkg
 julia> Pkg.activate(ENV["TAMBOSIM_PATH"])
-  Activating project at "/path/to/TAMBO-MC
+  Activating project at "/path/to/TAMBO-MC"
+julia> Pkg.develop(path="/path/to/PROPOSAL.jl")
+julia> Pkg.develop(path="/path/to/TauRunner/TauRunner.jl")
 julia> Pkg.resolve()
 ...
-julia> Pkg.instantiate() 
+julia> Pkg.instantiate()
 ...
 ```
-To use `TAMBOSim` run
+To use `TAMBOSim` run:
 ```julia-repl
 julia> using Tambo
 ```
-
-### [2.3] PyCall
-Now you can work on getting these Python packages to play nice with Julia. 
-
-Start an interactive Julia session with `julia` and activate the TAMBOSim project environment as above (`using Pkg; Pkg.activate(ENV["TAMBOSIM_PATH"])`. 
-
-To get PyCall working, first run `ENV["PYTHON"]="/path/to/tambo_env/bin/python"` (you can get this path by running `which python` on the command line while inside your TAMBO venv). This tells PyCall which Python executable it should use. Now run `using Tambo; Pkg.build("PyCall")` to build PyCall. After this completes, you’ll need to exit and reënter Julia for the changes to take effect. After reëntry, reactivate the TAMBOSim Julia environment and execute `using PyCall; pyimport("taurunner")`. If this succeeds, the PyCall installation was successful!
-
-Note: when setting the `PYTHON` Julia environmental variable, `~` is not automatically expanded into your home directory. This means if you do not manually replace `~` with the path to your home directory, PyCall will fail to find your Python install. For I so love the users of TAMBOSim, that I sacrificed hours of my life figuring out this excentricity so that you shall not suffer as I did.
 
 ### [2.4] Snakemake
 Lastly, we will install Snakemake. While all the elements in the TAMBOSim chain can be run manually, it also supports the use of Snakemake. Install Snakemake and some other needed packages by running `pip install snakemake toml h5py snakemake-executor-plugin-slurm` inside your TAMBOSim venv.

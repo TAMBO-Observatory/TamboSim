@@ -99,14 +99,8 @@ function proposal_propagate(
             push!(losses, l_particle)
         end
 
-        # Continuous energy loss (approximated from energy difference minus stochastic)
-        track_energies = PP.get_track_energies_array(propped_result)
-        if length(track_energies) > 1
-            # Sum the differences as continuous loss approximation
-            for i in 1:(length(track_energies)-1)
-                continuous_e += (track_energies[i] - track_energies[i+1]) * u"MeV"
-            end
-        end
+        # Get continuous energy loss from PROPOSAL
+        continuous_e += PP.get_total_continuous_energy_loss(propped_result) * u"MeV"
 
         # Update final state
         final_dist = accrued_d + PP.get_propagated_distance(pp_final_state) * u"cm"
@@ -114,17 +108,18 @@ function proposal_propagate(
         p = final_dist * particle.direction + particle.position
         final_state = Particle(ParticleType(lepton_id), current_e, p, particle.direction, final_t)
 
-        # Check for decay (track ends before max distance and particle lost energy significantly)
-        # In PROPOSAL, decay products would show up in the track
-        # For now, we check if propagation stopped early due to decay
-        actual_distance = PP.get_propagated_distance(pp_final_state) * u"cm"
-        if actual_distance < l * 0.99 && current_e < particle.energy * 0.01
-            # Likely decayed - create secondary neutrino
-            # For tau decay, create tau neutrino going in same direction
-            if abs(lepton_id) == 15
-                secondary_pdg = lepton_id > 0 ? 16 : -16  # nu_tau or nu_tau_bar
-                secondary_e = current_e * 0.3  # Approximate energy fraction
-                sec_particle = Particle(ParticleType(secondary_pdg), secondary_e, p, particle.direction, final_t)
+        # Check for decay products from PROPOSAL
+        if PP.has_decay(propped_result)
+            max_products = 10
+            dp_types = Vector{Int32}(undef, max_products)
+            dp_energies = Vector{Float64}(undef, max_products)
+            dp_dx = Vector{Float64}(undef, max_products)
+            dp_dy = Vector{Float64}(undef, max_products)
+            dp_dz = Vector{Float64}(undef, max_products)
+            n_decay = PP.get_decay_products_to_array(propped_result, dp_types, dp_energies, dp_dx, dp_dy, dp_dz)
+            for j in 1:min(n_decay, max_products)
+                dp_direction = Direction([dp_dx[j], dp_dy[j], dp_dz[j]], cs)
+                sec_particle = Particle(ParticleType(dp_types[j]), dp_energies[j] * u"MeV", p, dp_direction, final_t)
                 push!(secondaries, sec_particle)
             end
             break

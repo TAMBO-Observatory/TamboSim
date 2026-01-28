@@ -85,10 +85,11 @@ function generate_config(lepton_id::Int, medium::String, ecut::Real, vcut::Real,
     config = Dict(
         "global" => Dict(
             "cuts" => Dict(
-                "e_cut" => ecut * 1000,  # Convert GeV to MeV
+                "e_cut" => ecut < 0 ? 1e18 : ecut * 1000,  # Convert GeV to MeV; negative means continuous only (use large value)
                 "v_cut" => vcut,
                 "cont_rand" => do_continuous
-            )
+            ),
+            "tablesdir" => _config_dir[]
         ),
         "sectors" => [
             Dict(

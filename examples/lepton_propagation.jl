@@ -1,4 +1,4 @@
-tambo_path = ENV["TAMBOSIM_PATH"]
+tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(@__DIR__))
 
 import Pkg
 Pkg.activate(".")
@@ -18,11 +18,11 @@ function parse_commandline()
         "--infile", "-i"
             help = "Input JLD2 file with injected events"
             arg_type = String
-            default = "$(ENV["TAMBOSIM_PATH"])/examples/output/injected_events.jld2"
+            default = "$(tambo_path)/examples/output/injected_events.jld2"
         "--outfile", "-o"
             help = "Output JLD2 file path"
             arg_type = String
-            default = "$(ENV["TAMBOSIM_PATH"])/examples/output/propagated_events.jld2"
+            default = "$(tambo_path)/examples/output/propagated_events.jld2"
         "--cut-inmountain"
             help = "Cut events where final state is inside the mountain"
             action = :store_true

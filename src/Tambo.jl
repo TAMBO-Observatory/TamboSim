@@ -10,6 +10,7 @@ export Ray,
        cut_frames!,
        Simulation,
        ecefcoordinates,
+       get_tambosim_path,
        # Llama progress utilities
        print_llama,
        llama_progress,
@@ -51,6 +52,16 @@ include("julia_interfaces/julia_interfaces.jl")
 include("corsika/corsika.jl")
 include("frames/frames.jl")
 include("llama_progress.jl")
+
+"""
+    get_tambosim_path() -> String
+
+Returns the TAMBO-MC repository root path. Uses the `TAMBOSIM_PATH` environment variable
+if set, otherwise infers the path from the location of this source file.
+"""
+function get_tambosim_path()
+    return get(ENV, "TAMBOSIM_PATH", dirname(@__DIR__))
+end
 
 """
     __init__()
@@ -109,7 +120,7 @@ opens the Git repository, and returns the hash of the current HEAD commit.
 - A string containing the Git commit hash.
 """
 function get_git_commit_hash()
-    git_repo_path = ENV["TAMBOSIM_PATH"]
+    git_repo_path = get_tambosim_path()
 
     # # Open the Git repository located at the module's directory
     repo = LibGit2.GitRepo(git_repo_path)
@@ -154,12 +165,10 @@ This function modifies the dictionary in-place.
 - `d::Dict`: The dictionary to modify.
 """
 function relativize!(d::Dict)
-    if "TAMBOSIM_PATH" ∉ keys(ENV)
-        return
-    end
+    tambosim_path = get_tambosim_path()
     for (k, v) in pairs(d)
         if isa(v, String)
-            d[k] = replace(v, "_TAMBOSIM_PATH_" => ENV["TAMBOSIM_PATH"])
+            d[k] = replace(v, "_TAMBOSIM_PATH_" => tambosim_path)
         elseif isa(v, Dict)
             relativize!(v)
         end

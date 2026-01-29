@@ -1,4 +1,4 @@
-tambo_path = ENV["TAMBOSIM_PATH"]
+tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(@__DIR__))
 
 import Pkg
 Pkg.activate(".")
@@ -17,11 +17,11 @@ function parse_commandline()
         "--config", "-c"
             help = "Path to configuration TOML file"
             arg_type = String
-            default = "$(ENV["TAMBOSIM_PATH"])/resources/configuration_examples/paper_config.toml"
+            default = "$(tambo_path)/resources/configuration_examples/paper_config.toml"
         "--outfile", "-o"
             help = "Output JLD2 file path"
             arg_type = String
-            default = "$(ENV["TAMBOSIM_PATH"])/examples/output/injected_events.jld2"
+            default = "$(tambo_path)/examples/output/injected_events.jld2"
         "--nevent", "-n"
             help = "Number of events to simulate"
             arg_type = Int

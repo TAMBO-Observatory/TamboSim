@@ -70,8 +70,8 @@ function run_injection(earth, xs, detector_props, as, gamma, n_events, seed)
 end
 
 function run_injection_regression_tests()
-    earth_path = ENV["TAMBOSIM_PATH"] * "/resources/basic_geometry.h5:colca_valley_30000"
-    xs_path = ENV["TAMBOSIM_PATH"] * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
+    earth_path = get_tambosim_path() * "/resources/basic_geometry.h5:colca_valley_30000"
+    xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
     earth = Earth(earth_path, "detector1")
     xs = CrossSection(xs_path)
@@ -148,7 +148,7 @@ function run_injection_regression_tests()
         end
 
         # Phase 2: initialize PROPOSAL and propagate
-        tables_path = ENV["TAMBOSIM_PATH"] * "/resources/proposal_tables"
+        tables_path = get_tambosim_path() * "/resources/proposal_tables"
         init_proposal(Dict("tablespath" => tables_path))
 
         for (gamma, fstates, expected_frac) in [

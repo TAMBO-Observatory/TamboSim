@@ -256,7 +256,7 @@ function main()
     config = nothing
     try 
         # TODO: seems like this should load from the injection file rather than the config in case config is changed
-        config = Simulation(ENV["TAMBOSIM_PATH"] * "/resources/configuration_examples/$(args["injection_config"]).toml")
+        config = Simulation(get_tambosim_path() * "/resources/configuration_examples/$(args["injection_config"]).toml")
     catch
         error("Config file not found. Currently only supports running config files in the resources/configuration_examples directory")
     end

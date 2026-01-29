@@ -34,7 +34,7 @@ function proposal_propagate(
     ixs = intersect_all(earth, ray)
 
     # Set random seed if provided
-    seed = isnothing(seed) ? rand(Int32) : seed
+    seed = isnothing(seed) ? rand(Int32) : Int32(mod(seed, typemax(Int32)))
     PP.set_random_seed(seed)
 
     densities = compute_density(ixs, particle.direction)
@@ -77,12 +77,14 @@ function proposal_propagate(
 
         # Process track for stochastic losses
         track_length = PP.get_track_length(propped_result)
+        stochastic_loss_total = 0.0u"MeV"
         for i in 1:track_length
-            track_state = PP.get_track_state(propped_result, i - 1)  # 0-indexed
+            track_state = PP.track_state_at(propped_result, i - 1)  # 0-indexed
 
             # Get interaction type and energy
             int_type = PP.get_type(track_state)
             loss_e = PP.get_energy(track_state) * u"MeV"
+            stochastic_loss_total += loss_e
             prop_dist = PP.get_propagated_distance(track_state) * u"cm"
             loss_time = PP.get_time(track_state) * u"s"
 
@@ -99,8 +101,9 @@ function proposal_propagate(
             push!(losses, l_particle)
         end
 
-        # Get continuous energy loss from PROPOSAL
-        continuous_e += PP.get_total_continuous_energy_loss(propped_result) * u"MeV"
+        # Compute continuous energy loss: initial - final - stochastic
+        segment_initial_e = PP.get_energy(state) * u"MeV"
+        continuous_e += segment_initial_e - current_e - stochastic_loss_total
 
         # Update final state
         final_dist = accrued_d + PP.get_propagated_distance(pp_final_state) * u"cm"
@@ -108,20 +111,10 @@ function proposal_propagate(
         p = final_dist * particle.direction + particle.position
         final_state = Particle(ParticleType(lepton_id), current_e, p, particle.direction, final_t)
 
-        # Check for decay products from PROPOSAL
-        if PP.has_decay(propped_result)
-            max_products = 10
-            dp_types = Vector{Int32}(undef, max_products)
-            dp_energies = Vector{Float64}(undef, max_products)
-            dp_dx = Vector{Float64}(undef, max_products)
-            dp_dy = Vector{Float64}(undef, max_products)
-            dp_dz = Vector{Float64}(undef, max_products)
-            n_decay = PP.get_decay_products_to_array(propped_result, dp_types, dp_energies, dp_dx, dp_dy, dp_dz)
-            for j in 1:min(n_decay, max_products)
-                dp_direction = Direction([dp_dx[j], dp_dy[j], dp_dz[j]], cs)
-                sec_particle = Particle(ParticleType(dp_types[j]), dp_energies[j] * u"MeV", p, dp_direction, final_t)
-                push!(secondaries, sec_particle)
-            end
+        # Check for decay: particle stopped before reaching max_distance with energy remaining
+        pp_prop_dist = PP.get_propagated_distance(pp_final_state)
+        if pp_prop_dist < max_distance && ustrip(current_e |> u"MeV") > 0.0
+            # Particle decayed — no decay product info available from this API
             break
         end
 

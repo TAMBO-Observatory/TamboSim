@@ -6,6 +6,7 @@ using Rotations
 using Distributions
 using StatsBase
 using Random
+using ProgressMeter
 
 # Import the Tambo module to test actual source code
 using Tambo
@@ -27,7 +28,10 @@ import Tambo: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
               Intersection, SphereIntersection, TriangleIntersection,
               StochasticLoss,
               # Julia interfaces functions
-              cull_intersections, should_go_through_earth, is_proposal_available
+              cull_intersections, should_go_through_earth, is_proposal_available,
+              # Additional imports for coverage tests
+              compute_rotation, validate_triangle,
+              particle_mass, particle_speed, lorentz_gamma, particle_vacuum_range
 
 # Define unit dimension aliases that are used throughout the codebase
 const ldim = Unitful.𝐋
@@ -47,6 +51,8 @@ include("test_weighting.jl")
 include("test_detector_culling.jl")
 include("test_julia_interfaces.jl")
 include("test_regression.jl")
+include("test_coverage_extras.jl")
+include("test_injection_regression.jl")
 
 @testset "Tambo.jl" begin
     @testset "Geometry" begin
@@ -87,5 +93,13 @@ include("test_regression.jl")
 
     @testset "Regression" begin
         run_regression_tests()
+    end
+
+    @testset "Coverage Extras" begin
+        run_coverage_extras_tests()
+    end
+
+    @testset "Injection Regression" begin
+        run_injection_regression_tests()
     end
 end

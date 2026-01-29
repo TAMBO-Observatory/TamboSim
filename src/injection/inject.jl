@@ -2,6 +2,8 @@
 const INJECTION_ERROR_NO_VISIBLE_TRIANGLES = -1
 const INJECTION_ERROR_NO_INTERSECTIONS = -2
 const INJECTION_ERROR_AIR_ONLY = -3
+const INJECTION_ERROR_INSUFFICIENT_INTERSECTIONS = -4
+const INJECTION_ERROR_RUNTIME = -5
 
 """
     DetectorProperties{T}
@@ -161,6 +163,10 @@ function validate_trajectory(
         return nothing, INJECTION_ERROR_AIR_ONLY
     end
 
+    if length(filtered) < 2
+        return nothing, INJECTION_ERROR_INSUFFICIENT_INTERSECTIONS
+    end
+
     return filtered, 0
 end
 
@@ -247,42 +253,53 @@ function _inject_event_impl(
     initial_energy = rand(pl)
     initial_state = Particle(ParticleType(pdg), initial_energy, p, d)
 
-    # Propagate through Earth via TauRunner interface
-    close_state = taurunner_interface(initial_state, intersections, tr_seed)
+    local close_state, final_state, weight_params
+    try
+        # Propagate through Earth via TauRunner interface
+        close_state = taurunner_interface(initial_state, intersections, tr_seed)
 
-    # Handle charged lepton output (no forced interaction needed)
-    if abs(Int(close_state.pdg)) + 1 == abs(Int(pdg))
+        # Handle null particle from failed propagation
+        if isnan(close_state.energy)
+            return create_null_result(pdg, INJECTION_ERROR_RUNTIME, cs, T)
+        end
+
+        # Handle charged lepton output (no forced interaction needed)
+        if abs(Int(close_state.pdg)) + 1 == abs(Int(pdg))
+            weight_params = WeightParameters(
+                sum(visible_areas),
+                pl, as, xs,
+                initial_energy,
+                close_state.energy,
+                NaN * u"GeV",
+                NaN * u"g/cm^2",
+                NaN * u"g/cm^3"
+            )
+            return initial_state, close_state, close_state, weight_params
+        end
+
+        # Check if energy is below cross-section threshold
+        if close_state.energy < minimum(xs.es)
+            return initial_state, close_state, Particle(T), null_params
+        end
+
+        # Force interaction for neutrino output
+        final_state, eout, cd, density = compute_final_state(
+            close_state, xs, intersections, cs, d
+        )
+
         weight_params = WeightParameters(
             sum(visible_areas),
             pl, as, xs,
             initial_energy,
             close_state.energy,
-            NaN * u"GeV",
-            NaN * u"g/cm^2",
-            NaN * u"g/cm^3"
+            eout,
+            cd |> u"g/cm^2",
+            density
         )
-        return initial_state, close_state, close_state, weight_params
+    catch e
+        @warn "Runtime error during event injection, returning null result" exception=(e, catch_backtrace())
+        return create_null_result(pdg, INJECTION_ERROR_RUNTIME, cs, T)
     end
-
-    # Check if energy is below cross-section threshold
-    if close_state.energy < minimum(xs.es)
-        return initial_state, close_state, Particle(T), null_params
-    end
-
-    # Force interaction for neutrino output
-    final_state, eout, cd, density = compute_final_state(
-        close_state, xs, intersections, cs, d
-    )
-
-    weight_params = WeightParameters(
-        sum(visible_areas),
-        pl, as, xs,
-        initial_energy,
-        close_state.energy,
-        eout,
-        cd |> u"g/cm^2",
-        density
-    )
 
     return initial_state, close_state, final_state, weight_params
 end

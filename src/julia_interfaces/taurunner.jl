@@ -11,7 +11,6 @@ import TauRunner as TR
 const _tr_earth = Ref{Union{TR.SphericalBody, Nothing}}(nothing)
 const _tr_xs = Ref{Union{TR.CrossSections, Nothing}}(nothing)
 const _tr_sphere_clp = Ref{Union{TR.SphericalBodyPropagator, Nothing}}(nothing)
-const _tr_slab_prop_cache = Dict{TR.ParticleType, Any}()
 const _tr_initialized = Ref(false)
 
 """
@@ -113,7 +112,6 @@ function taurunner_interface(
         layers = Tuple{Float64, Float64}[]
 
         # Build layer structure from intersections (reverse order - from far to near)
-        prev_boundary = 0.0
         for intersection in Iterators.rest(reverse(culled_ixs), 2)
             # Determine if this is rock or air based on normal direction
             is_rock = dot(particle.direction, intersection.normal) > 0 ||
@@ -126,23 +124,56 @@ function taurunner_interface(
             push!(layers, (density, normalized_boundary))
         end
 
+        # Merge consecutive layers with the same density to avoid confusing
+        # TauRunner's C++ code, which can segfault on redundant boundaries
+        merged_layers = Tuple{Float64, Float64}[]
+        for layer in layers
+            if !isempty(merged_layers) && merged_layers[end][1] == layer[1]
+                # Same density: extend the previous layer to this boundary
+                merged_layers[end] = (layer[1], layer[2])
+            else
+                push!(merged_layers, layer)
+            end
+        end
+        layers = merged_layers
+
         # Ensure we have at least one layer ending at 1.0
-        if isempty(layers) || last(layers)[2] < 1.0
-            # Add final rock layer if needed
+        if isempty(layers)
             push!(layers, (2.6, 1.0))
+        elseif last(layers)[2] < 1.0
+            if last(layers)[1] == 2.6
+                # Extend existing rock layer to 1.0
+                layers[end] = (2.6, 1.0)
+            else
+                push!(layers, (2.6, 1.0))
+            end
         end
 
         # Create slab body
         total_length_km = ustrip(last(culled_ixs).distance |> u"km")
+
+        # Guard against degenerate geometry that causes segfaults in C++ code
+        if total_length_km <= 0.0
+            @warn "Degenerate slab length ($total_length_km km), returning null particle"
+            return Particle(T)
+        end
+
+        # Validate layer boundaries are strictly increasing and in (0, 1]
+        for i in 1:length(layers)
+            if layers[i][2] <= 0.0 || layers[i][2] > 1.0
+                @warn "Invalid layer boundary $(layers[i][2]), returning null particle"
+                return Particle(T)
+            end
+            if i > 1 && layers[i][2] <= layers[i-1][2]
+                @warn "Non-increasing layer boundaries, returning null particle"
+                return Particle(T)
+            end
+        end
+
         body = TR.LayeredConstantSlab(layers, total_length_km)
 
-        # Create track and propagator, reusing cached PROPOSAL propagators
         track = TR.SlabTrack()
         clp = TR.SlabPropagator(body)
-        # Share the cached PROPOSAL propagators across events to avoid
-        # expensive re-initialization of C++ PROPOSAL objects
-        merge!(clp.propagators, _tr_slab_prop_cache)
-
         # Create TauRunner particle
         tr_particle = TR.Particle(tr_particle_type, energy_eV, 0.0, xs)
 
@@ -153,8 +184,9 @@ function taurunner_interface(
         TR.propagate!(tr_particle, track, body, clp;
                       condition=stopping_condition, rng=rng)
 
-        # Save any newly-created propagators back to the persistent cache
-        merge!(_tr_slab_prop_cache, clp.propagators)
+        # NOTE: Propagator caching removed. PROPOSAL C++ propagator objects are
+        # bound to a specific geometry (slab body). Reusing them across events with
+        # different layer structures causes memory corruption and segfaults.
 
         # Convert back to Tambo format
         body_length = TR.length(body)

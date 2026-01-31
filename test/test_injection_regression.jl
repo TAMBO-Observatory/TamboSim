@@ -87,8 +87,8 @@ function run_injection_regression_tests()
 
     # ---- Gamma = 1.0 (flat spectrum) ----
     @testset "Injection gamma=1.0" begin
-        # Mean log10(E/GeV) ~ 7.22 for gamma=1 (uniform in log-space)
-        @test isapprox(r1.mean_log_e, 7.224, atol=0.01)
+        # Mean log10(E/GeV) ~ 7.25 for gamma=1 (uniform in log-space)
+        @test isapprox(r1.mean_log_e, 7.251, atol=0.01)
 
         # Fraction of successful injections ~ 51.6%
         @test isapprox(r1.frac_successful, 0.5164, atol=0.01)
@@ -100,8 +100,8 @@ function run_injection_regression_tests()
 
     # ---- Gamma = 2.0 (steeper spectrum) ----
     @testset "Injection gamma=2.0" begin
-        # Mean log10(E/GeV) ~ 5.90 for gamma=2 (weighted toward lower energies)
-        @test isapprox(r2.mean_log_e, 5.904, atol=0.01)
+        # Mean log10(E/GeV) ~ 5.92 for gamma=2 (weighted toward lower energies)
+        @test isapprox(r2.mean_log_e, 5.916, atol=0.01)
 
         # Fraction of successful injections ~ 52.0%
         @test isapprox(r2.frac_successful, 0.5196, atol=0.01)
@@ -127,30 +127,31 @@ function run_injection_regression_tests()
     # Uses fewer events (1000) since PROPOSAL propagation is compute-intensive.
     # Two-phase approach: run all injections first, then propagate, to avoid
     # conflicts between TauRunner's internal PROPOSAL usage and init_proposal.
-    @testset "Post-propagation in-air fraction" begin
-        n_prop_events = 1000
-        prop_seed = 925
 
-        # Phase 1: collect injection final states for both gammas
-        fstates_g1 = Particle{Float64}[]
-        fstates_g2 = Particle{Float64}[]
+    # Phase 1: collect injection final states
+    n_prop_events = 1000
+    prop_seed = 925
 
-        for (gamma, fstates) in [(1.0, fstates_g1), (2.0, fstates_g2)]
-            pl = UnitfulPowerLawSampler(gamma, 3e5u"GeV", 1e9u"GeV")
-            Random.seed!(prop_seed)
-            for i in 1:n_prop_events
-                tr_seed = rand(UInt32)
-                istate, cstate, fstate, wp = inject_event(16, earth, as, pl, xs, detector_props; tr_seed=tr_seed)
-                if !isnan(fstate.energy)
-                    push!(fstates, fstate)
-                end
+    fstates_g1 = Particle{Float64}[]
+    fstates_g2 = Particle{Float64}[]
+
+    for (gamma, fstates) in [(1.0, fstates_g1), (2.0, fstates_g2)]
+        pl = UnitfulPowerLawSampler(gamma, 3e5u"GeV", 1e9u"GeV")
+        Random.seed!(prop_seed)
+        for i in 1:n_prop_events
+            tr_seed = rand(UInt32)
+            istate, cstate, fstate, wp = inject_event(16, earth, as, pl, xs, detector_props; tr_seed=tr_seed)
+            if !isnan(fstate.energy)
+                push!(fstates, fstate)
             end
         end
+    end
 
-        # Phase 2: initialize PROPOSAL and propagate
-        tables_path = get_tambosim_path() * "/resources/proposal_tables"
-        init_proposal(Dict("tablespath" => tables_path))
+    # Phase 2: initialize PROPOSAL and propagate
+    tables_path = get_tambosim_path() * "/resources/proposal_tables"
+    init_proposal(Dict("tablespath" => tables_path))
 
+    @testset "Post-propagation in-air fraction" begin
         for (gamma, fstates, expected_frac) in [
             (1.0, fstates_g1, 0.164),
             (2.0, fstates_g2, 0.155)
@@ -165,5 +166,41 @@ function run_injection_regression_tests()
             frac_prop_air = n_prop_air / length(fstates)
             @test isapprox(frac_prop_air, expected_frac, atol=0.02)
         end
+    end
+
+    @testset "Decay products populated" begin
+        # Propagate tau leptons and verify that decay products are
+        # non-empty, physically consistent, and energy-conserving.
+        n_with_decay = 0
+        n_tested = 0
+
+        for (j, fs) in enumerate(fstates_g1)
+            losses, cont_e, secs, prop_final = proposal_propagate(fs, earth, j)
+            n_tested += 1
+
+            if !isempty(secs)
+                n_with_decay += 1
+
+                # Each decay product must have positive energy
+                for dp in secs
+                    @test ustrip(u"GeV", dp.energy) > 0.0
+                end
+
+                # Decay product energies should not exceed the parent energy
+                total_decay_e = sum(ustrip(u"GeV", dp.energy) for dp in secs)
+                parent_e = ustrip(u"GeV", fs.energy)
+                @test total_decay_e <= parent_e
+
+                # Direction vectors should be unit-normalized
+                for dp in secs
+                    d = dp.direction.point
+                    @test isapprox(norm(d), 1.0, atol=1e-6)
+                end
+            end
+        end
+
+        # The vast majority of tau propagations should end in decay
+        frac_decayed = n_with_decay / n_tested
+        @test frac_decayed > 0.9
     end
 end

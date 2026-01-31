@@ -79,7 +79,7 @@ function proposal_propagate(
         track_length = PP.get_track_length(propped_result)
         stochastic_loss_total = 0.0u"MeV"
         for i in 1:track_length
-            track_state = PP.track_state_at(propped_result, i - 1)  # 0-indexed
+            track_state = PP.get_track_state(propped_result, i - 1)  # 0-indexed
 
             # Get interaction type and energy
             int_type = PP.get_type(track_state)
@@ -114,7 +114,32 @@ function proposal_propagate(
         # Check for decay: particle stopped before reaching max_distance with energy remaining
         pp_prop_dist = PP.get_propagated_distance(pp_final_state)
         if pp_prop_dist < max_distance && ustrip(current_e |> u"MeV") > 0.0
-            # Particle decayed — no decay product info available from this API
+            # Extract decay products from PROPOSAL
+            if PP.has_decay(propped_result)
+                max_products = 10
+                types_arr = zeros(Int32, max_products)
+                energies_arr = zeros(Float64, max_products)
+                dx_arr = zeros(Float64, max_products)
+                dy_arr = zeros(Float64, max_products)
+                dz_arr = zeros(Float64, max_products)
+
+                n_products = PP.get_decay_products_to_array(
+                    propped_result, types_arr, energies_arr,
+                    dx_arr, dy_arr, dz_arr
+                )
+
+                for j in 1:n_products
+                    dp_dir = Direction([dx_arr[j], dy_arr[j], dz_arr[j]], cs)
+                    dp = Particle(
+                        ParticleType(types_arr[j]),
+                        energies_arr[j] * u"MeV",
+                        final_state.position,
+                        dp_dir,
+                        final_state.time
+                    )
+                    push!(secondaries, dp)
+                end
+            end
             break
         end
 

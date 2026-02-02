@@ -29,6 +29,13 @@ Initializes the PROPOSAL.jl library and pre-computes propagator objects.
   - `ecut`: Energy cut in GeV (default: 0.5)
   - `vcut`: Velocity cut fraction (default: 0.05)
   - `do_continuous`: Whether to use continuous randomization (default: true)
+  - `brems_parametrization`: Bremsstrahlung parametrization (default: "KelnerKokoulinPetrukhin")
+  - `brems_lpm`: Enable LPM effect for bremsstrahlung (default: true)
+  - `epair_parametrization`: Pair production parametrization (default: "KelnerKokoulinPetrukhin")
+  - `epair_lpm`: Enable LPM effect for pair production (default: true)
+  - `ioniz_parametrization`: Ionization parametrization (default: "BetheBlochRossi")
+  - `photo_parametrization`: Photonuclear parametrization (default: "AbramowiczLevinLevyMaor97")
+  - `photo_shadow`: Photonuclear shadow effect (default: "ButkevichMikheyev")
 """
 function init_proposal(config)
     # Check if PROPOSAL library is available
@@ -43,8 +50,9 @@ function init_proposal(config)
 
     _proposal_available[] = true
 
-    # Set up config directory
+    # Set up config and tables directory
     _config_dir[] = get(config, "tablespath", tempdir())
+    PP.set_tables_path(_config_dir[])
 
     # Generate and cache propagators for all particle types and media
     pdg_lepton_ids = [11, 13, 15, -11, -13, -15]
@@ -54,9 +62,24 @@ function init_proposal(config)
     vcut = get(config, "vcut", 0.05)
     do_continuous = get(config, "do_continuous", true)
 
+    brems_param = get(config, "brems_parametrization", "KelnerKokoulinPetrukhin")
+    brems_lpm = get(config, "brems_lpm", true)
+    epair_param = get(config, "epair_parametrization", "KelnerKokoulinPetrukhin")
+    epair_lpm = get(config, "epair_lpm", true)
+    ioniz_param = get(config, "ioniz_parametrization", "BetheBlochRossi")
+    photo_param = get(config, "photo_parametrization", "AbramowiczLevinLevyMaor97")
+    photo_shadow = get(config, "photo_shadow", "ButkevichMikheyev")
+
+    cross_sections = Dict(
+        "brems" => Dict("parametrization" => brems_param, "lpm" => brems_lpm),
+        "epair" => Dict("parametrization" => epair_param, "lpm" => epair_lpm),
+        "ioniz" => Dict("parametrization" => ioniz_param),
+        "photo" => Dict("parametrization" => photo_param, "shadow" => photo_shadow)
+    )
+
     for lepton_id in pdg_lepton_ids
         for medium in media
-            config_path = generate_config(lepton_id, medium, ecut, vcut, do_continuous)
+            config_path = generate_config(lepton_id, medium, ecut, vcut, do_continuous; cross_sections=cross_sections)
             propagator = create_propagator(lepton_id, config_path)
             _propagator_cache[(lepton_id, medium)] = propagator
         end
@@ -66,14 +89,14 @@ function init_proposal(config)
 end
 
 """
-    generate_config(lepton_id, medium, ecut, vcut, do_continuous) -> String
+    generate_config(lepton_id, medium, ecut, vcut, do_continuous; cross_sections=nothing) -> String
 
 Generates a PROPOSAL configuration JSON file for the given parameters.
 
 # Returns
 - Path to the generated configuration file.
 """
-function generate_config(lepton_id::Int, medium::String, ecut::Real, vcut::Real, do_continuous::Bool)
+function generate_config(lepton_id::Int, medium::String, ecut::Real, vcut::Real, do_continuous::Bool; cross_sections=nothing)
     # Map medium name to PROPOSAL format
     medium_name = lowercase(medium)
     if medium_name == "standardrock"
@@ -105,6 +128,10 @@ function generate_config(lepton_id::Int, medium::String, ecut::Real, vcut::Real,
             )
         ]
     )
+
+    if cross_sections !== nothing
+        config["CrossSections"] = cross_sections
+    end
 
     # Write config to file
     particle_name = pdg_to_name(lepton_id)

@@ -75,25 +75,21 @@ function proposal_propagate(
         pp_final_state = PP.get_final_state(propped_result)
         current_e = PP.get_energy(pp_final_state) * u"MeV"
 
-        # Process track for stochastic losses
-        track_length = PP.get_track_length(propped_result)
-        stochastic_loss_total = 0.0u"MeV"
-        for i in 1:track_length
-            track_state = PP.get_track_state(propped_result, i - 1)  # 0-indexed
+        # Process stochastic losses
+        n_stochastic = PP.get_stochastic_losses_count(propped_result)
+        for i in 0:(n_stochastic - 1)
+            loss = PP.get_stochastic_loss_at(propped_result, i)
 
-            # Get interaction type and energy
-            int_type = PP.get_type(track_state)
-            loss_e = PP.get_energy(track_state) * u"MeV"
-            stochastic_loss_total += loss_e
-            prop_dist = PP.get_propagated_distance(track_state) * u"cm"
-            loss_time = PP.get_time(track_state) * u"s"
+            int_type = PP.get_type(loss)
+            loss_e = PP.get_energy(loss) * u"MeV"
+            prop_dist = PP.get_propagated_distance(loss) * u"cm"
+            loss_time = PP.get_time(loss) * u"s"
 
             dist = accrued_d + prop_dist
             loss_t = accrued_t + T(ustrip(loss_time)) * u"s"
             p = dist * particle.direction + particle.position
 
-            # Get direction from track state
-            pp_dir = PP.get_direction(track_state)
+            pp_dir = PP.get_direction(loss)
             dir_vec = [PP.get_x(pp_dir), PP.get_y(pp_dir), PP.get_z(pp_dir)]
             dir = Direction(dir_vec, cs)
 
@@ -101,9 +97,8 @@ function proposal_propagate(
             push!(losses, l_particle)
         end
 
-        # Compute continuous energy loss: initial - final - stochastic
-        segment_initial_e = PP.get_energy(state) * u"MeV"
-        continuous_e += segment_initial_e - current_e - stochastic_loss_total
+        # Get continuous energy loss directly from PROPOSAL
+        continuous_e += PP.get_total_continuous_energy_loss(propped_result) * u"MeV"
 
         # Update final state
         final_dist = accrued_d + PP.get_propagated_distance(pp_final_state) * u"cm"
@@ -111,34 +106,30 @@ function proposal_propagate(
         p = final_dist * particle.direction + particle.position
         final_state = Particle(ParticleType(lepton_id), current_e, p, particle.direction, final_t)
 
-        # Check for decay: particle stopped before reaching max_distance with energy remaining
-        pp_prop_dist = PP.get_propagated_distance(pp_final_state)
-        if pp_prop_dist < max_distance && ustrip(current_e |> u"MeV") > 0.0
-            # Extract decay products from PROPOSAL
-            if PP.has_decay(propped_result)
-                max_products = 10
-                types_arr = zeros(Int32, max_products)
-                energies_arr = zeros(Float64, max_products)
-                dx_arr = zeros(Float64, max_products)
-                dy_arr = zeros(Float64, max_products)
-                dz_arr = zeros(Float64, max_products)
+        # Extract decay products if PROPOSAL reports a decay
+        if PP.has_decay(propped_result)
+            max_products = 10
+            types_arr = zeros(Int32, max_products)
+            energies_arr = zeros(Float64, max_products)
+            dx_arr = zeros(Float64, max_products)
+            dy_arr = zeros(Float64, max_products)
+            dz_arr = zeros(Float64, max_products)
 
-                n_products = PP.get_decay_products_to_array(
-                    propped_result, types_arr, energies_arr,
-                    dx_arr, dy_arr, dz_arr
+            n_products = PP.get_decay_products_to_array(
+                propped_result, types_arr, energies_arr,
+                dx_arr, dy_arr, dz_arr
+            )
+
+            for j in 1:n_products
+                dp_dir = Direction([dx_arr[j], dy_arr[j], dz_arr[j]], cs)
+                dp = Particle(
+                    ParticleType(types_arr[j]),
+                    energies_arr[j] * u"MeV",
+                    final_state.position,
+                    dp_dir,
+                    final_state.time
                 )
-
-                for j in 1:n_products
-                    dp_dir = Direction([dx_arr[j], dy_arr[j], dz_arr[j]], cs)
-                    dp = Particle(
-                        ParticleType(types_arr[j]),
-                        energies_arr[j] * u"MeV",
-                        final_state.position,
-                        dp_dir,
-                        final_state.time
-                    )
-                    push!(secondaries, dp)
-                end
+                push!(secondaries, dp)
             end
             break
         end

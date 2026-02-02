@@ -45,13 +45,26 @@ using Pkg
 Pkg.add("CxxWrap")
 ```
 
-#### 1.2.2 Build the PROPOSAL C++ library
+#### 1.2.2 Build CubicInterpolation (PROPOSAL dependency)
+
+PROPOSAL depends on the [cubic_interpolation](https://github.com/tudo-astroparticlephysics/cubic_interpolation) library, which must be built and installed first:
+
+```bash
+git clone https://github.com/tudo-astroparticlephysics/cubic_interpolation.git /path/to/cubic_interpolation
+cd /path/to/cubic_interpolation
+mkdir build && cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local -DBUILD_SHARED_LIBS=ON
+cmake --build . --parallel
+cmake --install .
+```
+
+#### 1.2.3 Build the PROPOSAL C++ library
 
 ```bash
 git clone https://github.com/tudo-astroparticlephysics/PROPOSAL.git /path/to/PROPOSAL-cpp
 cd /path/to/PROPOSAL-cpp
 mkdir build && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local -DBUILD_SHARED_LIBS=ON
+cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local -DBUILD_SHARED_LIBS=ON -DCMAKE_PREFIX_PATH=$HOME/.local
 cmake --build . --parallel
 cmake --install .
 ```
@@ -70,7 +83,7 @@ cmake --install .
    ```
    (On Linux, replace `.dylib` with `.so`.)
 
-#### 1.2.3 Build the CxxWrap wrapper
+#### 1.2.4 Build the CxxWrap wrapper
 
 ```bash
 git clone https://github.com/jlazar17/PROPOSAL.jl.git /path/to/PROPOSAL.jl
@@ -86,7 +99,7 @@ cmake .. \
 cmake --build . --parallel
 ```
 
-#### 1.2.4 Install the wrapper library
+#### 1.2.5 Install the wrapper library
 
 The Julia package expects a library named `libPROPOSAL_cxxwrap`. Copy and rename it:
 
@@ -108,7 +121,7 @@ Clear the precompile cache so Julia picks up the new library:
 rm -rf ~/.julia/compiled/v1.*/PROPOSAL
 ```
 
-#### 1.2.5 Register PROPOSAL.jl as a development package
+#### 1.2.6 Register PROPOSAL.jl as a development package
 
 ```julia
 using Pkg

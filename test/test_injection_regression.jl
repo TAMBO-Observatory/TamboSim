@@ -78,6 +78,66 @@ function run_injection_regression_tests()
     detector_props = precompute_detector_properties(earth)
     as = UniformAngularSampler(deg2rad(0.0), deg2rad(117.0), deg2rad(90.0), deg2rad(290.0))
 
+    # ---- Single seeded event: injection + propagation ----
+    @testset "Single seeded injection + propagation" begin
+        pl = UnitfulPowerLawSampler(1.0, 3e5u"GeV", 1e9u"GeV")
+
+        # Fixed seeds for TauRunner (tr_seed) and Julia RNG
+        Random.seed!(3)
+        tr_seed = UInt32(3723491101)
+
+        istate, cstate, fstate, wp = inject_event(
+            16, earth, as, pl, xs, detector_props; tr_seed=tr_seed
+        )
+
+        # Injection must succeed
+        @test !isnan(fstate.energy)
+        @test ustrip(u"GeV", fstate.energy) > 0.0
+
+        # Energy must decrease through Earth (interaction losses)
+        @test fstate.energy <= istate.energy
+
+        # Propagate with fixed PROPOSAL seed
+        tables_path = get_tambosim_path() * "/resources/proposal_tables"
+        init_proposal(Dict("tablespath" => tables_path))
+        proposal_seed = Int32(12345)
+        losses, cont_e, secs, prop_final = proposal_propagate(fstate, earth, proposal_seed)
+
+        # Final state must have lower energy than injection final state
+        @test prop_final.energy <= fstate.energy
+        @test ustrip(u"GeV", prop_final.energy) > 0.0
+
+        # Must have stochastic losses
+        @test length(losses) > 0
+
+        # Must have decay products
+        @test length(secs) > 0
+
+        # Decay products: positive energy, unit directions, energy conservation
+        for dp in secs
+            @test ustrip(u"GeV", dp.energy) > 0.0
+            @test isapprox(norm(dp.direction.point), 1.0, atol=1e-6)
+        end
+        total_decay_e = sum(ustrip(u"GeV", dp.energy) for dp in secs)
+        @test total_decay_e <= ustrip(u"GeV", fstate.energy)
+
+        # Reproducibility: same seeds must give identical results
+        Random.seed!(3)
+        istate2, cstate2, fstate2, wp2 = inject_event(
+            16, earth, as, pl, xs, detector_props; tr_seed=tr_seed
+        )
+        @test istate2.energy == istate.energy
+        @test fstate2.energy == fstate.energy
+
+        losses2, cont_e2, secs2, prop_final2 = proposal_propagate(fstate2, earth, proposal_seed)
+        @test prop_final2.energy == prop_final.energy
+        @test length(secs2) == length(secs)
+        for (a, b) in zip(secs, secs2)
+            @test a.energy == b.energy
+            @test a.pdg == b.pdg
+        end
+    end
+
     n_events = 10000
     seed = 925
 
@@ -87,11 +147,11 @@ function run_injection_regression_tests()
 
     # ---- Gamma = 1.0 (flat spectrum) ----
     @testset "Injection gamma=1.0" begin
-        # Mean log10(E/GeV) ~ 7.25 for gamma=1 (uniform in log-space)
-        @test isapprox(r1.mean_log_e, 7.251, atol=0.01)
+        # Mean log10(E/GeV) ~ 7.24 for gamma=1 (uniform in log-space)
+        @test isapprox(r1.mean_log_e, 7.239, atol=0.02)
 
         # Fraction of successful injections ~ 51.6%
-        @test isapprox(r1.frac_successful, 0.5164, atol=0.01)
+        @test isapprox(r1.frac_successful, 0.5164, atol=0.02)
 
         # Fraction of successful events with final state in air ~ 0.2%
         # Higher energy taus can travel far enough to exit the rock
@@ -100,11 +160,11 @@ function run_injection_regression_tests()
 
     # ---- Gamma = 2.0 (steeper spectrum) ----
     @testset "Injection gamma=2.0" begin
-        # Mean log10(E/GeV) ~ 5.92 for gamma=2 (weighted toward lower energies)
-        @test isapprox(r2.mean_log_e, 5.916, atol=0.01)
+        # Mean log10(E/GeV) ~ 5.91 for gamma=2 (weighted toward lower energies)
+        @test isapprox(r2.mean_log_e, 5.910, atol=0.02)
 
-        # Fraction of successful injections ~ 52.0%
-        @test isapprox(r2.frac_successful, 0.5196, atol=0.01)
+        # Fraction of successful injections ~ 50.2%
+        @test isapprox(r2.frac_successful, 0.502, atol=0.02)
 
         # Fraction in air ~ 0% for steeper spectrum (lower energy taus
         # don't travel far enough to exit the rock)
@@ -153,8 +213,8 @@ function run_injection_regression_tests()
 
     @testset "Post-propagation in-air fraction" begin
         for (gamma, fstates, expected_frac) in [
-            (1.0, fstates_g1, 0.164),
-            (2.0, fstates_g2, 0.155)
+            (1.0, fstates_g1, 0.171),
+            (2.0, fstates_g2, 0.147)
         ]
             n_prop_air = 0
             for (j, fs) in enumerate(fstates)

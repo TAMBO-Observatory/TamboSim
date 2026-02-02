@@ -55,8 +55,8 @@ function Base.iterate(iter::MultiParquetIterator, state=nothing)
         end
     end
 
-    # Pop from buffer
-    record = popfirst!(iter.records_buffer)
+    # Pop from end of buffer (O(1) — buffer is filled in reverse order)
+    record = pop!(iter.records_buffer)
     return (record, nothing)
 end
 
@@ -82,7 +82,8 @@ function fill_buffer!(iter::MultiParquetIterator)
         # Get next row
         row = get_next_row(iter)
         if row === nothing
-            # No more rows
+            # No more rows — reverse so pop! yields elements in original order
+            reverse!(iter.records_buffer)
             return !isempty(iter.records_buffer)
         end
 
@@ -91,6 +92,8 @@ function fill_buffer!(iter::MultiParquetIterator)
         push!(iter.records_buffer, record)
     end
 
+    # Reverse so pop! yields elements in original order
+    reverse!(iter.records_buffer)
     return true
 end
 

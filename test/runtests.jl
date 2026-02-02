@@ -23,7 +23,7 @@ import Tambo: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
               WeightParameters,
               reverse,
               # Particle types
-              TauMinus, TauPlus, NuTau, NuTauBar,
+              TauMinus, TauPlus, NuTau, NuTauBar, Gamma,
               # Julia interfaces types
               Intersection, SphereIntersection, TriangleIntersection,
               StochasticLoss,
@@ -53,6 +53,8 @@ include("test_julia_interfaces.jl")
 include("test_regression.jl")
 include("test_coverage_extras.jl")
 include("test_injection_regression.jl")
+include("test_propagation_decay_fraction.jl")
+include("test_corsika.jl")
 
 @testset "Tambo.jl" begin
     @testset "Geometry" begin
@@ -101,5 +103,13 @@ include("test_injection_regression.jl")
 
     @testset "Injection Regression" begin
         run_injection_regression_tests()
+    end
+
+    @testset "Propagation Decay Fraction" begin
+        run_propagation_decay_fraction_tests()
+    end
+
+    @testset "CORSIKA" begin
+        run_corsika_tests()
     end
 end

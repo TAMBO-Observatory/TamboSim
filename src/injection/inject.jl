@@ -64,6 +64,7 @@ end
     create_null_result(
         pdg::Int,
         error_code::Int,
+        d::Direction{T},
         cs::CoordinateSystem,
         ::Type{T}
     ) where {T<:Real}
@@ -73,6 +74,7 @@ Creates a null result tuple for failed injection events.
 # Arguments
 - `pdg`: The PDG ID of the particle.
 - `error_code`: An error code indicating the failure reason.
+- `d`: The sampled direction for this event (preserved in the null result).
 - `cs`: The coordinate system for the null coordinate.
 - `T`: The numeric type parameter.
 
@@ -82,11 +84,11 @@ Creates a null result tuple for failed injection events.
 function create_null_result(
     pdg::Int,
     error_code::Int,
+    d::Direction{T},
     cs::CoordinateSystem,
     ::Type{T}
 ) where {T<:Real}
     coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
-    d = Direction([NaN, NaN, NaN], cs)
     initial_state = Particle(error_code, ParticleType(pdg), NaN*u"GeV", coord, d)
     return initial_state, Particle(T), Particle(T), null_params
 end
@@ -238,7 +240,7 @@ function _inject_event_impl(
     )
 
     if isnothing(p)
-        return create_null_result(pdg, INJECTION_ERROR_NO_VISIBLE_TRIANGLES, cs, T)
+        return create_null_result(pdg, INJECTION_ERROR_NO_VISIBLE_TRIANGLES, d, cs, T)
     end
 
     # Validate trajectory through Earth
@@ -246,7 +248,7 @@ function _inject_event_impl(
     intersections, error_code = validate_trajectory(earth, p, revd)
 
     if isnothing(intersections)
-        return create_null_result(pdg, error_code, cs, T)
+        return create_null_result(pdg, error_code, d, cs, T)
     end
 
     # Sample energy and create initial state
@@ -260,7 +262,7 @@ function _inject_event_impl(
 
         # Handle null particle from failed propagation
         if isnan(close_state.energy)
-            return create_null_result(pdg, INJECTION_ERROR_RUNTIME, cs, T)
+            return create_null_result(pdg, INJECTION_ERROR_RUNTIME, d, cs, T)
         end
 
         # Handle charged lepton output (no forced interaction needed)
@@ -298,7 +300,7 @@ function _inject_event_impl(
         )
     catch e
         @warn "Runtime error during event injection, returning null result" exception=(e, catch_backtrace())
-        return create_null_result(pdg, INJECTION_ERROR_RUNTIME, cs, T)
+        return create_null_result(pdg, INJECTION_ERROR_RUNTIME, d, cs, T)
     end
 
     return initial_state, close_state, final_state, weight_params

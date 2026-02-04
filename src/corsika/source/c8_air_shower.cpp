@@ -485,7 +485,7 @@ int main(int argc, char** argv) {
  
   // we make the axis much longer than the inj-core distance since the
   // profile will go beyond the core, depending on zenith angle
-  ShowerAxis const showerAxis{injectionPos, (interceptPos - injectionPos) * 5.0, env};
+  ShowerAxis const showerAxis{injectionPos, (propVector) * 5.0, env};
   auto const dX = 10_g / square(1_cm); // Binning of the writers along the shower axis
   /* === END: CONSTRUCT GEOMETRY === */
 

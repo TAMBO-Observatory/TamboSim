@@ -151,7 +151,7 @@ using MyExtraEnv =
                                                 {9.7_km, grammage(1148.2458), 963788.26_cm},
                                                 {26.5_km, grammage(1182.7783), 770343.77_cm},
                                                 {100_km, grammage(1510.0311), 701471.17_cm},
-                                                {112.8_km, grammage(1), 1e9_cm}}}}};
+                                                {5000_km, grammage(1), 1e9_cm}}}}};
       auto const params = atmosphereParameterList[0];
 
 

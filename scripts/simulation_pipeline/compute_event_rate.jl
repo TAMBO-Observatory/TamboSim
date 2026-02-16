@@ -6,6 +6,15 @@ using ArgParse
 using JLD2
 using Unitful
 
+"""
+    parse_commandline()
+
+Parse command-line arguments for the event rate computation script.
+
+Arguments:
+- `--input`: path to the triggered JLD2 file
+- `--nevent`: total number of MC events generated (for normalization)
+"""
 function parse_commandline()
     s = ArgParseSettings()
     @add_arg_table s begin
@@ -65,6 +74,13 @@ function compute_event_rate(frames, nevent)
     return rate, n_valid
 end
 
+"""
+    main()
+
+Compute and print the expected triggered event rate per year. Loads the triggered
+JLD2 file, calls `compute_event_rate` to sum oneweight contributions weighted by
+the IceCube astrophysical flux, and prints the result.
+"""
 function main()
     args = parse_commandline()
     input_filename = args["input"]

@@ -5,6 +5,19 @@ using Tambo
 using ArgParse
 using JLD2
 
+"""
+    parse_commandline()
+
+Parse command-line arguments for the trigger application script.
+
+Arguments:
+- `--input`: path to the JLD2 file with CORSIKA hits
+- `--output`: output JLD2 file (defaults to overwriting `input`)
+- `--module_threshold`: minimum hits per module to fire (default 3)
+- `--event_threshold`: minimum total hits across fired modules (default 30)
+- `--min_modules`: minimum number of fired modules (default 3)
+- `--hitkey`: frame key containing hit data (default `"corsika_hits"`)
+"""
 function parse_commandline()
     s = ArgParseSettings()
     @add_arg_table s begin
@@ -79,6 +92,13 @@ function did_trigger(
     return total_hits >= event_threshold
 end
 
+"""
+    main()
+
+Apply the trigger filter to a simulation with CORSIKA hits. Loads the JLD2 file,
+removes frames that do not satisfy the trigger condition (via `did_trigger`), and
+saves the surviving triggered events to a JLD2 file.
+"""
 function main()
     args = parse_commandline()
     input_filename = args["input"]

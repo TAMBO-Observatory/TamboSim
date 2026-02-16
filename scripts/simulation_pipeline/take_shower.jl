@@ -7,6 +7,19 @@ using JLD2
 using StaticArrays
 using Unitful
 
+"""
+    parse_commandline()
+
+Parse command-line arguments for the CORSIKA shower script.
+
+Arguments:
+- `--config`: path to a TOML configuration file
+- `--injection_file`: path to the JLD2 file from the injection step
+- `--shower_dir`: directory in which to write CORSIKA output
+- `--event_id`: event index in the simulation results
+- `--decay_id`: index of the decay product to shower
+- `--simset_id`: simulation set ID (used in seed generation)
+"""
 function parse_commandline()
     s = ArgParseSettings()
     @add_arg_table s begin
@@ -38,6 +51,14 @@ function parse_commandline()
     return parse_args(s)
 end
 
+"""
+    main()
+
+Run a single CORSIKA air shower for one decay product of one event. Loads the injection
+JLD2, locates the event by `event_id`, selects decay product `decay_id`, skips neutrinos,
+and calls `Tambo.corsika_run`. The random seed is derived from `simset_id`, `event_id`,
+and `decay_id` to ensure reproducibility without collisions.
+"""
 function main()
     args = parse_commandline()
     injection_filename = args["injection_file"]

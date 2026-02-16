@@ -6,6 +6,16 @@ using ArgParse
 using JLD2
 using LinearAlgebra
 
+"""
+    parse_commandline()
+
+Parse command-line arguments for the injection script.
+
+Arguments:
+- `--config`: path to a TOML configuration file
+- `--simset_id`: simulation set ID (used to offset the random seed)
+- `--output`: output JLD2 file path (must match `<name>_xxxxx.jld2`)
+"""
 function parse_commandline()
     s = ArgParseSettings()
     @add_arg_table s begin
@@ -24,6 +34,11 @@ function parse_commandline()
     return parse_args(s)
 end
 
+"""
+    validate_output_filename(output_filename::String)
+
+Assert that `output_filename` matches the `<name>_xxxxx.jld2` pattern required by the pipeline.
+"""
 function validate_output_filename(output_filename::String)
     # Check that output filename adheres to specified <name>_xxxxx.jld2 format
     if match(r"^(.+)_\d{5}\.jld2$", output_filename) === nothing
@@ -31,6 +46,14 @@ function validate_output_filename(output_filename::String)
     end
 end
 
+"""
+    main()
+
+Run neutrino injection and tau propagation. Loads a TOML config, offsets the pinecone
+by `simset_id`, then runs `inject!` and `proposal_propagation!`. Applies three cuts:
+successful injection, non-empty decay products, and decay position in air (not underground).
+Saves the resulting `Simulation` to a JLD2 file.
+"""
 function main()
     args = parse_commandline()
     config_filename = args["config"]
@@ -45,7 +68,7 @@ function main()
     base_pinecone = get(sim.config["injection"], "pinecone", 925)
     sim.config["injection"]["pinecone"] = base_pinecone + simset_id
     if haskey(sim.config, "proposal") && haskey(sim.config["proposal"], "pinecone")
-        sim.config["proposal"]["pinecone"] = base_pinecone + simset_id + 1
+        sim.config["proposal"]["pinecone"] = base_pinecone + simset_id
     end
 
     inject!(sim)

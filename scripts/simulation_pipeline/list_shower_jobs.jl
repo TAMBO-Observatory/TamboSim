@@ -6,6 +6,14 @@ using ArgParse
 using JLD2
 using Unitful
 
+"""
+    parse_commandline()
+
+Parse command-line arguments for the shower job listing script.
+
+Arguments:
+- `--injection_file`: path to the JLD2 file from the injection step
+"""
 function parse_commandline()
     s = ArgParseSettings()
     @add_arg_table s begin
@@ -55,6 +63,13 @@ function list_shower_jobs(sim, plane)
     return jobs
 end
 
+"""
+    main()
+
+List all CORSIKA shower jobs for an injection file. Sets up the observation plane from
+the config, calls `list_shower_jobs` to enumerate valid `(event_id, decay_id)` pairs,
+and prints them as a JSON array to stdout for consumption by the Snakefile.
+"""
 function main()
     args = parse_commandline()
     injection_filename = args["injection_file"]

@@ -9,6 +9,16 @@ using ProgressMeter
 using Rotations
 using Unitful
 
+"""
+    parse_commandline()
+
+Parse command-line arguments for the CORSIKA hit processing script.
+
+Arguments:
+- `--injection_file`: path to the JLD2 file from the injection step
+- `--shower_dir`: directory containing CORSIKA shower output subdirectories
+- `--output`: output JLD2 file (defaults to overwriting `injection_file`)
+"""
 function parse_commandline()
     s = ArgParseSettings()
     @add_arg_table s begin
@@ -28,6 +38,13 @@ function parse_commandline()
     return parse_args(s)
 end
 
+"""
+    intersect_module(event, bvh)
+
+Find the detection unit hit by a CORSIKA particle. Traces a ray from the particle
+in both forward and reverse directions against the detection unit BVH. Returns the
+first `TriangleIntersection` found, or `nothing` if the particle misses all modules.
+"""
 function intersect_module(event, bvh)
     ray = Tambo.Ray(event.particle)
     ixs = Tambo.intersect_all(bvh, reverse(ray))
@@ -37,6 +54,14 @@ function intersect_module(event, bvh)
     return nothing
 end
 
+"""
+    build_detection_units(earth, sim)
+
+Construct the detector array as a BVH of oriented bounding boxes (OBBs). Places
+detection units on a hexagonal grid (125 m spacing) over the topography surface.
+Each unit is a 2m × 2m × 0.25m OBB oriented to the local surface normal.
+Returns `(bvh, coordinate_system)`.
+"""
 function build_detection_units(earth, sim)
     cs = Tambo.CoordinateSystem(earth)
     bvh = Tambo.BVHTree(earth.topography[earth.detector_region])
@@ -89,6 +114,14 @@ function build_detection_units(earth, sim)
     return Tambo.BVHTree(detection_units), cs
 end
 
+"""
+    main()
+
+Process CORSIKA shower output into detector hits. Builds the detection unit array,
+reads CORSIKA particle data for each event, ray-traces particles against the detector
+BVH, and stores the resulting hits as `corsika_hits` in each frame. Saves the updated
+`Simulation` to a JLD2 file.
+"""
 function main()
     args = parse_commandline()
     injection_filename = args["injection_file"]

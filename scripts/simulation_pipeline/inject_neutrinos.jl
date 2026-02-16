@@ -4,6 +4,7 @@ Pkg.activate(project_dir)
 using Tambo
 using ArgParse
 using JLD2
+using LinearAlgebra
 
 function parse_commandline()
     s = ArgParseSettings()
@@ -40,12 +41,11 @@ function main()
 
     sim = Simulation(config_filename)
 
-    # Generate reproducible seeds for each section based on simset_id.
-    # A pinecone is used because pinecones release seeds.
+    # Offset pinecone by simset_id for reproducible per-simset seeds.
     base_pinecone = get(sim.config["injection"], "pinecone", 925)
-    sim.config["injection"]["pinecone"] = abs(hash(base_pinecone + simset_id)) % typemax(Int32)
+    sim.config["injection"]["pinecone"] = base_pinecone + simset_id
     if haskey(sim.config, "proposal") && haskey(sim.config["proposal"], "pinecone")
-        sim.config["proposal"]["pinecone"] = abs(hash(base_pinecone + simset_id + 1)) % typemax(Int32)
+        sim.config["proposal"]["pinecone"] = base_pinecone + simset_id + 1
     end
 
     inject!(sim)
@@ -54,6 +54,22 @@ function main()
     proposal_propagation!(sim)
     cut_frames!(sim.results, f -> haskey(f, "proposal_decay_products") &&
                                   length(f["proposal_decay_products"]) > 0)
+
+    # Cut frames where the lepton decayed inside the mountain (not in air)
+    earth = Tambo.Earth(
+        sim.config["geometry"]["earth_path"],
+        sim.config["geometry"]["detector_key"]
+    )
+    function upray(particle)
+        d = Tambo.Direction(
+            normalize(convert(Tambo.ecefcoordinates, particle.position)),
+            Tambo.ecefcoordinates
+        )
+        d = convert(particle.position.coordinate_system, d)
+        return Tambo.Ray(particle.position, d)
+    end
+    isinair(particle) = length(Tambo.intersect_all(earth, upray(particle))) == 0
+    cut_frames!(sim.results, f -> isinair(f["proposal_final_state"]))
 
     # Create output directory if it does not exist
     output_dir = dirname(output_filename)

@@ -50,7 +50,7 @@ function build_detection_units(earth, sim)
     plane = Tambo.Plane(point, direction)
 
     # Calculate grid spacing
-    Δy = 10.0u"m"  # TODO: Change back to 125.0u"m" for production
+    Δy = 125.0u"m"
     Δx = dot(up, plane.normal) * Δy * sqrt(3) / 2
 
     # Build grid of detection unit positions

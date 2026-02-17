@@ -8,6 +8,8 @@ export Ray,
        inject!,
        inject_protons!,
        proposal_propagation!,
+       proposal_propagation_to_air!,
+       corsika_run_from_air,
        cut_frames!,
        Simulation,
        ecefcoordinates,
@@ -466,6 +468,89 @@ function proposal_propagation!(
 end
 
 """
+    proposal_propagation_to_air!(
+        sim::Simulation;
+        inkey::String="injection_final_state",
+        outprefix::String="proposal",
+        earth::Union{Earth, Nothing}=nothing
+    )
+
+Propagates particles through Earth using PROPOSAL, stopping at the last rock→air
+interface before the observation plane. If a tau survives to the air boundary, it is
+stored as `\$(outprefix)_air_entry_state` in the frame for direct handoff to CORSIKA.
+
+The observation plane is constructed from `sim.config["corsika"]` (plane_coordinates
+and plane_orientation).
+
+Stochastic losses, continuous losses, decay products, and the final state are stored
+identically to `proposal_propagation!`.
+
+# Arguments
+- `sim::Simulation`: The `Simulation` object to modify.
+- `inkey::String`: The key for accessing the input particle state in each frame. Defaults to "injection_final_state".
+- `outprefix::String`: A prefix for the keys under which the propagation results are stored. Defaults to "proposal".
+- `earth::Union{Earth, Nothing}`: An optional `Earth` object.
+"""
+function proposal_propagation_to_air!(
+    sim::Simulation;
+    inkey::String="injection_final_state",
+    outprefix::String="proposal",
+    earth::Union{Earth, Nothing}=nothing
+)
+    cfg = sim.config[outprefix]
+    relativize!(cfg)
+    init_proposal(cfg)
+
+    if haskey(cfg, "pinecone")
+        Random.seed!(cfg["pinecone"])
+    else
+        @warn("Deciding seed via RNG and adding to configuration")
+        pinecone = rand(UInt32)
+        sim.config[outprefix]["pinecone"] = pinecone
+    end
+
+    if isnothing(earth)
+        earth = Earth(
+            sim.config["geometry"]["earth_path"],
+            sim.config["geometry"]["detector_key"],
+        )
+    end
+
+    # Build observation plane from corsika config
+    corsika_cfg = sim.config["corsika"]
+    relativize!(corsika_cfg)
+    cs = CoordinateSystem(earth)
+    d = Direction(corsika_cfg["plane_orientation"], ecefcoordinates)
+    d = convert(cs, d)
+    point = Coordinate(corsika_cfg["plane_coordinates"] .* u"m", ecefcoordinates)
+    point = convert(cs, point)
+    plane = Plane(point, d)
+
+    @llama_showprogress "Propagating to air" for frame in sim.results
+        if !haskey(frame, inkey)
+            continue
+        end
+        final_state = frame[inkey]
+        if final_state.energy < 106u"MeV"
+            continue
+        end
+        ls, contls, decay_products, propped_state, air_entry = proposal_propagate_to_air(
+            final_state,
+            earth,
+            plane,
+            rand(Int32)
+        )
+        frame["$(outprefix)_stochastic_losses"] = ls
+        frame["$(outprefix)_continuous_losses"] = contls
+        frame["$(outprefix)_decay_products"] = decay_products
+        frame["$(outprefix)_final_state"] = propped_state
+        if !isnothing(air_entry)
+            frame["$(outprefix)_air_entry_state"] = air_entry
+        end
+    end
+end
+
+"""
     propagate_τ!(
         sim::Simulation;
         inkey::String="injection_final_state",
@@ -582,6 +667,108 @@ function corsika_run(
         end
         if store_paths
             frame["corsika_directories"] = paths
+        end
+    end
+end
+
+"""
+    corsika_run_from_air(
+        sim::Simulation,
+        base_outdir;
+        inkey::String="proposal_air_entry_state",
+        earth::Union{Earth, Nothing}=nothing,
+        parallelize=false,
+        store_paths=true,
+    )
+
+Runs CORSIKA for particles at the air entry point (e.g., taus handed off from PROPOSAL
+at the last rock→air interface). Unlike `corsika_run`, this reads a single `Particle`
+from `frame[inkey]` rather than iterating over decay products.
+
+# Arguments
+- `sim::Simulation`: The `Simulation` object.
+- `base_outdir`: The base directory where CORSIKA output will be stored.
+- `inkey::String`: The key for accessing the air entry particle in each frame. Defaults to "proposal_air_entry_state".
+- `earth::Union{Earth, Nothing}`: An optional `Earth` object.
+- `parallelize`: If `true`, submits CORSIKA jobs using sbatch. Defaults to `false`.
+- `store_paths`: If `true`, stores output paths in the frames. Defaults to `true`.
+"""
+function corsika_run_from_air(
+    sim::Simulation,
+    base_outdir;
+    inkey::String="proposal_air_entry_state",
+    earth::Union{Earth, Nothing}=nothing,
+    parallelize=false,
+    store_paths=true,
+)
+    cfg = sim.config["corsika"]
+    relativize!(cfg)
+
+    if isnothing(earth)
+        earth = Earth(
+            sim.config["geometry"]["earth_path"],
+            sim.config["geometry"]["detector_key"],
+        )
+    end
+
+    # Define plane
+    d = Tambo.Direction(cfg["plane_orientation"], ecefcoordinates)
+    d = convert(CoordinateSystem(earth), d)
+    point = Coordinate(cfg["plane_coordinates"] .* u"m", ecefcoordinates)
+    point = convert(CoordinateSystem(earth), point)
+    plane = Plane(point, d)
+
+    if haskey(cfg, "pinecone")
+        Random.seed!(cfg["pinecone"])
+    else
+        @warn("Deciding seed via RNG and adding to configuration")
+        pinecone = rand(UInt32)
+        sim.config["corsika"]["pinecone"] = pinecone
+    end
+    sbatch_command = parallelize ? cfg["sbatch_command"] : ""
+    ecuts = SVector{4, Float64}([cfg["em_ecut"], cfg["photon_ecut"], cfg["mu_ecut"], cfg["hadron_ecut"]]) * u"GeV"
+
+    for frame in sim.results
+        if !(haskey(frame, inkey))
+            continue
+        end
+        particle = frame[inkey]
+
+        # Skip neutrinos
+        if abs(Int(particle.pdg)) in [12, 14, 16]
+            continue
+        end
+
+        ray = Ray(particle)
+        i, t = find_intersection(ray, plane)
+        if isnothing(t)
+            continue
+        end
+
+        output_dir = "$(base_outdir)/event_$(lpad(frame["event_id"], 6, '0'))/shower_1/"
+        if store_paths
+            frame["corsika_directories"] = [output_dir]
+        end
+        if isdir(output_dir)
+            continue
+        end
+        seed = Int(rand(UInt32))
+        try
+            corsika_run(
+                particle,
+                plane,
+                cfg["thinning"],
+                ecuts,
+                cfg["corsika_path"],
+                cfg["FLUPRO"],
+                cfg["FLUFOR"],
+                output_dir,
+                seed;
+                sbatch_command=sbatch_command
+            )
+        catch e
+            event_id = frame["event_id"]
+            @warn "CORSIKA failed for event $(event_id)" exception=e
         end
     end
 end

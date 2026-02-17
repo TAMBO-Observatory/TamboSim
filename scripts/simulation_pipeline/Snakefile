@@ -2,8 +2,8 @@
 Snakemake workflow for TAMBO simulation pipeline.
 
 Pipeline steps:
-1. inject_neutrinos - Generate neutrino injections and tau decays
-2. take_shower - Run CORSIKA for each decay particle (parallel via Slurm)
+1. inject_neutrinos - Generate neutrino injections and propagate taus to air interface
+2. take_shower - Run CORSIKA for each event's air entry tau (parallel via Slurm)
 3. process_corsika_hits - Process all showers and compute detector hits
 4. apply_trigger - Apply trigger logic to select events
 
@@ -50,16 +50,16 @@ checkpoint inject_neutrinos:
 # =============================================================================
 # Rule: take_shower
 # =============================================================================
-# Runs CORSIKA for a single decay particle
+# Runs CORSIKA for a single event's air entry tau
 rule take_shower:
     input:
         config = lambda wildcards: f"{TAMBOSIM_PATH}/resources/configuration_examples/{wildcards.config}.toml",
         injection_file = f"{TAMBO_DATA_PATH}/{{config}}/injection/{{config}}_{{simset_id}}.jld2"
     output:
-        particles = f"{TAMBO_DATA_PATH}/{{config}}/showers/{{simset_id}}/event_{{event_id}}/shower_{{decay_id}}/particles/particles.parquet"
+        particles = f"{TAMBO_DATA_PATH}/{{config}}/showers/{{simset_id}}/event_{{event_id}}/shower_1/particles/particles.parquet"
     resources:
         cpus_per_task=1,
-        mem_mb=2000,
+        mem_mb=4000,
         slurm_partition="sapphire,shared",
         runtime=24*60
     shell:
@@ -69,7 +69,6 @@ rule take_shower:
             --injection_file {{input.injection_file}} \
             --shower_dir {TAMBO_DATA_PATH}/{{wildcards.config}}/showers/{{wildcards.simset_id}} \
             --event_id {{wildcards.event_id}} \
-            --decay_id {{wildcards.decay_id}} \
             --simset_id {{wildcards.simset_id}}
         """
 
@@ -87,7 +86,7 @@ def get_shower_jobs(wildcards):
     # Get the checkpoint output to ensure injection has completed
     checkpoint_output = checkpoints.inject_neutrinos.get(**wildcards).output.injection_file
 
-    # Run Julia helper script to get event_id/decay_id pairs
+    # Run Julia helper script to get event_id list
     result = subprocess.run(
         ["julia", f"{PIPELINE_DIR}/list_shower_jobs.jl", "--injection_file", checkpoint_output],
         capture_output=True,
@@ -101,8 +100,7 @@ def get_shower_jobs(wildcards):
     shower_files = []
     for job in jobs:
         event_id = str(job["event_id"]).zfill(6)
-        decay_id = job["decay_id"]
-        shower_file = f"{TAMBO_DATA_PATH}/{wildcards.config}/showers/{wildcards.simset_id}/event_{event_id}/shower_{decay_id}/particles/particles.parquet"
+        shower_file = f"{TAMBO_DATA_PATH}/{wildcards.config}/showers/{wildcards.simset_id}/event_{event_id}/shower_1/particles/particles.parquet"
         shower_files.append(shower_file)
 
     return shower_files

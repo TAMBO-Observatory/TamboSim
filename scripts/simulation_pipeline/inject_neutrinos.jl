@@ -49,10 +49,13 @@ end
 """
     main()
 
-Run neutrino injection and tau propagation. Loads a TOML config, offsets the pinecone
-by `simset_id`, then runs `inject!` and `proposal_propagation!`. Applies three cuts:
-successful injection, non-empty decay products, and decay position in air (not underground).
-Saves the resulting `Simulation` to a JLD2 file.
+Run neutrino injection and tau propagation to the air interface. Loads a TOML config,
+offsets the pinecone by `simset_id`, then runs `inject!` and `proposal_propagation_to_air!`.
+The tau at the air entry point is stored as `proposal_air_entry_state` for handoff to CORSIKA.
+
+Applies cuts for: successful injection and tau surviving to the air interface
+(non-nothing air_entry_state). No in-air cut is needed because `air_entry_state` is
+by construction at a rock→air boundary.
 """
 function main()
     args = parse_commandline()
@@ -68,31 +71,21 @@ function main()
     base_pinecone = get(sim.config["injection"], "pinecone", 925)
     sim.config["injection"]["pinecone"] = base_pinecone + simset_id
     if haskey(sim.config, "proposal") && haskey(sim.config["proposal"], "pinecone")
-        sim.config["proposal"]["pinecone"] = base_pinecone + simset_id
+        sim.config["proposal"]["pinecone"] = base_pinecone + simset_id + 1
     end
 
     inject!(sim)
     cut_frames!(sim.results, f -> haskey(f, "injection_final_state"))
 
-    proposal_propagation!(sim)
-    cut_frames!(sim.results, f -> haskey(f, "proposal_decay_products") &&
-                                  length(f["proposal_decay_products"]) > 0)
+    proposal_propagation_to_air!(sim)
 
-    # Cut frames where the lepton decayed inside the mountain (not in air)
-    earth = Tambo.Earth(
-        sim.config["geometry"]["earth_path"],
-        sim.config["geometry"]["detector_key"]
-    )
-    function upray(particle)
-        d = Tambo.Direction(
-            normalize(convert(Tambo.ecefcoordinates, particle.position)),
-            Tambo.ecefcoordinates
-        )
-        d = convert(particle.position.coordinate_system, d)
-        return Tambo.Ray(particle.position, d)
-    end
-    isinair(particle) = length(Tambo.intersect_all(earth, upray(particle))) == 0
-    cut_frames!(sim.results, f -> isinair(f["proposal_final_state"]))
+    # Cut frames where the tau didn't reach the air interface.
+    # No in-air cut is needed: air_entry_state is by construction at a rock→air
+    # boundary, so the tau is entering air. (The old pipeline checked isinair on
+    # proposal_final_state, which was well above the surface after air propagation.
+    # Here the position is exactly on the surface, where the upray test is
+    # numerically unreliable.)
+    cut_frames!(sim.results, f -> haskey(f, "proposal_air_entry_state"))
 
     # Create output directory if it does not exist
     output_dir = dirname(output_filename)

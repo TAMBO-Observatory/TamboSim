@@ -28,36 +28,38 @@ end
 """
     list_shower_jobs(sim, plane)
 
-Extract event_id/decay_id pairs from simulation results for CORSIKA shower jobs.
-Excludes neutrinos (PDG codes 12, 14, 16) since they don't produce showers.
-Also excludes particles that don't intersect the observation plane.
-Returns a vector of (event_id, decay_id) tuples.
+Extract event_ids from simulation results for CORSIKA shower jobs.
+Each event with a valid `proposal_air_entry_state` (tau at air interface)
+produces one shower job. Excludes neutrinos and particles that don't
+intersect the observation plane.
+
+Returns a vector of event_id integers.
 """
 function list_shower_jobs(sim, plane)
-    jobs = Tuple{Int, Int}[]
+    jobs = Int[]
 
     for frame in sim.results
         event_id = frame["event_id"]
 
-        if !haskey(frame, "proposal_decay_products")
+        if !haskey(frame, "proposal_air_entry_state")
             continue
         end
 
-        decay_products = frame["proposal_decay_products"]
+        particle = frame["proposal_air_entry_state"]
 
-        for (decay_id, particle) in enumerate(decay_products)
-            # Skip neutrinos - they don't produce showers
-            if abs(Int(particle.pdg)) in [12, 14, 16]
-                continue
-            end
-            # Skip particles that don't intersect the observation plane
-            ray = Tambo.Ray(particle)
-            _, t = Tambo.find_intersection(ray, plane)
-            if isnothing(t)
-                continue
-            end
-            push!(jobs, (event_id, decay_id))
+        # Skip neutrinos
+        if abs(Int(particle.pdg)) in [12, 14, 16]
+            continue
         end
+
+        # Skip particles that don't intersect the observation plane
+        ray = Tambo.Ray(particle)
+        _, t = Tambo.find_intersection(ray, plane)
+        if isnothing(t)
+            continue
+        end
+
+        push!(jobs, event_id)
     end
 
     return jobs
@@ -67,7 +69,7 @@ end
     main()
 
 List all CORSIKA shower jobs for an injection file. Sets up the observation plane from
-the config, calls `list_shower_jobs` to enumerate valid `(event_id, decay_id)` pairs,
+the config, calls `list_shower_jobs` to enumerate valid event_ids with air entry states,
 and prints them as a JSON array to stdout for consumption by the Snakefile.
 """
 function main()
@@ -96,11 +98,11 @@ function main()
 
     # Output as JSON array of objects (manual formatting to avoid JSON dependency)
     print("[")
-    for (i, job) in enumerate(jobs)
+    for (i, event_id) in enumerate(jobs)
         if i > 1
             print(",")
         end
-        print("{\"event_id\":$(job[1]),\"decay_id\":$(job[2])}")
+        print("{\"event_id\":$(event_id)}")
     end
     println("]")
 end

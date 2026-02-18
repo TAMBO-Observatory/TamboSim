@@ -20,121 +20,21 @@ TAMBOSim also relies on the new C++ implementation of CORSIKA, CORSIKA 8. We ass
 ## [1] Installing Dependencies
 The physics of TAMBOSim relies primarily on three external software packages: PROPOSAL, TauRunner, and CORSIKA. PROPOSAL and TauRunner have native Julia implementations. CORSIKA is written in C++ and TAMBOSim interfaces directly with its executable.
 
-Neither [PROPOSAL.jl](https://github.com/jlazar17/PROPOSAL.jl) nor [TauRunner.jl](https://github.com/icecube/TauRunner) are registered in the Julia General registry yet, so they must be installed from source as development dependencies.
+Neither [PROPOSAL.jl](https://github.com/jlazar17/PROPOSAL.jl) nor [TauRunner.jl](https://github.com/icecube/TauRunner) are registered in the Julia General registry yet, but both ship with pre-built native library binaries via [JLL packages](https://docs.binarybuilder.org/stable/jll/), so no C++ compiler or system libraries are required.
 
 ### [1.1] Prerequisites
 
 You will need:
 - Julia 1.11+ (see section [0.1])
-- A C++17-compatible compiler
-- CMake 3.15+
-- The following system libraries (installable via Homebrew on macOS or your system package manager):
-  - Boost (`brew install boost`)
-  - nlohmann-json (`brew install nlohmann-json`)
-  - spdlog (`brew install spdlog`)
 
-### [1.2] PROPOSAL.jl (Julia bindings)
+### [1.2] PROPOSAL.jl
 
-PROPOSAL.jl provides native Julia bindings for the [PROPOSAL](https://github.com/tudo-astroparticlephysics/PROPOSAL) C++ charged lepton propagation library. Installation has three stages: building the C++ library, building the Julia wrapper, and registering the Julia package.
+PROPOSAL.jl provides native Julia bindings for the [PROPOSAL](https://github.com/tudo-astroparticlephysics/PROPOSAL) C++ charged lepton propagation library. The native library is distributed as a JLL package and is downloaded automatically during installation.
 
-#### 1.2.1 Install CxxWrap.jl
-
-CxxWrap bridges C++ and Julia. Install it first:
-```julia
-using Pkg
-Pkg.add("CxxWrap")
-```
-
-#### 1.2.2 Build CubicInterpolation (PROPOSAL dependency)
-
-PROPOSAL depends on the [cubic_interpolation](https://github.com/tudo-astroparticlephysics/cubic_interpolation) library, which must be built and installed first:
-
-```bash
-git clone https://github.com/tudo-astroparticlephysics/cubic_interpolation.git /path/to/cubic_interpolation
-cd /path/to/cubic_interpolation
-mkdir build && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local -DBUILD_SHARED_LIBS=ON
-cmake --build . --parallel
-cmake --install .
-```
-
-#### 1.2.3 Build the PROPOSAL C++ library
-
-```bash
-git clone https://github.com/tudo-astroparticlephysics/PROPOSAL.git /path/to/PROPOSAL-cpp
-cd /path/to/PROPOSAL-cpp
-mkdir build && cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local -DBUILD_SHARED_LIBS=ON -DCMAKE_PREFIX_PATH=$HOME/.local
-cmake --build . --parallel
-cmake --install .
-```
-
-**Known issue:** The installed `PROPOSALConfig.cmake` (at `$HOME/.local/lib/cmake/PROPOSAL/PROPOSALConfig.cmake`) has broken paths. You must fix it by editing the file:
-
-1. Change the prefix calculation from `../../` to `../../../`:
-   ```cmake
-   get_filename_component(PACKAGE_PREFIX_DIR "${CMAKE_CURRENT_LIST_DIR}/../../../" ABSOLUTE)
-   ```
-2. Prefix the legacy variable paths with `${PACKAGE_PREFIX_DIR}`:
-   ```cmake
-   set_and_check(PROPOSAL_INCLUDE_DIR  "${PACKAGE_PREFIX_DIR}/include")
-   set_and_check(PROPOSAL_INCLUDE_DIRS "${PACKAGE_PREFIX_DIR}/include")
-   set_and_check(PROPOSAL_LIBRARIES    "${PACKAGE_PREFIX_DIR}/lib/libPROPOSAL.dylib")
-   ```
-   (On Linux, replace `.dylib` with `.so`.)
-
-#### 1.2.4 Build the CxxWrap wrapper
-
+Clone the repository:
 ```bash
 git clone https://github.com/jlazar17/PROPOSAL.jl.git /path/to/PROPOSAL.jl
-
-JLCXX_DIR=$(julia -e 'using CxxWrap; print(CxxWrap.prefix_path())')/lib/cmake/JlCxx
-
-cd /path/to/PROPOSAL.jl/deps/binarybuilder/wrapper_src
-mkdir build && cd build
-cmake .. \
-    -DJlCxx_DIR=$JLCXX_DIR \
-    -DPROPOSAL_DIR=$HOME/.local/lib/cmake/PROPOSAL \
-    -DCMAKE_BUILD_TYPE=Release
-cmake --build . --parallel
 ```
-
-#### 1.2.5 Install the wrapper library
-
-The Julia package expects a library named `libPROPOSAL_cxxwrap`. Copy and rename it:
-
-```bash
-mkdir -p /path/to/PROPOSAL.jl/build/lib
-# macOS:
-cp build/libPROPOSAL_jl.dylib /path/to/PROPOSAL.jl/build/lib/libPROPOSAL_cxxwrap.dylib
-# Linux:
-# cp build/libPROPOSAL_jl.so /path/to/PROPOSAL.jl/build/lib/libPROPOSAL_cxxwrap.so
-```
-
-Alternatively, place the library anywhere and set the environment variable:
-```bash
-export PROPOSAL_JL_LIB_PATH=/path/to/directory/containing/libPROPOSAL_cxxwrap
-```
-
-Clear the precompile cache so Julia picks up the new library:
-```bash
-rm -rf ~/.julia/compiled/v1.*/PROPOSAL
-```
-
-#### 1.2.6 Register PROPOSAL.jl as a development package
-
-```julia
-using Pkg
-Pkg.develop(path="/path/to/PROPOSAL.jl")
-```
-
-Verify the installation:
-```julia
-using PROPOSAL
-is_library_available()  # should return true
-```
-
-**Apple Silicon note:** Ensure all components (Julia, CxxWrap, PROPOSAL C++, and the wrapper) are built for the same architecture (arm64). Run `file /path/to/library.dylib` to check.
 
 ### [1.3] TauRunner.jl
 
@@ -144,13 +44,7 @@ TauRunner is used to propagate high-energy tau neutrinos through the Earth, taki
 git clone https://github.com/icecube/TauRunner.git /path/to/TauRunner
 ```
 
-Register the Julia package (note the `TauRunner.jl` subdirectory):
-```julia
-using Pkg
-Pkg.develop(path="/path/to/TauRunner/TauRunner.jl")
-```
-
-TauRunner.jl depends on PROPOSAL.jl, so make sure PROPOSAL.jl is installed first (section 1.2).
+TauRunner.jl depends on PROPOSAL.jl, so make sure PROPOSAL.jl is cloned first (section 1.2).
 
 ### [1.4] CORSIKA TAMBO application
 In addition to building and installing CORISKA8, you will need to build the specific CORSIKA application that is used to simulate air showers in TAMBOSim. This ships with TAMBOSim, so go ahead and clone this repo. Next, navigate to `/path/to/TAMBOSim/src/corsika/`. In this directory, execute the following:
@@ -191,18 +85,19 @@ We also need to tell `TAMBOSim` where to find `CORSIKA` and files needed by `COR
 * `FLUFOR` to point to the version of `FORTRAN` used by `FLUKA`
 
 ### [2.2] Precompile `TAMBOSim`
-Now that our dependencies are ready, we'll set up the Julia TAMBOSim package. Launch a Julia REPL session and set up the TAMBO environment by running:
-```julia-repl
-julia> using Pkg
-julia> Pkg.activate(ENV["TAMBOSIM_PATH"])
-  Activating project at "/path/to/TAMBO-MC"
-julia> Pkg.develop(path="/path/to/PROPOSAL.jl")
-julia> Pkg.develop(path="/path/to/TauRunner/TauRunner.jl")
-julia> Pkg.resolve()
-...
-julia> Pkg.instantiate()
-...
+Now that our dependencies are ready, we'll set up the Julia TAMBOSim package. The `Project.toml` uses a `[sources]` section to tell Julia where to find PROPOSAL.jl and TauRunner.jl on your machine. Edit `$TAMBOSIM_PATH/Project.toml` and update the paths under `[sources]` to match where you cloned them:
+
+```toml
+[sources]
+PROPOSAL = {path = "/path/to/PROPOSAL.jl"}
+TauRunner = {path = "/path/to/TauRunner/TauRunner.jl"}
 ```
+
+Then install and precompile everything:
+```bash
+julia --project=$TAMBOSIM_PATH -e 'import Pkg; Pkg.resolve(); Pkg.instantiate()'
+```
+
 To use `TAMBOSim` run:
 ```julia-repl
 julia> using Tambo

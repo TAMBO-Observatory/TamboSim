@@ -145,7 +145,7 @@ function main()
         event_id = frame["event_id"]
         event_dir = "$(shower_dir)/event_$(lpad(event_id, 6, '0'))/"
 
-        hits = Tambo.TriangleIntersection[]
+        hits = NamedTuple{(:particle, :module_index, :weight), Tuple{Tambo.Particle{Float64}, Int, Float64}}[]
 
         # Check if event directory exists
         if !isdir(event_dir)
@@ -165,7 +165,7 @@ function main()
         for event in events
             ix = intersect_module(event, detection_unit_bvh)
             isnothing(ix) && continue
-            push!(hits, ix)
+            push!(hits, (particle=event.particle, module_index=ix.index, weight=event.weight))
         end
 
         frame["corsika_hits"] = hits

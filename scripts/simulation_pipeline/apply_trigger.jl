@@ -77,7 +77,7 @@ function did_trigger(
     # Group hits by module index
     module_hits = Dict{Int, Int}()
     for hit in hits
-        idx = hit.index
+        idx = hit.module_index
         module_hits[idx] = get(module_hits, idx, 0) + 1
     end
 

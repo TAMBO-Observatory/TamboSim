@@ -22,3 +22,7 @@ if(WITH_FLUKA)
 else()
   message("compiling c8_air_shower.cpp with UrQMD")
 endif()
+
+# Embed absolute paths to all linked shared libraries in the RPATH at configure time
+set(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
+set(CMAKE_BUILD_WITH_INSTALL_RPATH TRUE)

@@ -36,15 +36,15 @@
 
 #include <corsika/media/CORSIKA7Atmospheres.hpp>
 #include <corsika/media/Environment.hpp>
-#include <corsika/media/GeomagneticModel.hpp>
-#include <corsika/media/GladstoneDaleRefractiveIndex.hpp>
-#include <corsika/media/HomogeneousMedium.hpp>
-#include <corsika/media/IMagneticFieldModel.hpp>
+#include <corsika/media/magnetic/GeomagneticModel.hpp>
+#include <corsika/media/refractivity/GladstoneDaleRefractiveIndex.hpp>
+#include <corsika/media/density_and_composition/HomogeneousMedium.hpp>
+#include <corsika/media/interfaces/IMagneticFieldModel.hpp>
 #include <corsika/media/LayeredSphericalAtmosphereBuilder.hpp>
-#include <corsika/media/MediumPropertyModel.hpp>
-#include <corsika/media/NuclearComposition.hpp>
+#include <corsika/media/medium/MediumPropertyModel.hpp>
+#include <corsika/media/composition/NuclearComposition.hpp>
 #include <corsika/media/ShowerAxis.hpp>
-#include <corsika/media/UniformMagneticField.hpp>
+#include <corsika/media/magnetic/UniformMagneticField.hpp>
 
 #include <corsika/modules/BetheBlochPDG.hpp>
 #include <corsika/modules/Epos.hpp>
@@ -66,7 +66,7 @@
 #else
 #include <corsika/modules/UrQMD.hpp>
 #endif
-#include <corsika/modules/TAUOLA.hpp>
+
 
 #include <corsika/setup/SetupStack.hpp>
 #include <corsika/setup/SetupTrajectory.hpp>
@@ -86,9 +86,9 @@
 using namespace corsika;
 using namespace std;
 
-using EnvironmentInterface =
-    IRefractiveIndexModel<IMediumPropertyModel<IMagneticFieldModel<IMediumModel>>>;
-using EnvType = Environment<EnvironmentInterface>;
+using EnvironmentInterface = media::IRefractiveIndexModel<
+    media::IMediumPropertyModel<media::IMagneticFieldModel<media::IMediumModel>>>;
+using EnvType = media::Environment<EnvironmentInterface>;
 using StackType = setup::Stack<EnvType>;
 using TrackingType = setup::Tracking;
 using Particle = StackType::particle_type;
@@ -112,7 +112,6 @@ long registerRandomStreams(long seed) {
   RNGManager<>::getInstance().registerRandomStream("fluka");
   RNGManager<>::getInstance().registerRandomStream("proposal");
   RNGManager<>::getInstance().registerRandomStream("thinning");
-  RNGManager<>::getInstance().registerRandomStream("tauola");
   RNGManager<>::getInstance().registerRandomStream("primary_particle");
   if (seed == 0) {
     std::random_device rd;
@@ -126,32 +125,31 @@ long registerRandomStreams(long seed) {
 }
 
 template <typename T>
-using MyExtraEnv =
-    GladstoneDaleRefractiveIndex<MediumPropertyModel<UniformMagneticField<T>>>;
-
+using MyExtraEnv = media::GladstoneDaleRefractiveIndex<
+    media::MediumPropertyModel<media::UniformMagneticField<T>>>;
 
   // define TAMBO atmospheric model
-  typedef std::array<AtmosphereLayerParameters, 5> AtmosphereParameters;
 
   template <typename TEnvironmentInterface, template <typename> typename TExtraEnv,
           typename TEnvironment, typename... TArgs>
   void create_5layer_colca_atmosphere(TEnvironment& env,
                                       Point const& center, TArgs... args) {
 
-    auto builder = make_layered_spherical_atmosphere_builder<
+    auto builder = media::make_layered_spherical_atmosphere_builder<
           TEnvironmentInterface, TExtraEnv>::create(center, constants::EarthRadius::Mean,
                                                   std::forward<TArgs>(args)...);
 
-      builder.setNuclearComposition(standardAirComposition);
+      builder.setNuclearComposition(media::standardAirComposition);
+      typedef std::array<media::AtmosphereLayerParameters, 5> AtmosphereParameters;
 
       std::array<AtmosphereParameters,
                static_cast<uint8_t>(
-                   AtmosphereId::LastAtmosphere)> constexpr atmosphereParameterList{
-		                             {{{{3.8_km, grammage(1208.0663), 1045629.03_cm},
-                                                {9.7_km, grammage(1148.2458), 963788.26_cm},
-                                                {26.5_km, grammage(1182.7783), 770343.77_cm},
-                                                {100_km, grammage(1510.0311), 701471.17_cm},
-                                                {5000_km, grammage(1), 1e9_cm}}}}};
+                   media::AtmosphereId::LastAtmosphere)> constexpr atmosphereParameterList{
+		                             {{{{3.8_km, 1208.0663_g/(1_cm*1_cm), 1045629.03_cm},
+                                                {9.7_km, 1148.2458_g/(1_cm*1_cm), 963788.26_cm},
+                                                {26.5_km, 1182.7783_g/(1_cm*1_cm), 770343.77_cm},
+                                                {100_km, 1510.0311_g/(1_cm*1_cm), 701471.17_cm},
+                                                {5000_km, 1_g/(1_cm*1_cm), 1e9_cm}}}}};
       auto const params = atmosphereParameterList[0];
 
 
@@ -164,7 +162,6 @@ using MyExtraEnv =
       builder.assemble(env);
   }
   // end defining TAMBO atmospheric model
-
 
 int main(int argc, char** argv) {
 
@@ -358,10 +355,6 @@ int main(int argc, char** argv) {
   bool multithin = false;
   app.add_flag("--multithin", multithin, "keep thinned particles (with weight=0)")
       ->group("Thinning");
-  app.add_option("--ring", "concentric ring of star shape pattern of observers")
-      ->default_val(0)
-      ->check(CLI::Range(0, 20))
-      ->group("Radio");
   // parse the command line options into the variables
   CLI11_PARSE(app, argc, argv);
 
@@ -404,14 +397,13 @@ int main(int argc, char** argv) {
   CoordinateSystemPtr const& rootCS = env.getCoordinateSystem();
   Point const center{rootCS, 0_m, 0_m, 0_m};
   Point const surface_{rootCS, 0_m, 0_m, constants::EarthRadius::Mean};
-  GeomagneticModel wmm(center, corsika_data("GeoMag/WMM.COF"));
+  media::GeomagneticModel wmm(center, corsika_data("GeoMag/WMM.COF"));
 
   // build an atmosphere with Keilhauer's parametrization of the
   // US standard atmosphere into `env`
-
   create_5layer_colca_atmosphere<EnvironmentInterface, MyExtraEnv>(
-      env, center, 1.000327, surface_, Medium::AirDry1Atm,
-      MagneticFieldVector{rootCS, 22.7266_uT, -2.5322_nT, -4.2859_nT});
+      env, center, 1.000327, surface_,
+      media::Medium::AirDry1Atm, MagneticFieldVector{rootCS, 22.7266_uT, -2.5322_nT, -4.2859_nT});
 
   /* === END: SETUP ENVIRONMENT AND ROOT COORDINATE SYSTEM === */
 
@@ -456,36 +448,25 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  // direction of the shower in (theta, phi) space
-  //auto const thetaRad = app["--zenith"]->as<double>();
-  //auto const phiRad = app["--azimuth"]->as<double>();
-
-  auto const xpos = app["--xpos"]->as<double>() * 1_km; 
-  auto const ypos = app["--ypos"]->as<double>() * 1_km; 
+  // TAMBO position parameters
+  auto const xpos = app["--xpos"]->as<double>() * 1_km;
+  auto const ypos = app["--ypos"]->as<double>() * 1_km;
   auto const zpos = app["--zpos"]->as<double>() * 1_km;
-  auto const xintercept = app["--x-intercept"]->as<double>() * 1_km; 
+  auto const xintercept = app["--x-intercept"]->as<double>() * 1_km;
   auto const yintercept = app["--y-intercept"]->as<double>() * 1_km;
   auto const zintercept = app["--z-intercept"]->as<double>() * 1_km;
-  // auto const obsHeight = app["--observation-height"]->as<double>();
-    
-  //auto const particle_xdir = sin(thetaRad) * cos(phiRad);
-  //auto const particle_ydir = sin(thetaRad) * sin(phiRad);
-  //auto const particle_zdir = cos(thetaRad); 
 
-  //auto propDir = DirectionVector(rootCS, {particle_xdir, particle_ydir, particle_zdir});
   /* === END: CONSTRUCT PRIMARY PARTICLE === */
 
   /* === START: CONSTRUCT GEOMETRY === */
   auto const surfaceHeight = constants::EarthRadius::Mean;
-  //Point const showerCore{rootCS, 0_m, 0_m, surfaceHeight + zintercept};
-  //Point const injectionPos{rootCS, {xpos, ypos, surfaceHeight + zpos}};
-  Point const injectionPos{rootCS, {xpos, ypos, zpos + surfaceHeight}};
-  Point const showerCore{rootCS, {xintercept, yintercept, surfaceHeight + zintercept}};
+  Point const injectionPos{rootCS, xpos, ypos, zpos + surfaceHeight};
+  Point const showerCore{rootCS, xintercept, yintercept, surfaceHeight + zintercept};
   auto const propVector = showerCore - injectionPos;
- 
+
   // we make the axis much longer than the inj-core distance since the
   // profile will go beyond the core, depending on zenith angle
-  ShowerAxis const showerAxis{injectionPos, (propVector) * 5.0, env};
+  media::ShowerAxis const showerAxis{injectionPos, (propVector) * 5.0, env};
   auto const dX = 10_g / square(1_cm); // Binning of the writers along the shower axis
   /* === END: CONSTRUCT GEOMETRY === */
 
@@ -501,10 +482,10 @@ int main(int argc, char** argv) {
 
   DynamicInteractionProcess<StackType> heModel;
 
-  auto const all_elements = corsika::get_all_elements_in_universe(env);
+  auto const all_elements = corsika::media::get_all_elements_in_universe(env);
   // have SIBYLL always for PROPOSAL photo-hadronic interactions
-  auto sibyll = std::make_shared<corsika::sibyll::Interaction>(
-      all_elements, corsika::setup::C7trackedParticles);
+  auto sibyll =
+      std::make_shared<corsika::sibyll::Interaction>(all_elements, corsika::setup::C7trackedParticles);
 
   if (auto const modelStr = app["--hadronModel"]->as<std::string>();
       modelStr == "SIBYLL-2.3d") {
@@ -517,8 +498,7 @@ int main(int argc, char** argv) {
         std::make_shared<corsika::epos::Interaction>(corsika::setup::C7trackedParticles)};
   } else if (modelStr == "Pythia8") {
     heModel = DynamicInteractionProcess<StackType>{
-        std::make_shared<corsika::pythia8::Interaction>(
-            corsika::setup::C7trackedParticles)};
+        std::make_shared<corsika::pythia8::Interaction>(corsika::setup::C7trackedParticles)};
   } else {
     CORSIKA_LOG_CRITICAL("invalid choice \"{}\"; also check argument parser", modelStr);
     return EXIT_FAILURE;
@@ -527,16 +507,9 @@ int main(int argc, char** argv) {
   InteractionCounter heCounted{heModel};
 
   corsika::pythia8::Decay decayPythia;
-  // tau decay via TAUOLA (hard coded to left handed)
-  corsika::tauola::Decay decayTauola(corsika::tauola::Helicity::LeftHanded);
 
-  struct IsTauSwitch {
-    bool operator()(const Particle& p) const {
-      return (p.getPID() == Code::TauMinus || p.getPID() == Code::TauPlus);
-    }
-  };
 
-  auto decaySequence = make_select(IsTauSwitch(), decayTauola, decayPythia);
+  auto& decaySequence = decayPythia;  // Using Pythia8 for all decays instead of TAUOLA
 
   // neutrino interactions with pythia (options are: NC, CC)
   bool NC = false;
@@ -559,7 +532,7 @@ int main(int argc, char** argv) {
   corsika::sophia::InteractionModel sophia;
 
   HEPEnergyType const emcut = 1_GeV * app["--emcut"]->as<double>();
-  HEPEnergyType const photoncut = 1_GeV * app["--photoncut"]->as<double>(); 
+  HEPEnergyType const photoncut = 1_GeV * app["--photoncut"]->as<double>();
   HEPEnergyType const hadcut = 1_GeV * app["--hadcut"]->as<double>();
   HEPEnergyType const mucut = 1_GeV * app["--mucut"]->as<double>();
   HEPEnergyType const taucut = 1_GeV * app["--taucut"]->as<double>();
@@ -622,23 +595,22 @@ int main(int argc, char** argv) {
       make_select(EnergySwitch(heHadronModelThreshold), leIntCounted, heCounted);
 
   // observation plane
-
   auto const xdir = app["--xdir"]->as<double>();
   auto const ydir = app["--ydir"]->as<double>();
   auto const zdir = app["--zdir"]->as<double>();
 
-  Plane const obsPlane(showerCore, DirectionVector(rootCS, {xdir,ydir,zdir}));
+  Plane const obsPlane(showerCore, DirectionVector(rootCS, {xdir, ydir, zdir}));
   ObservationPlane<TrackingType, ParticleWriterParquet> observationLevel{
       obsPlane, DirectionVector(rootCS, {0, -zdir/sqrt(pow(ydir,2)+pow(zdir,2)), ydir/sqrt(pow(ydir,2)+pow(zdir,2))}),
       true,   // plane should "absorb" particles
       1e-6 * 1_m,
-      true
-  }; // do not print z-coordinate
+      true};  // print z-coordinate
   // register ground particle output
   output.add("particles", observationLevel);
 
   PrimaryWriter<TrackingType, ParticleWriterParquet> primaryWriter(observationLevel);
   output.add("primary", primaryWriter);
+
 
   // make and register the first interaction writer
   InteractionWriter<setup::Tracking, ParticleWriterParquet> inter_writer(
@@ -681,8 +653,8 @@ int main(int argc, char** argv) {
     // assemble the final process sequence
     auto sequence =
         make_sequence(stackInspect, neutrinoPrimaryPythia, hadronSequence, decaySequence,
-                      emCascade, emContinuous, longprof, observationLevel,
-                      inter_writer, thinning, cut);
+                      emCascade, emContinuous, longprof,
+                      observationLevel, inter_writer, thinning, cut);
 
     // create the cascade object using the default stack and tracking
     // implementation

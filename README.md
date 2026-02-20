@@ -52,8 +52,6 @@ TauRunner is used to propagate high-energy tau neturinos thought the Earth, taki
 ### [1.4] CORSIKA TAMBO application
 In addition to building and installing CORISKA8, you will need to build the specific CORSIKA application that is used to simulate air showers in TAMBOSim. This ships with TAMBOSim, so go ahead and clone this repo. Next, navigate to `/path/to/TAMBOSim/src/corsika/`. In this directory, execute the following:
 ```
-mkdir build
-
 export CORSIKA_PREFIX=/path/to/corsika8/top/level/directory
 export CONAN_DEPENDENCIES=${CORSIKA_PREFIX}/corsika-install/lib/cmake/dependencies
 export FLUPRO=/path/to/fluka/top/level/directory
@@ -64,7 +62,7 @@ cmake -DCMAKE_TOOLCHAIN_FILE=${CONAN_DEPENDENCIES}/conan_toolchain.cmake \
     -DCMAKE_PREFIX_PATH=${CONAN_DEPENDENCIES} \
     -DCMAKE_POLICY_DEFAULT_CMP0091=NEW \
     -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-    -Dcorsika_DIR=${CORSIKA_PREFIX}/corsika-build \
+    -Dcorsika_DIR=${CORSIKA_PREFIX}/corsika-install/lib/cmake/corsika \
     -DWITH_FLUKA=ON \
     -S $PWD/source \
     -B $PWD/build

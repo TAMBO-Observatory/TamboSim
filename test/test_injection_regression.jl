@@ -147,8 +147,8 @@ function run_injection_regression_tests()
 
     # ---- Gamma = 1.0 (flat spectrum) ----
     @testset "Injection gamma=1.0" begin
-        # Mean log10(E/GeV) ~ 7.24 for gamma=1 (uniform in log-space)
-        @test isapprox(r1.mean_log_e, 7.239, atol=0.02)
+        # Mean log10(E/GeV) ~ 7.26 for gamma=1 (updated after injection region change in 08f9e8d)
+        @test isapprox(r1.mean_log_e, 7.262, atol=0.02)
 
         # Fraction of successful injections ~ 51.6%
         @test isapprox(r1.frac_successful, 0.5164, atol=0.02)

@@ -50,10 +50,6 @@ Tables = "1.12.1"
 Unitful = "1.25.1"
 YAML = "0.4.16"
 
-[sources]
-PROPOSAL = {path = "/Users/jlazar/tmp/PROPOSAL.jl"}
-TauRunner = {path = "/Users/jlazar/tmp/TauRunner/TauRunner.jl"}
-
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 

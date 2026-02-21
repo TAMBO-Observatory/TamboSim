@@ -55,6 +55,7 @@ include("test_coverage_extras.jl")
 include("test_injection_regression.jl")
 include("test_propagation_decay_fraction.jl")
 include("test_corsika.jl")
+include("test_proton_injection.jl")
 
 @testset "Tambo.jl" begin
     @testset "Geometry" begin
@@ -111,5 +112,9 @@ include("test_corsika.jl")
 
     @testset "CORSIKA" begin
         run_corsika_tests()
+    end
+
+    @testset "Proton Injection" begin
+        run_proton_injection_tests()
     end
 end

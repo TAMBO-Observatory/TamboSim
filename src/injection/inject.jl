@@ -433,3 +433,72 @@ function inject_event(
         epsilon, tr_seed
     )
 end
+
+"""
+    inject_proton_event(
+        earth::Earth,
+        as::UniformAngularSampler,
+        pl::UnitfulPowerLawSampler,
+        detector_props::DetectorProperties{T};
+        altitude::Quantity=50.0u"km",
+        epsilon=1e-6*u"m"
+    ) where {T<:Real}
+
+Simulates the injection of a downgoing cosmic ray proton.
+
+Unlike neutrino injection, this skips TauRunner/PROPOSAL and directly produces
+a proton particle suitable for CORSIKA shower simulation. The proton starts at
+the specified altitude above the detector, traveling downward along the sampled
+direction.
+
+# Steps
+1. Samples a direction using the angular sampler.
+2. Samples a point on the detector surface using `sample_detector_point`.
+3. Traces back along the trajectory to find the starting position at the given altitude.
+4. Samples energy from the power-law sampler.
+
+# Arguments
+- `earth::Earth`: The Earth model containing detector geometry.
+- `as::UniformAngularSampler`: Sampler for the angular distribution.
+- `pl::UnitfulPowerLawSampler`: Sampler for the energy distribution.
+- `detector_props::DetectorProperties{T}`: Pre-computed detector properties.
+- `altitude::Quantity`: Starting altitude for the proton (default: 50 km).
+- `epsilon`: Small offset to avoid self-intersections (default: 1e-6 m).
+
+# Returns
+- `(proton::Particle, visible_areas)`: The proton particle and visible area weights,
+  or a particle with `NaN` energy and `nothing` if no visible triangles exist.
+"""
+function inject_proton_event(
+    earth::Earth,
+    as::UniformAngularSampler,
+    pl::UnitfulPowerLawSampler,
+    detector_props::DetectorProperties{T};
+    altitude::Quantity=50.0u"km",
+    epsilon=1e-6*u"m"
+) where {T<:Real}
+    cs = CoordinateSystem(earth)
+    d = rand(as, cs)
+
+    # Same detector point sampling as neutrino
+    p, visible_areas = sample_detector_point(
+        detector_props.triangles, detector_props.normals, detector_props.areas,
+        detector_props.bvh, d, cs, epsilon
+    )
+    if isnothing(p)
+        coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
+        dir = Direction([NaN, NaN, NaN], cs)
+        return Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, PPlus, NaN*u"GeV", coord, dir), nothing
+    end
+
+    # Trace back along trajectory to reach the specified altitude
+    # In local coords, z ≈ altitude. reverse(d) points backward (upward for downgoing).
+    revd = reverse(d)
+    alt_m = uconvert(u"m", altitude)
+    t = (alt_m - p.point[3]) / revd.point[3]
+    proton_position = Coordinate(p.point + revd.point * t, cs)
+
+    energy = rand(pl)
+    proton = Particle(PPlus, energy, proton_position, d)
+    return proton, visible_areas
+end

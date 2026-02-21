@@ -162,10 +162,150 @@ rule apply_trigger:
 
 
 # =============================================================================
-# Usage example:
+# Proton pipeline
 # =============================================================================
-# To run the full pipeline for a specific config and simset_id:
+
+# =============================================================================
+# Checkpoint: inject_protons
+# =============================================================================
+# This checkpoint allows dynamic expansion of proton CORSIKA jobs after injection
+checkpoint inject_protons:
+    input:
+        config = lambda wildcards: f"{TAMBOSIM_PATH}/resources/configuration_examples/{wildcards.config}.toml"
+    output:
+        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_injection/{{config}}_{{simset_id}}.jld2"
+    resources:
+        cpus_per_task=1,
+        mem_mb=10000,
+        slurm_partition="sapphire,shared",
+        runtime=4*60
+    shell:
+        f"""
+        julia {PIPELINE_DIR}/inject_protons.jl \
+            --config {{input.config}} \
+            --simset_id {{wildcards.simset_id}} \
+            --output {{output.injection_file}}
+        """
+
+
+# =============================================================================
+# Rule: take_proton_shower
+# =============================================================================
+# Runs CORSIKA for a single proton (one shower per event, no decay_id)
+rule take_proton_shower:
+    input:
+        config = lambda wildcards: f"{TAMBOSIM_PATH}/resources/configuration_examples/{wildcards.config}.toml",
+        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_injection/{{config}}_{{simset_id}}.jld2"
+    output:
+        particles = f"{TAMBO_DATA_PATH}/{{config}}/proton_showers/{{simset_id}}/event_{{event_id}}/shower_1/particles/particles.parquet"
+    resources:
+        cpus_per_task=1,
+        mem_mb=2000,
+        slurm_partition="sapphire,shared",
+        runtime=24*60
+    shell:
+        f"""
+        julia {PIPELINE_DIR}/take_proton_shower.jl \
+            --config {{input.config}} \
+            --injection_file {{input.injection_file}} \
+            --shower_dir {TAMBO_DATA_PATH}/{{wildcards.config}}/proton_showers/{{wildcards.simset_id}} \
+            --event_id {{wildcards.event_id}} \
+            --simset_id {{wildcards.simset_id}}
+        """
+
+
+# =============================================================================
+# Helper: dynamic proton shower job discovery
+# =============================================================================
+def get_proton_shower_jobs(wildcards):
+    """
+    After the inject_protons checkpoint completes, read the injection file
+    to determine which proton shower jobs need to run.
+
+    Returns list of output particle.parquet files expected.
+    """
+    checkpoint_output = checkpoints.inject_protons.get(**wildcards).output.injection_file
+
+    result = subprocess.run(
+        ["julia", f"{PIPELINE_DIR}/list_proton_shower_jobs.jl", "--injection_file", checkpoint_output],
+        capture_output=True,
+        text=True,
+        check=True
+    )
+
+    jobs = json.loads(result.stdout)
+
+    shower_files = []
+    for job in jobs:
+        event_id = str(job["event_id"]).zfill(6)
+        shower_file = f"{TAMBO_DATA_PATH}/{wildcards.config}/proton_showers/{wildcards.simset_id}/event_{event_id}/shower_1/particles/particles.parquet"
+        shower_files.append(shower_file)
+
+    return shower_files
+
+
+# =============================================================================
+# Rule: process_proton_corsika_hits
+# =============================================================================
+# Reuses process_corsika_hits.jl with proton shower directories
+rule process_proton_corsika_hits:
+    input:
+        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_injection/{{config}}_{{simset_id}}.jld2",
+        showers = get_proton_shower_jobs
+    output:
+        hits_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_hits/{{config}}_{{simset_id}}_hits.jld2"
+    resources:
+        cpus_per_task=1,
+        mem_mb=8000,
+        slurm_partition="sapphire,shared",
+        runtime=4*60
+    shell:
+        f"""
+        julia {PIPELINE_DIR}/process_corsika_hits.jl \
+            --injection_file {{input.injection_file}} \
+            --shower_dir {TAMBO_DATA_PATH}/{{wildcards.config}}/proton_showers/{{wildcards.simset_id}} \
+            --output {{output.hits_file}}
+        """
+
+
+# =============================================================================
+# Rule: apply_proton_trigger
+# =============================================================================
+# Applies trigger logic to proton events (reuses apply_trigger.jl)
+rule apply_proton_trigger:
+    input:
+        hits_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_hits/{{config}}_{{simset_id}}_hits.jld2"
+    output:
+        triggered_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_triggered/{{config}}_{{simset_id}}_triggered.jld2"
+    params:
+        module_threshold = 3,
+        event_threshold = 30,
+        min_modules = 3
+    resources:
+        cpus_per_task=1,
+        mem_mb=4000,
+        slurm_partition="sapphire,shared",
+        runtime=1*60
+    shell:
+        f"""
+        julia {PIPELINE_DIR}/apply_trigger.jl \
+            --input {{input.hits_file}} \
+            --output {{output.triggered_file}} \
+            --module_threshold {{params.module_threshold}} \
+            --event_threshold {{params.event_threshold}} \
+            --min_modules {{params.min_modules}}
+        """
+
+
+# =============================================================================
+# Usage examples:
+# =============================================================================
+# Neutrino pipeline:
 #   snakemake --profile slurm $TAMBO_DATA_PATH/{config}/triggered/{config}_{simset_id}_triggered.jld2
+#
+# Proton pipeline:
+#   snakemake --profile slurm $TAMBO_DATA_PATH/{config}/proton_triggered/{config}_{simset_id}_triggered.jld2
 #
 # For example:
 #   snakemake --profile slurm $TAMBO_DATA_PATH/tambo_config/triggered/tambo_config_00001_triggered.jld2
+#   snakemake --profile slurm $TAMBO_DATA_PATH/tambo_config/proton_triggered/tambo_config_00001_triggered.jld2

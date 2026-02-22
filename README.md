@@ -20,7 +20,7 @@ TAMBOSim also relies on the new C++ implementation of CORSIKA, CORSIKA 8. We ass
 ## [1] Installing Dependencies
 The physics of TAMBOSim relies primarily on three external software packages: PROPOSAL, TauRunner, and CORSIKA. PROPOSAL and TauRunner have native Julia implementations. CORSIKA is written in C++ and TAMBOSim interfaces directly with its executable.
 
-Neither [PROPOSAL.jl](https://github.com/jlazar17/PROPOSAL.jl) nor [TauRunner.jl](https://github.com/icecube/TauRunner) are registered in the Julia General registry yet, but both ship with pre-built native library binaries via [JLL packages](https://docs.binarybuilder.org/stable/jll/), so no C++ compiler or system libraries are required.
+Neither [PROPOSAL.jl](https://github.com/jlazar17/PROPOSAL.jl) nor [TauRunner.jl](https://github.com/icecube/TauRunner) are registered in the Julia General registry, but both are fetched automatically from their git repositories when you run `Pkg.instantiate()`. Their native library binaries are distributed as [JLL packages](https://docs.binarybuilder.org/stable/jll/), so no C++ compiler or system libraries are required.
 
 ### [1.1] Prerequisites
 
@@ -29,22 +29,11 @@ You will need:
 
 ### [1.2] PROPOSAL.jl
 
-PROPOSAL.jl provides native Julia bindings for the [PROPOSAL](https://github.com/tudo-astroparticlephysics/PROPOSAL) C++ charged lepton propagation library. The native library is distributed as a JLL package and is downloaded automatically during installation.
-
-Clone the repository:
-```bash
-git clone https://github.com/jlazar17/PROPOSAL.jl.git /path/to/PROPOSAL.jl
-```
+[PROPOSAL.jl](https://github.com/jlazar17/PROPOSAL.jl) provides native Julia bindings for the [PROPOSAL](https://github.com/tudo-astroparticlephysics/PROPOSAL) C++ charged lepton propagation library. The pre-built native library (`PROPOSAL_jll v7.6.2+1`) is downloaded automatically during `Pkg.instantiate()`. No manual cloning or compilation is required.
 
 ### [1.3] TauRunner.jl
 
-TauRunner is used to propagate high-energy tau neutrinos through the Earth, taking into account the effects of [tau regeneration](https://doi.org/10.48550/arXiv.hep-ph/9804354). The Julia implementation lives inside the TauRunner repository.
-
-```bash
-git clone https://github.com/icecube/TauRunner.git /path/to/TauRunner
-```
-
-TauRunner.jl depends on PROPOSAL.jl, so make sure PROPOSAL.jl is cloned first (section 1.2).
+[TauRunner.jl](https://github.com/icecube/TauRunner) is used to propagate high-energy tau neutrinos through the Earth, taking into account the effects of [tau regeneration](https://doi.org/10.48550/arXiv.hep-ph/9804354). It is also fetched automatically during `Pkg.instantiate()`. No manual cloning is required.
 
 ### [1.4] CORSIKA TAMBO application
 In addition to building and installing CORISKA8, you will need to build the specific CORSIKA application that is used to simulate air showers in TAMBOSim. This ships with TAMBOSim, so go ahead and clone this repo. Next, navigate to `/path/to/TAMBOSim/src/corsika/`. In this directory, execute the following:
@@ -85,18 +74,12 @@ We also need to tell `TAMBOSim` where to find `CORSIKA` and files needed by `COR
 * `FLUFOR` to point to the version of `FORTRAN` used by `FLUKA`
 
 ### [2.2] Precompile `TAMBOSim`
-Now that our dependencies are ready, we'll set up the Julia TAMBOSim package. The `Project.toml` uses a `[sources]` section to tell Julia where to find PROPOSAL.jl and TauRunner.jl on your machine. Edit `$TAMBOSIM_PATH/Project.toml` and update the paths under `[sources]` to match where you cloned them:
-
-```toml
-[sources]
-PROPOSAL = {path = "/path/to/PROPOSAL.jl"}
-TauRunner = {path = "/path/to/TauRunner/TauRunner.jl"}
-```
-
-Then install and precompile everything:
+Now that our dependencies are ready, we'll set up the Julia TAMBOSim package. Install and precompile everything with:
 ```bash
-julia --project=$TAMBOSIM_PATH -e 'import Pkg; Pkg.resolve(); Pkg.instantiate()'
+julia --project=$TAMBOSIM_PATH -e 'import Pkg; Pkg.instantiate()'
 ```
+
+This will automatically fetch PROPOSAL.jl and TauRunner.jl from their git repositories and download the pre-built PROPOSAL_jll binary. No manual cloning or path editing is needed.
 
 To use `TAMBOSim` run:
 ```julia-repl

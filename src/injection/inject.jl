@@ -491,11 +491,31 @@ function inject_proton_event(
         return Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, PPlus, NaN*u"GeV", coord, dir), nothing
     end
 
-    # Trace back along trajectory to reach the specified altitude
-    # In local coords, z ≈ altitude. reverse(d) points backward (upward for downgoing).
+    # Trace back along trajectory to reach the specified altitude above the curved Earth's
+    # surface. For nearly horizontal directions, the flat-Earth approximation (z = altitude)
+    # fails because the injection point can be thousands of km from the detector, where
+    # Earth's curvature significantly changes the true altitude. Instead, solve for the
+    # parameter t such that the ECEF distance from Earth's center equals R_earth + altitude.
     revd = reverse(d)
     alt_m = uconvert(u"m", altitude)
-    t = (alt_m - p.point[3]) / revd.point[3]
+
+    # Convert detector surface point and reversed direction to ECEF
+    ecef_p = convert(ecefcoordinates, p)
+    ecef_revd = convert(ecefcoordinates, revd)
+    a = ecef_p.point       # ECEF position (meters)
+    b = ecef_revd.point    # ECEF direction (unitless)
+
+    # Earth radius from the detector CS origin
+    rearth = sqrt(cs.origin[1]^2 + cs.origin[2]^2 + cs.origin[3]^2)
+    target_r = rearth + alt_m
+
+    # Solve ||a + b*t||^2 = target_r^2
+    # => t^2 + 2(a·b)t + (||a||^2 - target_r^2) = 0
+    a_dot_b = a[1]*b[1] + a[2]*b[2] + a[3]*b[3]
+    a_sq = a[1]^2 + a[2]^2 + a[3]^2
+    discriminant = a_dot_b^2 - a_sq + target_r^2
+    t = -a_dot_b + sqrt(discriminant)
+
     proton_position = Coordinate(p.point + revd.point * t, cs)
 
     energy = rand(pl)

@@ -8,11 +8,11 @@ nevent = 10
 gamma = 2.7
 emin = 1.0e5    # GeV
 emax = 1.001e5    # GeV
-thetamin = 170   # degrees (downgoing: 90-180 in standard convention)
+thetamin = 179   # degrees (downgoing: 90-180 in standard convention)
 thetamax = 180  # degrees
 phimin = 90
 phimax = 270
-altitude = 50.0 # km
+altitude = 100.0 # km
 
 [corsika]
 pinecone = 925

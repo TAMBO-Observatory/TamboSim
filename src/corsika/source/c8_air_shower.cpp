@@ -481,7 +481,11 @@ int main(int argc, char** argv) {
       auto const b_half = propVector.dot(injVec);
       auto const c = injVec.getSquaredNorm() - surfaceHeight * surfaceHeight;
       auto const disc = b_half * b_half - a * c;
-      axisMultiplier = (-b_half + sqrt(disc)) / a;
+      // Use the smaller root (minus sign) to get the FIRST surface intersection
+      // (where the axis enters the ground), not the far-side exit point.
+      axisMultiplier = (-b_half - sqrt(disc)) / a;
+      CORSIKA_LOG_INFO("Shower axis capped to avoid underground extension: "
+                       "axisMultiplier = {:.3f} (default was 5.0)", axisMultiplier);
     }
   }
   media::ShowerAxis const showerAxis{injectionPos, propVector * axisMultiplier, env};

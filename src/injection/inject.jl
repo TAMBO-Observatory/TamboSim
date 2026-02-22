@@ -488,7 +488,7 @@ function inject_proton_event(
     if isnothing(p)
         coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
         dir = Direction([NaN, NaN, NaN], cs)
-        return Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, PPlus, NaN*u"GeV", coord, dir), nothing
+        return Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, PPlus, NaN*u"GeV", coord, dir), nothing, false
     end
 
     # Trace back along trajectory to reach the specified altitude above the curved Earth's
@@ -520,5 +520,18 @@ function inject_proton_event(
 
     energy = rand(pl)
     proton = Particle(PPlus, energy, proton_position, d)
-    return proton, visible_areas
+
+    # Check if the proton path passes through rock (mountains between injection and detector)
+    forward_ray = Ray(proton_position, d)
+    topo_hits = intersect_all(earth.bvh, forward_ray)
+    detector_indices = Set(earth.detector_region)
+    diff = proton_position.point - p.point
+    path_len = sqrt(diff[1]^2 + diff[2]^2 + diff[3]^2)
+    # Check if any non-detector topography triangle (i.e. a mountain) is hit
+    # within the path from the injection point to the detector surface
+    passes_through_rock = any(topo_hits) do ix
+        ix.index ∉ detector_indices && ix.distance < path_len
+    end
+
+    return proton, visible_areas, passes_through_rock
 end

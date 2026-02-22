@@ -374,9 +374,10 @@ function inject_protons!(
     Random.seed!(cfg["pinecone"])
 
     @llama_showprogress "Injecting protons" for frame in sim.results
-        proton, visible_areas = inject_proton_event(earth, as, pl, detector_props; altitude=altitude)
+        proton, visible_areas, passes_through_rock = inject_proton_event(earth, as, pl, detector_props; altitude=altitude)
         if !isnan(proton.energy)
             frame["$(outprefix)_primary"] = proton
+            frame["$(outprefix)_passes_through_rock"] = passes_through_rock
         end
     end
 end

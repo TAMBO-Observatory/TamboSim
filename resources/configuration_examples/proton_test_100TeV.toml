@@ -4,11 +4,11 @@ detector_key = "detector1"
 
 [proton_injection]
 pinecone = 925
-nevent = 10
+nevent = 10000
 gamma = 2.7
 emin = 1.0e5    # GeV
 emax = 1.001e5    # GeV
-thetamin = 179   # degrees (downgoing: 90-180 in standard convention)
+thetamin = 91   # degrees (downgoing: 90-180 in standard convention)
 thetamax = 180  # degrees
 phimin = 90
 phimax = 270

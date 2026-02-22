@@ -200,8 +200,8 @@ rule take_proton_shower:
         particles = f"{TAMBO_DATA_PATH}/{{config}}/proton_showers/{{simset_id}}/event_{{event_id}}/shower_1/particles/particles.parquet"
     resources:
         cpus_per_task=1,
-        mem_mb=2000,
-        slurm_partition="sapphire,shared",
+        mem_mb=4000,
+        slurm_partition="serial_requeue",
         runtime=24*60
     shell:
         f"""

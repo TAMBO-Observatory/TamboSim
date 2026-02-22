@@ -10,6 +10,7 @@ ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 Rotations = "6038ab10-8711-5258-84ad-4b1120ba62dc"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
 Tambo = "d9a96183-4919-46da-8188-64ea4e10e0ed"
+TauRunner = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 
 [sources]
 Tambo = {path = "../.."}

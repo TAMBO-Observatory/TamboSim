@@ -71,7 +71,7 @@ detection_unit_bvh = Tambo.BVHTree(detection_units)
 
 @showprogress for frame in sim.results
     d = "$(basedir)/event_$(lpad(frame["event_id"], 6, "0"))/"
-    q = Tambo.TriangleIntersection[]
+    q = NamedTuple{(:particle, :module_index, :weight), Tuple{Tambo.Particle{Float64}, Int, Float64}}[]
     events = nothing
     try
         events = Tambo.read_corsika(d, cs)
@@ -82,7 +82,7 @@ detection_unit_bvh = Tambo.BVHTree(detection_units)
     for event in events
         ix = intersect_module(event, detection_unit_bvh)
         ~isnothing(ix) || continue
-        push!(q, ix)
+        push!(q, (particle=event.particle, module_index=ix.index, weight=event.weight))
     end
     frame["corsika_hits"] = q
 end

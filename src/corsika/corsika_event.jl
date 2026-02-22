@@ -71,11 +71,38 @@ function read_corsika(
             config["plane"]["normal"]
         ]))
         center = config["plane"]["center"] .* u"m"
-        trans(row) = CorsikaEvent(row, rot, center, cs_corsika, cs_earth; t0=t0)
+        # Precompute coordinate transform once per shower
+        dr, co = precompute_cs_transform(cs_corsika, cs_earth)
+        trans(row) = CorsikaEvent(row, rot, center, cs_earth, dr, co; t0=t0)
         push!(filenames, particles_file)
         push!(transforms, trans)
     end
     return MultiParquetIterator(filenames, transforms[1]; T=CorsikaEvent)
+end
+
+"""
+    precompute_cs_transform(cs_from::CoordinateSystem, cs_to::CoordinateSystem)
+
+Precomputes the composed rotation and translation for converting coordinates
+from `cs_from` to `cs_to`. Returns `(dir_rot, coord_rot, coord_offset)` where:
+- `dir_rot`: rotation matrix for directions (rotation-only, no translation)
+- `coord_rot`: same as `dir_rot` (used for coordinate rotation step)
+- `coord_offset`: translation vector to apply before rotation
+
+This avoids reconstructing `LinearMap`, `RotMatrix`, `Translation`, and their
+inverses on every per-particle call to `convert`.
+"""
+function precompute_cs_transform(cs_from::CoordinateSystem, cs_to::CoordinateSystem)
+    # Direction: r2 * inv(r1) * point
+    r1_inv = SMatrix{3,3}(inv(RotMatrix(cs_from.rotation)))
+    r2 = SMatrix{3,3}(RotMatrix(cs_to.rotation))
+    dir_rot = r2 * r1_inv
+
+    # Coordinate: r2 * (inv(t2)(t1(inv(r1)(point))))
+    #           = r2 * (r1_inv * point + origin_from - origin_to)
+    coord_offset = cs_from.origin - cs_to.origin
+
+    return dir_rot, coord_offset
 end
 
 """
@@ -118,19 +145,46 @@ function CorsikaEvent(
     cs_earth::CoordinateSystem{U};
     t0=0.0u"s"
 ) where {U<:Real, V<:Rotation}
-    d = Direction(rot * [row.nx, row.ny, row.nz], cs_corsika)
-    p = Coordinate((rot * [row.x, row.y, row.z] .* u"m" .+ center)  .- [0.0u"km", 0.0u"km", EARTH_RADIUS], cs_corsika)
+    # Precompute the coordinate system transform (ideally called once per shower,
+    # but the check cs_corsika==cs_earth short-circuits when they match)
+    dir_rot, coord_offset = precompute_cs_transform(cs_corsika, cs_earth)
+    return CorsikaEvent(row, rot, center, cs_earth, dir_rot, coord_offset; t0=t0)
+end
+
+"""
+    CorsikaEvent(
+        row, rot, center, cs_earth, dir_rot, coord_offset; t0=0.0u"s"
+    )
+
+Fast inner constructor that uses precomputed coordinate transform matrices.
+Call `precompute_cs_transform` once per shower and pass the results here for
+each particle row to avoid repeated matrix construction.
+"""
+function CorsikaEvent(
+    row,
+    rot::V,
+    center,
+    cs_earth::CoordinateSystem{U},
+    dir_rot::SMatrix{3,3,Float64,9},
+    coord_offset;
+    t0=0.0u"s"
+) where {U<:Real, V<:Rotation}
+    # Direction: apply shower rotation, then precomputed CS transform
+    raw_dir = rot * SVector(row.nx, row.ny, row.nz)
+    earth_dir = dir_rot * raw_dir
+
+    # Position: apply shower rotation + offset, then precomputed CS transform
+    raw_pos = rot * SVector(row.x, row.y, row.z) .* u"m" .+ center .- SVector(0.0u"km", 0.0u"km", EARTH_RADIUS)
+    earth_pos = dir_rot * (raw_pos .+ coord_offset)
+
     e = U(row.kinetic_energy * u"GeV")
     pdg = ParticleType(Int64(row.pdg))
 
-    # Calculate particle speed from kinetic energy and mass
-    speed = try
-        particle_speed(e, pdg)
-    catch
-        # Fall back to speed of light if mass is not known for this particle
-        speedoflight
-    end
+    # Calculate particle speed — use haskey instead of try/catch
+    speed = haskey(particle_masses, pdg) ? particle_speed(e, pdg) : speedoflight
 
-    particle = Particle(pdg, e, convert(cs_earth, p), convert(cs_earth, d), U(t0 + row.time*u"s"), U(speed))
+    d = Direction(earth_dir, cs_earth)
+    p = Coordinate(earth_pos, cs_earth)
+    particle = Particle(pdg, e, p, d, U(t0 + row.time*u"s"), U(speed))
     return CorsikaEvent(particle, Float64(row.weight))
 end

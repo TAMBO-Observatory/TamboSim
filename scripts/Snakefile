@@ -1,10 +1,11 @@
+import os
 import toml
 import glob
 import h5py
 import numpy as np
 from os import environ
 
-TAMBOSIM_PATH = environ['TAMBOSIM_PATH']
+TAMBOSIM_PATH = environ.get('TAMBOSIM_PATH', os.path.dirname(os.path.dirname(os.path.abspath(workflow.snakefile))))
 TAMBO_DATA_PATH = environ['TAMBO_DATA_PATH']
 
 checkpoint inject_neutrinos:

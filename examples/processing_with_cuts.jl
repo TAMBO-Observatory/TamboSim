@@ -1,4 +1,4 @@
-tambo_path = ENV["TAMBOSIM_PATH"]
+tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(@__DIR__))
 
 import Pkg
 Pkg.activate(".")

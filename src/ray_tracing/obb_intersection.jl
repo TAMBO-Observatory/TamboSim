@@ -58,35 +58,36 @@ otherwise `nothing`.
 """
 function find_intersect(ray::Ray, obb::OBB, idx::Int)
     EPSILON = 1e-7
-    
-    # Transform ray to OBB local space
-    local_origin = world_to_local(obb, ray.origin)
+
+    # Transform ray to OBB local space and strip units for fast arithmetic
+    local_origin = ustrip.(world_to_local(obb, ray.origin))
     local_dir = world_to_local(obb, ray.direction)
-    
-    t_min = -Inf * u"m"
-    t_max = Inf * u"m"
-    
+    half_ext = ustrip.(obb.half_extents)
+
+    t_min = -Inf
+    t_max = Inf
+
     # Track which face we hit (for normal calculation)
     hit_face = 0
     hit_face_sign = 0
-    
-    # Test against all 3 slabs
+
+    # Test against all 3 slabs (unitless)
     for i in 1:3
         if abs(local_dir[i]) < EPSILON
             # Ray parallel to slab
-            if local_origin[i] < -obb.half_extents[i] || local_origin[i] > obb.half_extents[i]
-                return 
+            if local_origin[i] < -half_ext[i] || local_origin[i] > half_ext[i]
+                return
             end
         else
             # Calculate intersection distances
-            t1 = (-obb.half_extents[i] - local_origin[i]) / local_dir[i]
-            t2 = (obb.half_extents[i] - local_origin[i]) / local_dir[i]
-            
+            t1 = (-half_ext[i] - local_origin[i]) / local_dir[i]
+            t2 = (half_ext[i] - local_origin[i]) / local_dir[i]
+
             # Ensure t1 is the near intersection
             if t1 > t2
                 t1, t2 = t2, t1
             end
-            
+
             # Update global t_min/t_max
             if t1 > t_min
                 t_min = t1
@@ -94,25 +95,25 @@ function find_intersect(ray::Ray, obb::OBB, idx::Int)
                 hit_face_sign = local_dir[i] > 0 ? -1 : 1
             end
             t_max = min(t_max, t2)
-            
+
             if t_min > t_max
                 return
             end
         end
     end
-    
+
     # Check if intersection is valid
-    if t_max < 0u"m"
+    if t_max < 0
+        return
+    end
+
+    t = t_min >= 0 ? t_min : t_max
+    if t < 0
         return
     end
     
-    t = t_min >= 0u"m" ? t_min : t_max
-    if t < 0u"m"
-        return 
-    end
-    
-    # Compute intersection point in world space
-    point = Coordinate(ray.origin.point + ray.direction.point * t, ray.origin.coordinate_system)
+    # Compute intersection point in world space (restore units from unitless t)
+    point = Coordinate(ray.origin.point + ray.direction.point * (t * u"m"), ray.origin.coordinate_system)
     
     # Compute normal in world space
     normal = zeros(3)
@@ -122,7 +123,7 @@ function find_intersect(ray::Ray, obb::OBB, idx::Int)
         # Fallback: compute from closest face
         local_point = world_to_local(obb, point)
         # Find which face is closest
-        min_dist = Inf
+        min_dist = Inf * u"m"
         for i in 1:3
             for sign in [-1, 1]
                 face_pos = sign * obb.half_extents[i]
@@ -135,5 +136,5 @@ function find_intersect(ray::Ray, obb::OBB, idx::Int)
         end
     end
     
-    return TriangleIntersection(point, normal, t, 0.5, 0.5, true, idx)
+    return TriangleIntersection(point, normal, t * u"m", 0.5, 0.5, true, idx)
 end

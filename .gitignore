@@ -15,3 +15,7 @@ src/corsika/build/
 
 *.pdf
 *.png
+
+# Coverage and profiling artifacts
+*.cov
+*.profraw

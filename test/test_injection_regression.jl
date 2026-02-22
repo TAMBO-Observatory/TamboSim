@@ -1,0 +1,266 @@
+"""
+Injection regression tests for Tambo.
+
+These tests run full injection events through the Earth model and verify that
+key statistical properties remain consistent across code changes:
+- Mean energy of injected events for different spectral indices
+- Fraction of events with successful injection
+- Fraction of events where the injection final state is in air
+
+Uses fixed random seeds for deterministic reproducibility.
+Requires HDF5 geometry and cross-section data files.
+"""
+
+import Tambo: UnitfulPowerLawSampler, UniformAngularSampler, CoordinateSystem,
+              precompute_detector_properties, inject_event, CrossSection, Earth,
+              null_params, init_proposal, proposal_propagate, is_proposal_available
+
+"""
+    isinair(particle, earth)
+
+Returns true if the particle is above the Earth's topography (in air).
+Casts a ray straight up from the particle position; if it doesn't intersect
+any topography, the particle is in air.
+"""
+function isinair(particle, earth)
+    d = Direction(
+        normalize(convert(ecefcoordinates, particle.position)),
+        ecefcoordinates
+    )
+    d = convert(particle.position.coordinate_system, d)
+    ray = Ray(particle.position, d)
+    return length(intersect_all(earth, ray)) == 0
+end
+
+function run_injection(earth, xs, detector_props, as, gamma, n_events, seed)
+    pl = UnitfulPowerLawSampler(gamma, 3e5u"GeV", 1e9u"GeV")
+    Random.seed!(seed)
+
+    initial_energies = Float64[]
+    n_successful = 0
+    n_in_air = 0
+
+    for i in 1:n_events
+        tr_seed = rand(UInt32)
+        istate, cstate, fstate, wp = inject_event(16, earth, as, pl, xs, detector_props; tr_seed=tr_seed)
+        e_val = ustrip(u"GeV", istate.energy)
+        if !isnan(e_val)
+            push!(initial_energies, e_val)
+        end
+        if !isnan(fstate.energy)
+            n_successful += 1
+            if isinair(fstate, earth)
+                n_in_air += 1
+            end
+        end
+    end
+
+    mean_log_e = mean(log10.(initial_energies))
+    frac_successful = n_successful / n_events
+    frac_in_air = n_successful > 0 ? n_in_air / n_successful : 0.0
+
+    return (;
+        mean_log_e,
+        frac_successful,
+        frac_in_air,
+        n_valid=length(initial_energies),
+        n_successful,
+        n_in_air
+    )
+end
+
+function run_injection_regression_tests()
+    earth_path = get_tambosim_path() * "/resources/basic_geometry.h5:colca_valley_30000"
+    xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
+
+    earth = Earth(earth_path, "detector1")
+    xs = CrossSection(xs_path)
+    detector_props = precompute_detector_properties(earth)
+    as = UniformAngularSampler(deg2rad(0.0), deg2rad(117.0), deg2rad(90.0), deg2rad(290.0))
+
+    # ---- Single seeded event: injection + propagation ----
+    @testset "Single seeded injection + propagation" begin
+        pl = UnitfulPowerLawSampler(1.0, 3e5u"GeV", 1e9u"GeV")
+
+        # Fixed seeds for TauRunner (tr_seed) and Julia RNG
+        Random.seed!(3)
+        tr_seed = UInt32(3723491101)
+
+        istate, cstate, fstate, wp = inject_event(
+            16, earth, as, pl, xs, detector_props; tr_seed=tr_seed
+        )
+
+        # Injection must succeed
+        @test !isnan(fstate.energy)
+        @test ustrip(u"GeV", fstate.energy) > 0.0
+
+        # Energy must decrease through Earth (interaction losses)
+        @test fstate.energy <= istate.energy
+
+        # Propagate with fixed PROPOSAL seed
+        tables_path = get_tambosim_path() * "/resources/proposal_tables"
+        init_proposal(Dict("tablespath" => tables_path))
+        proposal_seed = Int32(12345)
+        losses, cont_e, secs, prop_final = proposal_propagate(fstate, earth, proposal_seed)
+
+        # Final state must have lower energy than injection final state
+        @test prop_final.energy <= fstate.energy
+        @test ustrip(u"GeV", prop_final.energy) > 0.0
+
+        # Must have stochastic losses
+        @test length(losses) > 0
+
+        # Must have decay products
+        @test length(secs) > 0
+
+        # Decay products: positive energy, unit directions, energy conservation
+        for dp in secs
+            @test ustrip(u"GeV", dp.energy) > 0.0
+            @test isapprox(norm(dp.direction.point), 1.0, atol=1e-6)
+        end
+        total_decay_e = sum(ustrip(u"GeV", dp.energy) for dp in secs)
+        @test total_decay_e <= ustrip(u"GeV", fstate.energy)
+
+        # Reproducibility: same seeds must give identical results
+        Random.seed!(3)
+        istate2, cstate2, fstate2, wp2 = inject_event(
+            16, earth, as, pl, xs, detector_props; tr_seed=tr_seed
+        )
+        @test istate2.energy == istate.energy
+        @test fstate2.energy == fstate.energy
+
+        losses2, cont_e2, secs2, prop_final2 = proposal_propagate(fstate2, earth, proposal_seed)
+        @test prop_final2.energy == prop_final.energy
+        @test length(secs2) == length(secs)
+        for (a, b) in zip(secs, secs2)
+            @test a.energy == b.energy
+            @test a.pdg == b.pdg
+        end
+    end
+
+    n_events = 10000
+    seed = 925
+
+    # Run both gammas once, reuse results across testsets
+    r1 = run_injection(earth, xs, detector_props, as, 1.0, n_events, seed)
+    r2 = run_injection(earth, xs, detector_props, as, 2.0, n_events, seed)
+
+    # ---- Gamma = 1.0 (flat spectrum) ----
+    @testset "Injection gamma=1.0" begin
+        # Mean log10(E/GeV) ~ 7.26 for gamma=1 (updated after injection region change in 08f9e8d)
+        @test isapprox(r1.mean_log_e, 7.262, atol=0.02)
+
+        # Fraction of successful injections ~ 51.6%
+        @test isapprox(r1.frac_successful, 0.5164, atol=0.02)
+
+        # Fraction of successful events with final state in air ~ 0.2%
+        # Higher energy taus can travel far enough to exit the rock
+        @test isapprox(r1.frac_in_air, 0.00213, atol=0.005)
+    end
+
+    # ---- Gamma = 2.0 (steeper spectrum) ----
+    @testset "Injection gamma=2.0" begin
+        # Mean log10(E/GeV) ~ 5.91 for gamma=2 (weighted toward lower energies)
+        @test isapprox(r2.mean_log_e, 5.910, atol=0.02)
+
+        # Fraction of successful injections ~ 50.2%
+        @test isapprox(r2.frac_successful, 0.502, atol=0.02)
+
+        # Fraction in air ~ 0% for steeper spectrum (lower energy taus
+        # don't travel far enough to exit the rock)
+        @test r2.frac_in_air < 0.005
+    end
+
+    # ---- Cross-gamma consistency ----
+    @testset "Cross-gamma consistency" begin
+        # Steeper spectrum (gamma=2) should have lower mean energy
+        @test r2.mean_log_e < r1.mean_log_e
+
+        # Success fraction should be similar (geometry-driven, not energy-driven)
+        @test isapprox(r1.frac_successful, r2.frac_successful, atol=0.05)
+
+        # Higher energy spectrum should have more events in air
+        @test r1.frac_in_air >= r2.frac_in_air
+    end
+
+    # ---- Post-propagation regression (PROPOSAL lepton propagation) ----
+    # Uses fewer events (1000) since PROPOSAL propagation is compute-intensive.
+    # Two-phase approach: run all injections first, then propagate, to avoid
+    # conflicts between TauRunner's internal PROPOSAL usage and init_proposal.
+
+    # Phase 1: collect injection final states
+    n_prop_events = 1000
+    prop_seed = 925
+
+    fstates_g1 = Particle{Float64}[]
+    fstates_g2 = Particle{Float64}[]
+
+    for (gamma, fstates) in [(1.0, fstates_g1), (2.0, fstates_g2)]
+        pl = UnitfulPowerLawSampler(gamma, 3e5u"GeV", 1e9u"GeV")
+        Random.seed!(prop_seed)
+        for i in 1:n_prop_events
+            tr_seed = rand(UInt32)
+            istate, cstate, fstate, wp = inject_event(16, earth, as, pl, xs, detector_props; tr_seed=tr_seed)
+            if !isnan(fstate.energy)
+                push!(fstates, fstate)
+            end
+        end
+    end
+
+    # Phase 2: initialize PROPOSAL and propagate
+    tables_path = get_tambosim_path() * "/resources/proposal_tables"
+    init_proposal(Dict("tablespath" => tables_path))
+
+    @testset "Post-propagation in-air fraction" begin
+        for (gamma, fstates, expected_frac) in [
+            (1.0, fstates_g1, 0.171),
+            (2.0, fstates_g2, 0.147)
+        ]
+            n_prop_air = 0
+            for (j, fs) in enumerate(fstates)
+                losses, cont_e, secs, prop_final = proposal_propagate(fs, earth, j)
+                if isinair(prop_final, earth)
+                    n_prop_air += 1
+                end
+            end
+            frac_prop_air = n_prop_air / length(fstates)
+            @test isapprox(frac_prop_air, expected_frac, atol=0.02)
+        end
+    end
+
+    @testset "Decay products populated" begin
+        # Propagate tau leptons and verify that decay products are
+        # non-empty, physically consistent, and energy-conserving.
+        n_with_decay = 0
+        n_tested = 0
+
+        for (j, fs) in enumerate(fstates_g1)
+            losses, cont_e, secs, prop_final = proposal_propagate(fs, earth, j)
+            n_tested += 1
+
+            if !isempty(secs)
+                n_with_decay += 1
+
+                # Each decay product must have positive energy
+                for dp in secs
+                    @test ustrip(u"GeV", dp.energy) > 0.0
+                end
+
+                # Decay product energies should not exceed the parent energy
+                total_decay_e = sum(ustrip(u"GeV", dp.energy) for dp in secs)
+                parent_e = ustrip(u"GeV", fs.energy)
+                @test total_decay_e <= parent_e
+
+                # Direction vectors should be unit-normalized
+                for dp in secs
+                    d = dp.direction.point
+                    @test isapprox(norm(d), 1.0, atol=1e-6)
+                end
+            end
+        end
+
+        # The vast majority of tau propagations should end in decay
+        frac_decayed = n_with_decay / n_tested
+        @test frac_decayed > 0.9
+    end
+end

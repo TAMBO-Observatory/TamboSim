@@ -39,7 +39,7 @@ function find_vertex_distance_by_distance(
     densities = @views compute_density(intersections, direction)[2:end]
     distances = @views compute_lengths(intersections)[2:end]
     @assert length(densities)==length(distances)
-    #@show densities
+    @assert !isempty(densities) "intersections must have at least 2 elements"
     column_depth = 0.0u"g/cm^2"
     d, cd = 0.0u"m", 0.0u"g/cm^2"
     for (dist, dens) in zip(distances, densities)
@@ -105,7 +105,9 @@ function find_vertex_distance_by_cd(
     
     densities = @views compute_density(intersections, direction)[2:end]
     distances = @views compute_lengths(intersections)[2:end]
-    
+
+    @assert !isempty(densities) "intersections must have at least 2 elements"
+
     available_cd = sum([dist*dens for (dist, dens) in zip(distances, densities)])
     if available_cd < cd
         cd = available_cd

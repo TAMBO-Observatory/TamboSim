@@ -11,12 +11,12 @@ using Unitful
 
 basedir = ARGS[1]
 
-function intersect_module(event, bvh)
+function intersect_module_signed(event, bvh)
     ray = Tambo.Ray(event.particle)
     ixs = Tambo.intersect_all(bvh, reverse(ray))
-    length(ixs)==0 || return last(ixs)
+    length(ixs)==0 || return (last(ixs), -1)
     ixs = Tambo.intersect_all(bvh, ray)
-    length(ixs)==0 || return first(ixs)
+    length(ixs)==0 || return (first(ixs), +1)
     return nothing
 end
 
@@ -80,11 +80,15 @@ detection_unit_bvh = Tambo.BVHTree(detection_units)
     end
 
     for event in events
-        ix = intersect_module(event, detection_unit_bvh)
-        ~isnothing(ix) || continue
-        push!(q, (particle=event.particle, module_index=ix.index, weight=event.weight))
+        result = intersect_module_signed(event, detection_unit_bvh)
+        isnothing(result) && continue
+        ix, sign = result
+        p = event.particle
+        corrected_time = p.time + sign * ix.distance / p.speed
+        corrected_particle = Tambo.Particle(p.pdg, p.energy, ix.point, p.direction, corrected_time, p.speed)
+        push!(q, (particle=corrected_particle, module_index=ix.index, weight=event.weight))
     end
-    frame["corsika_hits"] = q
+    frame["corsika_hits_corrected"] = q
 end
 
 jldopen("$(basedir)/simfile_corsika.jld2", "w") do file

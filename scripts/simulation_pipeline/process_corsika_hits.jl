@@ -39,18 +39,20 @@ function parse_commandline()
 end
 
 """
-    intersect_module(event, bvh)
+    intersect_module_signed(event, bvh)
 
 Find the detection unit hit by a CORSIKA particle. Traces a ray from the particle
-in both forward and reverse directions against the detection unit BVH. Returns the
-first `TriangleIntersection` found, or `nothing` if the particle misses all modules.
+in both forward and reverse directions against the detection unit BVH. Returns
+`(TriangleIntersection, sign)` where `sign` is `-1` if found on the reverse ray
+(particle already passed the module) or `+1` on the forward ray. Returns `nothing`
+if the particle misses all modules.
 """
-function intersect_module(event, bvh)
+function intersect_module_signed(event, bvh)
     ray = Tambo.Ray(event.particle)
     ixs = Tambo.intersect_all(bvh, reverse(ray))
-    length(ixs) == 0 || return last(ixs)
+    length(ixs)==0 || return (last(ixs), -1)
     ixs = Tambo.intersect_all(bvh, ray)
-    length(ixs) == 0 || return first(ixs)
+    length(ixs)==0 || return (first(ixs), +1)
     return nothing
 end
 
@@ -145,7 +147,7 @@ function main()
         event_id = frame["event_id"]
         event_dir = "$(shower_dir)/event_$(lpad(event_id, 6, '0'))/"
 
-        hits = NamedTuple{(:particle, :module_index, :weight), Tuple{Tambo.Particle{Float64}, Int, Float64}}[]
+        hits = NamedTuple{(:particle, :module_index, :weight, :hit_time), Tuple{Tambo.Particle{Float64}, Int, Float64, typeof(0.0u"s")}}[]
 
         # Check if event directory exists
         if !isdir(event_dir)
@@ -163,9 +165,13 @@ function main()
 
         # Find intersections with detection units
         for event in events
-            ix = intersect_module(event, detection_unit_bvh)
-            isnothing(ix) && continue
-            push!(hits, (particle=event.particle, module_index=ix.index, weight=event.weight))
+            result = intersect_module_signed(event, detection_unit_bvh)
+            isnothing(result) && continue
+            ix, sign = result
+            p = event.particle
+            corrected_time = p.time + sign * ix.distance / p.speed
+            corrected_particle = Tambo.Particle(p.pdg, p.energy, ix.point, p.direction, corrected_time, p.speed)
+            push!(hits, (particle=corrected_particle, module_index=ix.index, weight=event.weight, hit_time=corrected_time))
         end
 
         frame["corsika_hits"] = hits

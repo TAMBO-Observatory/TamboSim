@@ -116,10 +116,9 @@ function taurunner_interface(
             # Determine if this is rock or air based on normal direction
             is_rock = dot(particle.direction, intersection.normal) > 0 ||
                       typeof(intersection) == Tambo.SphereIntersection{T}
-            density = is_rock ? 2.6 : 1.2e-3
+            density = is_rock ? ustrip(u"g/cm^3", ROCK_DENSITY) : ustrip(u"g/cm^3", AIR_DENSITY)
 
-            boundary_distance = ustrip(total_distance - intersection.distance)
-            normalized_boundary = boundary_distance / ustrip(total_distance)
+            normalized_boundary = ustrip((total_distance - intersection.distance) / total_distance)
 
             push!(layers, (density, normalized_boundary))
         end
@@ -138,14 +137,15 @@ function taurunner_interface(
         layers = merged_layers
 
         # Ensure we have at least one layer ending at 1.0
+        rock_ρ = ustrip(u"g/cm^3", ROCK_DENSITY)
         if isempty(layers)
-            push!(layers, (2.6, 1.0))
+            push!(layers, (rock_ρ, 1.0))
         elseif last(layers)[2] < 1.0
-            if last(layers)[1] == 2.6
+            if last(layers)[1] == rock_ρ
                 # Extend existing rock layer to 1.0
-                layers[end] = (2.6, 1.0)
+                layers[end] = (rock_ρ, 1.0)
             else
-                push!(layers, (2.6, 1.0))
+                push!(layers, (rock_ρ, 1.0))
             end
         end
 

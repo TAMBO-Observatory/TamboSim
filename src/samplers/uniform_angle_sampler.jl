@@ -110,5 +110,8 @@ This is a convenience method that extracts the zenith and azimuthal angles from 
 - `Float64`: The probability density.
 """
 function probability(sampler::UniformAngularSampler, event)
-    return probability(sampler, event.initial_state.direction.θ, event.initial_state.direction.ϕ)
+    # θ = ustrip(Float64, u"rad", uconvert(u"rad", d.θ))
+    # ϕ = ustrip(Float64, u"rad", uconvert(u"rad", d.ϕ))    
+    θ, ϕ = cart_to_sph(event.initial_state.direction)
+    return probability(sampler, θ, ϕ)
 end

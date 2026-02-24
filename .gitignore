@@ -7,8 +7,6 @@ notebooks/output/*
 **/.snakemake
 
 **/Manifest.toml
-*scratch*/
-*sandbox*/
 fort*
 
 src/corsika/build/

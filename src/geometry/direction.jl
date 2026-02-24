@@ -45,6 +45,27 @@ function Direction(point::Vector, coordinate_system::CoordinateSystem)
 end
 
 """
+    Direction(theta, phi, coordinate_system::CoordinateSystem) -> Direction
+
+Constructs a `Direction` from spherical coordinates `theta` (polar/zenith angle) and
+`phi` (azimuthal angle).
+
+Accepts plain `Real` values (interpreted as radians) or `Unitful` angle quantities
+(e.g. `45u"°"`, `π/4 * u"rad"`), which are converted to radians automatically.
+
+# Arguments
+- `theta`: Polar angle (0 = +z axis). Plain `Real` in radians, or a `Unitful` angle.
+- `phi`: Azimuthal angle. Plain `Real` in radians, or a `Unitful` angle.
+- `coordinate_system::CoordinateSystem`: The coordinate system for this direction.
+
+# Returns
+- A `Direction` object.
+"""
+function Direction(theta, phi, coordinate_system::CoordinateSystem)
+    return Direction(sph_to_cart(theta, phi), coordinate_system)
+end
+
+"""
     Base.size(d::Direction)
     Base.length(d::Direction)
     Base.getindex(d::Direction, i)
@@ -205,4 +226,34 @@ Returns a new `Direction` object that points in the opposite direction of `d`.
 """
 function Base.reverse(d::Direction)
     return Direction(-d.point, d.coordinate_system)
+end
+
+"""
+    Base.getproperty(d::Direction, sym::Symbol)
+
+Extends property access on `Direction` to provide virtual `θ` and `ϕ` properties
+as Unitful degree quantities derived from the underlying Cartesian components.
+
+- `d.θ`: Polar (zenith) angle in degrees, in the range [0°, 180°].
+- `d.ϕ`: Azimuthal angle in degrees, normalized to [0°, 360°).
+"""
+function Base.getproperty(d::Direction, sym::Symbol)
+    if sym === :θ
+        θ, _ = cart_to_sph(d)
+        return rad2deg(θ) * u"°"
+    elseif sym === :ϕ
+        _, ϕ = cart_to_sph(d)
+        return mod(rad2deg(ϕ), 360.0) * u"°"
+    else
+        return getfield(d, sym)
+    end
+end
+
+"""
+    Base.propertynames(d::Direction, private::Bool=false)
+
+Returns the property names of a `Direction`, including the virtual `θ` and `ϕ` accessors.
+"""
+function Base.propertynames(::Direction, ::Bool=false)
+    return (fieldnames(Direction)..., :θ, :ϕ)
 end

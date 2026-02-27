@@ -49,14 +49,10 @@ if the particle misses all modules.
 """
 function intersect_module_signed(event, bvh)
     ray = Tambo.Ray(event.particle)
-
     ixs = Tambo.intersect_all(bvh, reverse(ray))
-    # length(ixs)==0 || return (last(ixs), -1)
-    length(ixs)==0 || return (first(ixs), -1)
-
+    length(ixs)==0 || return (last(ixs), -1)
     ixs = Tambo.intersect_all(bvh, ray)
     length(ixs)==0 || return (first(ixs), +1)
-    
     return nothing
 end
 

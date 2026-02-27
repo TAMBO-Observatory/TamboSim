@@ -60,9 +60,10 @@ end
     build_detection_units(earth, sim)
 
 Construct the detector array as a BVH of oriented bounding boxes (OBBs). Places
-detection units on a hexagonal grid (125 m spacing) over the topography surface.
-Each unit is a 2m × 2m × 0.25m OBB oriented to the local surface normal.
-Returns `(bvh, coordinate_system)`.
+detection units on a regular triangular grid (125 m nearest-neighbor spacing along
+the slope surface) over the topography. Grid bounds are derived from the detector
+region triangle vertices. Each unit is a 2m × 2m × 0.25m OBB oriented to the
+local surface normal. Returns `(bvh, coordinate_system)`.
 """
 function build_detection_units(earth, sim)
     cs = Tambo.CoordinateSystem(earth)
@@ -76,14 +77,27 @@ function build_detection_units(earth, sim)
     direction = convert(cs, direction)
     plane = Tambo.Plane(point, direction)
 
-    # Calculate grid spacing
-    Δy = 125.0u"m"
-    Δx = dot(up, plane.normal) * Δy * sqrt(3) / 2
+    # Calculate grid spacing for a regular triangular lattice with nearest-neighbor
+    # distance d along the slope surface. The correct relationship is:
+    #   row spacing Δy = d * √3/2  (smaller)
+    #   within-row  Δx = d         (larger, corrected for slope projection)
+    # This matches the old TAMBO-MC convention (detector.jl make_triangle_grid).
+    d  = 125.0u"m"
+    Δy = d * sqrt(3) / 2
+    Δx = dot(up, plane.normal) * d
 
-    # Build grid of detection unit positions
+    # Build grid of detection unit positions using geometry-derived bounds
+    det_tris = earth.topography[earth.detector_region]
+    all_x = [ustrip(u"m", v.point[1]) for tri in det_tris for v in [tri.v1, tri.v2, tri.v3]]
+    all_y = [ustrip(u"m", v.point[2]) for tri in det_tris for v in [tri.v1, tri.v2, tri.v3]]
+    x_min = minimum(all_x) * u"m"
+    x_max = maximum(all_x) * u"m"
+    y_min = minimum(all_y) * u"m"
+    y_max = maximum(all_y) * u"m"
+
     ps = Tambo.Coordinate[]
-    base_xs = collect(-1000u"m":Δx:750u"m")
-    base_ys = collect(-2000u"m":Δy:2000u"m")
+    base_xs = collect(x_min:Δx:x_max)
+    base_ys = collect(y_min:Δy:y_max)
 
     for (idx, y) in enumerate(base_ys)
         xoffset = mod(idx, 2) == 0 ? 0.0u"m" : Δx / 2

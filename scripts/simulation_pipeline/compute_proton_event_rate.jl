@@ -26,6 +26,10 @@ function parse_commandline()
             help = "Number of events generated in MC (for normalization)"
             arg_type = Float64
             required = true
+        "--nmodules"
+            help = "Minimum number of modules hit required to include a frame"
+            arg_type = Int
+            default = 0
     end
     return parse_args(s)
 end
@@ -49,13 +53,13 @@ end
 """
     compute_proton_event_rate(frames, nevent)
 
-Compute the expected triggered proton event rate per year.
+Compute the expected triggered proton event rate in Hz.
 
 For each triggered frame, the event weight is:
     w_i = 1 / p_mc_surface(wp_i) / N_generated
 
 The rate is:
-    rate = Σ_i Φ_CR(E_i) * w_i * (1 year)
+    rate = Σ_i Φ_CR(E_i) * w_i * (1 s)
 """
 function compute_proton_event_rate(frames, nevent)
     rate = 0.0
@@ -69,7 +73,7 @@ function compute_proton_event_rate(frames, nevent)
         end
 
         E = frame["injection_initial_state"].energy
-        w = Φ_CR(E) / mc / nevent * u"yr"
+        w = Φ_CR(E) / mc / nevent * u"s"
         rate += ustrip(u"s/s", w)
         n_valid += 1
     end
@@ -92,12 +96,23 @@ function main()
         file["sim"]
     end
 
+    nmodules = args["nmodules"]
     n_triggered = length(sim.results)
     println("Triggered events: $n_triggered")
     println("N_generated: $(Int(nevent))")
     println()
 
-    rate, n_valid = compute_proton_event_rate(sim.results, nevent)
+    if nmodules > 0
+        frames = filter(sim.results) do f
+            haskey(f, "corsika_hits") &&
+            length(unique(getproperty.(f["corsika_hits"], :module_index))) >= nmodules
+        end
+        println("Frames with ≥$nmodules modules hit: $(length(frames)) / $n_triggered")
+    else
+        frames = sim.results
+    end
+
+    rate, n_valid = compute_proton_event_rate(frames, nevent)
 
     n_target = 5000
     n_simulated = length(sim.config["detector_bvh"].triangles)
@@ -106,7 +121,7 @@ function main()
 
     println("Events with valid weights: $n_valid / $n_triggered")
     println("Simulated detectors: $n_simulated  →  scaled to $n_target (×$(round(scaling, digits=3)))")
-    println("Expected triggered proton events per year (scaled): $scaled_rate")
+    println("Expected triggered proton event rate (scaled): $scaled_rate Hz")
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

@@ -64,11 +64,11 @@ function main()
     sim = Simulation(config_filename)
 
     # Offset pinecone by simset_id for reproducible per-simset seeds.
-    base_pinecone = get(sim.config["proton_injection"], "pinecone", 925)
-    sim.config["proton_injection"]["pinecone"] = base_pinecone + simset_id
+    base_pinecone = get(sim.config["injection"], "pinecone", 925)
+    sim.config["injection"]["pinecone"] = base_pinecone + simset_id
 
     inject_protons!(sim)
-    cut_frames!(sim.results, f -> haskey(f, "proton_injection_primary"))
+    cut_frames!(sim.results, f -> haskey(f, "injection_final_state"))
 
     # Create output directory if it does not exist
     output_dir = dirname(output_filename)

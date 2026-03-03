@@ -466,8 +466,10 @@ direction.
 - `epsilon`: Small offset to avoid self-intersections (default: 1e-6 m).
 
 # Returns
-- `(proton::Particle, visible_areas)`: The proton particle and visible area weights,
-  or a particle with `NaN` energy and `nothing` if no visible triangles exist.
+- `(initial_proton::Particle, final_proton::Particle, visible_areas, passes_through_rock)`:
+  `initial_proton` is at the detector surface point (before backtracing),
+  `final_proton` is at the specified altitude (after backtracing, ready for CORSIKA).
+  If no visible triangles exist, both particles have `NaN` energy and `visible_areas` is `nothing`.
 """
 function inject_proton_event(
     earth::Earth,
@@ -488,7 +490,8 @@ function inject_proton_event(
     if isnothing(p)
         coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
         dir = Direction([NaN, NaN, NaN], cs)
-        return Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, PPlus, NaN*u"GeV", coord, dir), nothing, false
+        nan_particle = Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, PPlus, NaN*u"GeV", coord, dir)
+        return nan_particle, nan_particle, nothing, false
     end
 
     # Trace back along trajectory to reach the specified altitude above the curved Earth's
@@ -519,7 +522,8 @@ function inject_proton_event(
     proton_position = Coordinate(p.point + revd.point * t, cs)
 
     energy = rand(pl)
-    proton = Particle(PPlus, energy, proton_position, d)
+    initial_proton = Particle(PPlus, energy, p, d)
+    final_proton = Particle(PPlus, energy, proton_position, d)
 
     # Check if the proton path passes through rock (mountains between injection and detector)
     forward_ray = Ray(proton_position, d)
@@ -533,5 +537,5 @@ function inject_proton_event(
         ix.index ∉ detector_indices && ix.distance < path_len
     end
 
-    return proton, visible_areas, passes_through_rock
+    return initial_proton, final_proton, visible_areas, passes_through_rock
 end

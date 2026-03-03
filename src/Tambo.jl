@@ -276,7 +276,7 @@ function inject!(
     @llama_showprogress "Injecting" for frame in sim.results
         tr_seed = rand(UInt32)
         istate, cstate, fstate, wp = inject_event(
-            cfg["nu_pdg"],
+            cfg["pdg"],
             earth,
             as,
             pl,
@@ -320,7 +320,7 @@ end
 """
     inject_protons!(
         sim::Simulation;
-        outprefix::String="proton_injection",
+        outprefix::String="injection",
         earth::Union{Earth, Nothing}=nothing
     )
 
@@ -332,12 +332,12 @@ downward toward the detector, ready for direct CORSIKA shower simulation.
 
 # Arguments
 - `sim::Simulation`: The `Simulation` object to modify.
-- `outprefix::String`: Prefix for frame keys. Defaults to "proton_injection".
+- `outprefix::String`: Prefix for frame keys. Defaults to "injection".
 - `earth::Union{Earth, Nothing}`: Optional `Earth` object. Created from config if not provided.
 """
 function inject_protons!(
     sim::Simulation;
-    outprefix::String="proton_injection",
+    outprefix::String="injection",
     earth::Union{Earth, Nothing}=nothing
 )
     if !isempty(sim.results)
@@ -374,10 +374,11 @@ function inject_protons!(
     Random.seed!(cfg["pinecone"])
 
     @llama_showprogress "Injecting protons" for frame in sim.results
-        proton, visible_areas, passes_through_rock = inject_proton_event(earth, as, pl, detector_props; altitude=altitude)
-        if !isnan(proton.energy)
-            frame["$(outprefix)_primary"] = proton
-            frame["$(outprefix)_passes_through_rock"] = passes_through_rock
+        initial_proton, final_proton, visible_areas, passes_through_rock = inject_proton_event(earth, as, pl, detector_props; altitude=altitude)
+        if !isnan(initial_proton.energy)
+            frame["$(outprefix)_initial_state"] = initial_proton
+            frame["$(outprefix)_final_state"] = final_proton
+            frame["particle_passes_through_rock"] = passes_through_rock
             frame["weight_params"] = WeightParameters(
                 sum(visible_areas),
                 pl.emin,
@@ -387,7 +388,7 @@ function inject_protons!(
                 as.θmax,
                 as.ϕmin,
                 as.ϕmax,
-                proton.energy,
+                initial_proton.energy,
                 NaN * u"GeV",
                 NaN * u"g/cm^2",
                 NaN * u"g/cm^3",

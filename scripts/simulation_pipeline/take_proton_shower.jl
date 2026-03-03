@@ -50,7 +50,7 @@ end
     main()
 
 Run a single CORSIKA air shower for one proton event. Loads the proton injection
-JLD2, locates the event by `event_id`, reads the `proton_injection_primary` particle,
+JLD2, locates the event by `event_id`, reads the `injection_final_state` particle,
 and calls `Tambo.corsika_run`. Each proton produces one shower (no decay_id needed).
 The random seed is derived from `simset_id` and `event_id`.
 """
@@ -79,11 +79,11 @@ function main()
         error("Event ID $event_id not found in simulation results")
     end
 
-    if !haskey(frame, "proton_injection_primary")
-        error("Event ID $event_id has no proton_injection_primary")
+    if !haskey(frame, "injection_final_state")
+        error("Event ID $event_id has no injection_final_state")
     end
 
-    particle = frame["proton_injection_primary"]
+    particle = frame["injection_final_state"]
 
     # Setup plane and energy cuts from config
     cfg = sim.config["corsika"]

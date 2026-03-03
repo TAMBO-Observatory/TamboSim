@@ -12,7 +12,7 @@ plane_orientation = [0.452174, -0.366163, 0.813304] # calculated for the whitepa
 
 [injection]
 
-nu_pdg = 16
+pdg = 16
 gamma = 1
 emin = 1e6 # GeV
 emax = 1e9 # GeV

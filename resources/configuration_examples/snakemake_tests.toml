@@ -9,7 +9,7 @@ tambo_coordinates = [0.0, -0.015738128103577786] # Latitude, Longitude in degree
 plane_orientation = [0.5655283556, 0, 0.8247288518]
 
 [injection]
-nu_pdg = 16
+pdg = 16
 gamma = 2.0
 emin = 3.0e5 # GeV
 emax = 1.0e8

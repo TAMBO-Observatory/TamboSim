@@ -3,7 +3,7 @@ Tests for the downgoing proton injection functionality.
 
 Covers:
 - inject_proton_event: verifies proton starts at ~50 km altitude, correct PDG, energy in range
-- inject_protons!: verifies frames get proton_injection_primary key
+- inject_protons!: verifies frames get injection_initial_state key
 """
 
 import Tambo: CoordinateSystem, precompute_detector_properties,
@@ -50,20 +50,20 @@ function test_proton_altitude()
     altitude = 50.0u"km"
 
     # Try up to 100 times to get a successful injection
-    proton = nothing
+    final_proton = nothing
     for _ in 1:100
-        p, _ = inject_proton_event(earth, as, pl, detector_props; altitude=altitude)
-        if !isnan(p.energy)
-            proton = p
+        _, fp, _, _ = inject_proton_event(earth, as, pl, detector_props; altitude=altitude)
+        if !isnan(fp.energy)
+            final_proton = fp
             break
         end
     end
 
-    @test !isnothing(proton)
+    @test !isnothing(final_proton)
 
-    if !isnothing(proton)
+    if !isnothing(final_proton)
         # z-coordinate in local (ENU) frame should be ≈ 50 km = 50_000 m
-        z_m = ustrip(u"m", proton.position.point[3])
+        z_m = ustrip(u"m", final_proton.position.point[3])
         @test isapprox(z_m, 50_000.0, atol=1000.0)
     end
 end
@@ -75,7 +75,7 @@ function test_proton_particle_type()
     detector_props = precompute_detector_properties(earth)
 
     for _ in 1:100
-        p, _ = inject_proton_event(earth, as, pl, detector_props)
+        p, _, _, _ = inject_proton_event(earth, as, pl, detector_props)
         if !isnan(p.energy)
             @test p.pdg == PPlus
             return
@@ -92,7 +92,7 @@ function test_proton_energy_in_range()
     detector_props = precompute_detector_properties(earth)
 
     for _ in 1:100
-        p, _ = inject_proton_event(earth, as, pl, detector_props)
+        p, _, _, _ = inject_proton_event(earth, as, pl, detector_props)
         if !isnan(p.energy)
             @test p.energy >= emin
             @test p.energy <= emax
@@ -109,7 +109,7 @@ function test_proton_returns_visible_areas()
     detector_props = precompute_detector_properties(earth)
 
     for _ in 1:100
-        p, va = inject_proton_event(earth, as, pl, detector_props)
+        p, _, va, _ = inject_proton_event(earth, as, pl, detector_props)
         if !isnan(p.energy)
             @test !isnothing(va)
             @test length(va) == length(detector_props.triangles)
@@ -131,7 +131,7 @@ function test_inject_protons_produces_frames()
             "earth_path" => joinpath(tambosim_path, "resources", "basic_geometry.h5") * ":colca_valley_30000",
             "detector_key" => "detector1"
         ),
-        "proton_injection" => Dict{String,Any}(
+        "injection" => Dict{String,Any}(
             "pinecone"  => 42,
             "nevent"    => 20,
             "gamma"     => 2.7,
@@ -150,12 +150,13 @@ function test_inject_protons_produces_frames()
 
     @test length(sim.results) == 20
 
-    n_primary = count(f -> haskey(f, "proton_injection_primary"), sim.results)
+    n_primary = count(f -> haskey(f, "injection_initial_state"), sim.results)
     @test n_primary > 0
 
-    # After cut, all remaining frames should have the primary key
-    cut_frames!(sim.results, f -> haskey(f, "proton_injection_primary"))
-    @test all(f -> haskey(f, "proton_injection_primary"), sim.results)
+    # After cut, all remaining frames should have both state keys
+    cut_frames!(sim.results, f -> haskey(f, "injection_initial_state"))
+    @test all(f -> haskey(f, "injection_initial_state"), sim.results)
+    @test all(f -> haskey(f, "injection_final_state"), sim.results)
 end
 
 # ============================================================================
@@ -169,7 +170,7 @@ function _make_proton_config()
             "earth_path" => joinpath(tambosim_path, "resources", "basic_geometry.h5") * ":colca_valley_30000",
             "detector_key" => "detector1"
         ),
-        "proton_injection" => Dict{String,Any}(
+        "injection" => Dict{String,Any}(
             "pinecone" => 42, "nevent" => 5,
             "gamma" => 2.7, "emin" => 1e3, "emax" => 1e7,
             "thetamin" => 91.0, "thetamax" => 130.0,
@@ -196,7 +197,7 @@ function test_inject_rejects_nonempty_sim()
         ),
         "injection" => Dict{String,Any}(
             "pinecone" => 42, "nevent" => 5,
-            "nu_pdg" => 16, "gamma" => 1.5,
+            "pdg" => 16, "gamma" => 1.5,
             "emin" => 3e5, "emax" => 1e7,
             "thetamin" => 0.0, "thetamax" => 117.0,
             "phimin" => 90.0, "phimax" => 290.0,

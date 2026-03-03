@@ -30,7 +30,7 @@ end
 
 Extract event_id values from simulation results for proton CORSIKA shower jobs.
 Each proton produces exactly one shower, so there is no decay_id.
-Only includes events with a `proton_injection_primary` that intersects the
+Only includes events with an `injection_final_state` that intersects the
 observation plane.
 
 Returns a vector of event_id integers.
@@ -41,11 +41,11 @@ function list_proton_shower_jobs(sim, plane)
     for frame in sim.results
         event_id = frame["event_id"]
 
-        if !haskey(frame, "proton_injection_primary")
+        if !haskey(frame, "injection_final_state")
             continue
         end
 
-        particle = frame["proton_injection_primary"]
+        particle = frame["injection_final_state"]
 
         # Skip particles that don't intersect the observation plane
         ray = Tambo.Ray(particle)

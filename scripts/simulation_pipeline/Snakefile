@@ -174,7 +174,7 @@ checkpoint inject_protons:
     input:
         config = lambda wildcards: f"{TAMBOSIM_PATH}/resources/configuration_examples/{wildcards.config}.toml"
     output:
-        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_injection/{{config}}_{{simset_id}}.jld2"
+        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/injection/{{config}}_{{simset_id}}.jld2"
     resources:
         cpus_per_task=1,
         mem_mb=10000,
@@ -196,9 +196,9 @@ checkpoint inject_protons:
 rule take_proton_shower:
     input:
         config = lambda wildcards: f"{TAMBOSIM_PATH}/resources/configuration_examples/{wildcards.config}.toml",
-        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_injection/{{config}}_{{simset_id}}.jld2"
+        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/injection/{{config}}_{{simset_id}}.jld2"
     output:
-        particles = f"{TAMBO_DATA_PATH}/{{config}}/proton_showers/{{simset_id}}/event_{{event_id}}/shower_1/particles/particles.parquet"
+        particles = f"{TAMBO_DATA_PATH}/{{config}}/showers/{{simset_id}}/event_{{event_id}}/shower_1/particles/particles.parquet"
     resources:
         cpus_per_task=1,
         mem_mb=16000,
@@ -209,7 +209,7 @@ rule take_proton_shower:
         julia {PIPELINE_DIR}/take_proton_shower.jl \
             --config {{input.config}} \
             --injection_file {{input.injection_file}} \
-            --shower_dir {TAMBO_DATA_PATH}/{{wildcards.config}}/proton_showers/{{wildcards.simset_id}} \
+            --shower_dir {TAMBO_DATA_PATH}/{{wildcards.config}}/showers/{{wildcards.simset_id}} \
             --event_id {{wildcards.event_id}} \
             --simset_id {{wildcards.simset_id}}
         """
@@ -239,7 +239,7 @@ def get_proton_shower_jobs(wildcards):
     shower_files = []
     for job in jobs:
         event_id = str(job["event_id"]).zfill(6)
-        shower_file = f"{TAMBO_DATA_PATH}/{wildcards.config}/proton_showers/{wildcards.simset_id}/event_{event_id}/shower_1/particles/particles.parquet"
+        shower_file = f"{TAMBO_DATA_PATH}/{wildcards.config}/showers/{wildcards.simset_id}/event_{event_id}/shower_1/particles/particles.parquet"
         shower_files.append(shower_file)
 
     return shower_files
@@ -251,10 +251,10 @@ def get_proton_shower_jobs(wildcards):
 # Reuses process_corsika_hits.jl with proton shower directories
 rule process_proton_corsika_hits:
     input:
-        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_injection/{{config}}_{{simset_id}}.jld2",
+        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/injection/{{config}}_{{simset_id}}.jld2",
         showers = get_proton_shower_jobs
     output:
-        hits_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_hits/{{config}}_{{simset_id}}_hits.jld2"
+        hits_file = f"{TAMBO_DATA_PATH}/{{config}}/hits/{{config}}_{{simset_id}}_hits.jld2"
     threads: 4
     resources:
         cpus_per_task=4,
@@ -265,7 +265,7 @@ rule process_proton_corsika_hits:
         f"""
         julia --threads {{threads}} {PIPELINE_DIR}/process_corsika_hits.jl \
             --injection_file {{input.injection_file}} \
-            --shower_dir {TAMBO_DATA_PATH}/{{wildcards.config}}/proton_showers/{{wildcards.simset_id}} \
+            --shower_dir {TAMBO_DATA_PATH}/{{wildcards.config}}/showers/{{wildcards.simset_id}} \
             --output {{output.hits_file}}
         """
 
@@ -276,9 +276,9 @@ rule process_proton_corsika_hits:
 # Applies trigger logic to proton events (reuses apply_trigger.jl)
 rule apply_proton_trigger:
     input:
-        hits_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_hits/{{config}}_{{simset_id}}_hits.jld2"
+        hits_file = f"{TAMBO_DATA_PATH}/{{config}}/hits/{{config}}_{{simset_id}}_hits.jld2"
     output:
-        triggered_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_triggered/{{config}}_{{simset_id}}_triggered.jld2"
+        triggered_file = f"{TAMBO_DATA_PATH}/{{config}}/triggered/{{config}}_{{simset_id}}_triggered.jld2"
     params:
         module_threshold = 3,
         event_threshold = 30,
@@ -306,8 +306,8 @@ rule apply_proton_trigger:
 #   snakemake --profile slurm $TAMBO_DATA_PATH/{config}/triggered/{config}_{simset_id}_triggered.jld2
 #
 # Proton pipeline:
-#   snakemake --profile slurm $TAMBO_DATA_PATH/{config}/proton_triggered/{config}_{simset_id}_triggered.jld2
+#   snakemake --profile slurm $TAMBO_DATA_PATH/{config}/triggered/{config}_{simset_id}_triggered.jld2
 #
 # For example:
 #   snakemake --profile slurm $TAMBO_DATA_PATH/tambo_config/triggered/tambo_config_00001_triggered.jld2
-#   snakemake --profile slurm $TAMBO_DATA_PATH/tambo_config/proton_triggered/tambo_config_00001_triggered.jld2
+#   snakemake --profile slurm $TAMBO_DATA_PATH/tambo_config/triggered/tambo_config_00001_triggered.jld2

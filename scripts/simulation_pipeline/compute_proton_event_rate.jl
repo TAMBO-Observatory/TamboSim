@@ -68,7 +68,7 @@ function compute_proton_event_rate(frames, nevent)
             continue
         end
 
-        E = frame["proton_injection_primary"].energy
+        E = frame["injection_initial_state"].energy
         w = Φ_CR(E) / mc / nevent * u"yr"
         rate += ustrip(u"s/s", w)
         n_valid += 1

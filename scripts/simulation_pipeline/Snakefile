@@ -59,7 +59,7 @@ rule take_shower:
         particles = f"{TAMBO_DATA_PATH}/{{config}}/showers/{{simset_id}}/event_{{event_id}}/shower_{{decay_id}}/particles/particles.parquet"
     resources:
         cpus_per_task=1,
-        mem_mb=2000,
+        mem_mb=16000,
         slurm_partition="sapphire,shared",
         runtime=24*60
     shell:
@@ -118,14 +118,15 @@ rule process_corsika_hits:
         showers = get_shower_jobs
     output:
         hits_file = f"{TAMBO_DATA_PATH}/{{config}}/hits/{{config}}_{{simset_id}}_hits.jld2"
+    threads: 32
     resources:
-        cpus_per_task=1,
+        cpus_per_task=32,
         mem_mb=8000,
         slurm_partition="sapphire,shared",
         runtime=4*60
     shell:
         f"""
-        julia {PIPELINE_DIR}/process_corsika_hits.jl \
+        julia --threads {{threads}} {PIPELINE_DIR}/process_corsika_hits.jl \
             --injection_file {{input.injection_file}} \
             --shower_dir {TAMBO_DATA_PATH}/{{wildcards.config}}/showers/{{wildcards.simset_id}} \
             --output {{output.hits_file}}
@@ -200,9 +201,9 @@ rule take_proton_shower:
         particles = f"{TAMBO_DATA_PATH}/{{config}}/proton_showers/{{simset_id}}/event_{{event_id}}/shower_1/particles/particles.parquet"
     resources:
         cpus_per_task=1,
-        mem_mb=4000,
-        slurm_partition="serial_requeue",
-        runtime=24*60
+        mem_mb=16000,
+        slurm_partition="sapphire,shared",
+        runtime=48*60
     shell:
         f"""
         julia {PIPELINE_DIR}/take_proton_shower.jl \
@@ -254,14 +255,15 @@ rule process_proton_corsika_hits:
         showers = get_proton_shower_jobs
     output:
         hits_file = f"{TAMBO_DATA_PATH}/{{config}}/proton_hits/{{config}}_{{simset_id}}_hits.jld2"
+    threads: 4
     resources:
-        cpus_per_task=1,
-        mem_mb=8000,
+        cpus_per_task=4,
+        mem_mb=16000,
         slurm_partition="sapphire,shared",
-        runtime=4*60
+        runtime=24*60
     shell:
         f"""
-        julia {PIPELINE_DIR}/process_corsika_hits.jl \
+        julia --threads {{threads}} {PIPELINE_DIR}/process_corsika_hits.jl \
             --injection_file {{input.injection_file}} \
             --shower_dir {TAMBO_DATA_PATH}/{{wildcards.config}}/proton_showers/{{wildcards.simset_id}} \
             --output {{output.hits_file}}

@@ -378,6 +378,22 @@ function inject_protons!(
         if !isnan(proton.energy)
             frame["$(outprefix)_primary"] = proton
             frame["$(outprefix)_passes_through_rock"] = passes_through_rock
+            frame["weight_params"] = WeightParameters(
+                sum(visible_areas),
+                pl.emin,
+                pl.emax,
+                pl.γ,
+                as.θmin,
+                as.θmax,
+                as.ϕmin,
+                as.ϕmax,
+                proton.energy,
+                NaN * u"GeV",
+                NaN * u"g/cm^2",
+                NaN * u"g/cm^3",
+                NaN * u"cm^2",
+                NaN * u"cm^2",
+            )
         end
     end
 end

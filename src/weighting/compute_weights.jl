@@ -107,6 +107,33 @@ function p_mc(wp::WeightParameters{T}) where {T<:Real}
 end
 
 """
+    p_mc_surface(wp::WeightParameters{T}) -> Quantity{T, edim^-1 * ldim^-2}
+
+Calculates the Monte Carlo probability density for a surface-injected cosmic ray event.
+
+Unlike `p_mc`, this function does not include interaction probability terms (column depth,
+density, cross-sections), since every injected cosmic ray produces a shower. The result
+has units of GeV^-1 m^-2 (with an implicit sr^-1).
+
+# Arguments
+- `wp::WeightParameters{T}`: An object containing the sampling parameters.
+
+# Returns
+- `Quantity{T, edim^-1 * ldim^-2}`: The MC probability density (GeV^-1 m^-2).
+"""
+function p_mc_surface(wp::WeightParameters{T}) where {T<:Real}
+    if wp.generated_initial_e == 0.0u"GeV" || isnan(ustrip(wp.generated_initial_e))
+        return 0.0 * u"GeV^-1 * m^-2"
+    end
+    norm = pl_norm(wp.gamma, wp.emin, wp.emax)
+    p = norm * (wp.generated_initial_e / wp.emin) ^ (-wp.gamma)
+    Ω = (cos(wp.thetamin) - cos(wp.thetamax)) * (wp.phimax - wp.phimin)
+    p /= Ω
+    p /= wp.area
+    return uconvert(u"GeV^-1 * m^-2", p)
+end
+
+"""
     p_phys(
         physical_cd::Quantity{T,mdim/ldim^2},
         physical_density::Quantity{T,mdim/ldim^3},

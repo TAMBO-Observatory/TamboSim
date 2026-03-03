@@ -97,8 +97,14 @@ function main()
 
     rate, n_valid = compute_event_rate(sim.results, nevent)
 
+    n_target = 5000
+    n_simulated = length(sim.config["detector_bvh"].triangles)
+    scaling = n_target / n_simulated
+    scaled_rate = rate * scaling
+
     println("Events with valid weights: $n_valid / $n_triggered")
-    println("Expected triggered events per year: $rate")
+    println("Simulated detectors: $n_simulated  →  scaled to $n_target (×$(round(scaling, digits=3)))")
+    println("Expected triggered events per year (scaled): $scaled_rate")
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

@@ -155,9 +155,12 @@ function main()
         sim.config["geometry"]["detector_key"]
     )
     detection_unit_bvh, cs = build_detection_units(earth, sim)
+    sim.config["detector_bvh"] = detection_unit_bvh
 
-    # Process each frame
-    @showprogress "Processing CORSIKA hits" for frame in sim.results
+    # Process each frame in parallel
+    progress = Progress(length(sim.results); desc="Processing CORSIKA hits")
+    Threads.@threads :dynamic for i in eachindex(sim.results)
+        frame = sim.results[i]
         event_id = frame["event_id"]
         event_dir = "$(shower_dir)/event_$(lpad(event_id, 6, '0'))/"
 
@@ -165,6 +168,7 @@ function main()
 
         # Check if event directory exists
         if !isdir(event_dir)
+            next!(progress)
             continue
         end
 
@@ -174,6 +178,7 @@ function main()
             events = Tambo.read_corsika(event_dir, cs)
         catch e
             # No CORSIKA data for this event, skip
+            next!(progress)
             continue
         end
 
@@ -189,6 +194,7 @@ function main()
         end
 
         frame["corsika_hits"] = hits
+        next!(progress)
     end
 
     # Create output directory if needed

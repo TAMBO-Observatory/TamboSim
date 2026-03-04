@@ -17,6 +17,10 @@ function parse_commandline()
             help = "Number of events generated in MC (for normalization)"
             arg_type = Float64
             required = true
+        "--nmodules"
+            help = "Minimum number of modules hit required to include a frame"
+            arg_type = Int
+            default = 0
     end
     return parse_args(s)
 end
@@ -99,16 +103,27 @@ function main()
     is_neutrino = (pdg == 16)
     particle_label = is_neutrino ? "tau neutrino (PDG 16)" : "proton (PDG 2212)"
 
+    nmodules = args["nmodules"]
     n_triggered = length(sim.results)
     println("Particle type: $particle_label")
     println("Triggered events: $n_triggered")
     println("N_generated: $(Int(nevent))")
     println()
 
-    if is_neutrino
-        rate, n_valid = compute_neutrino_event_rate(sim.results, nevent)
+    if nmodules > 0
+        frames = filter(sim.results) do f
+            haskey(f, "corsika_hits") &&
+            length(unique(getproperty.(f["corsika_hits"], :module_index))) >= nmodules
+        end
+        println("Frames with ≥$nmodules modules hit: $(length(frames)) / $n_triggered")
     else
-        rate, n_valid = compute_proton_event_rate(sim.results, nevent)
+        frames = sim.results
+    end
+
+    if is_neutrino
+        rate, n_valid = compute_neutrino_event_rate(frames, nevent)
+    else
+        rate, n_valid = compute_proton_event_rate(frames, nevent)
     end
 
     n_target = 5000

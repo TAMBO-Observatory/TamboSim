@@ -83,7 +83,7 @@ function compute_proton_event_rate(frames, nevent)
         end
 
         E = frame["injection_initial_state"].energy
-        w = Φ_cr(E) / mc / nevent * u"yr"
+        w = Φ_cr(E) / mc / nevent * u"s"
         rate += ustrip(u"s/s", w)
         n_valid += 1
     end
@@ -131,9 +131,10 @@ function main()
     scaling = n_target / n_simulated
     scaled_rate = rate * scaling
 
+    rate_label = is_neutrino ? "per year" : "Hz"
     println("Events with valid weights: $n_valid / $n_triggered")
     println("Simulated detectors: $n_simulated  →  scaled to $n_target (×$(round(scaling, digits=3)))")
-    println("Expected triggered events per year (scaled): $scaled_rate")
+    println("Expected triggered event rate (scaled): $scaled_rate $rate_label")
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

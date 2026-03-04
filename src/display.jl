@@ -56,12 +56,10 @@ Multi-line display for Direction showing zenith and azimuth angles.
 """
 function Base.show(io::IO, ::MIME"text/plain", d::Direction{T}) where {T}
     dx, dy, dz = d.point
-    theta = acos(dz)
-    phi = atan(dy, dx)
     println(io, "Direction{$T}:")
     println(io, "  components: [$(round(dx, digits=6)), $(round(dy, digits=6)), $(round(dz, digits=6))]")
-    println(io, "  zenith (θ):  $(round(rad2deg(theta), digits=2))°")
-    print(io, "  azimuth (ϕ): $(round(rad2deg(phi), digits=2))°")
+    println(io, "  zenith (θ):  $(round(u"°", d.θ, digits=2))")
+    print(io,   "  azimuth (ϕ): $(round(u"°", d.ϕ, digits=2))")
 end
 
 """

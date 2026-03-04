@@ -86,7 +86,7 @@ function proposal_propagate(
             loss_time = PP.get_time(loss) * u"s"
 
             dist = accrued_d + prop_dist
-            loss_t = accrued_t + T(ustrip(loss_time)) * u"s"
+            loss_t = accrued_t + T(ustrip(loss_time |> u"s")) * u"s"
             p = dist * particle.direction + particle.position
 
             pp_dir = PP.get_direction(loss)

@@ -71,6 +71,20 @@ Base.eltype(c::Coordinate) = eltype(c.coordinate_system)
 These methods allow a `Coordinate` object to behave like a 3-element `SVector` (or array)
 for iteration and indexed access of its `x, y, z` components.
 """
+function Base.getproperty(c::Coordinate, s::Symbol)
+    if s === :x
+        return getfield(c, :point)[1]
+    elseif s === :y
+        return getfield(c, :point)[2]
+    elseif s === :z
+        return getfield(c, :point)[3]
+    else
+        return getfield(c, s)
+    end
+end
+
+Base.propertynames(c::Coordinate) = (:x, :y, :z, :point, :coordinate_system)
+
 Base.size(c::Coordinate) = (3,)
 Base.length(c::Coordinate) = 3
 Base.getindex(c::Coordinate, i) = c.point[i]

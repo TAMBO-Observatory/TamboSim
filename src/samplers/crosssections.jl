@@ -148,8 +148,8 @@ function (xs::CrossSection)(
     ein >= eout || throw(ArgumentError("Outgoing energy cannot be greater than incoming energy"))
     eingev = ustrip(ein |> u"GeV")
     eoutgev = ustrip(eout |> u"GeV")
-    emin = ustrip(xs.emin)
-    z = ustrip((eoutgev - emin)/(eingev - emin))
+    emin = ustrip(xs.emin |> u"GeV")
+    z = (eoutgev - emin)/(eingev - emin)
     v = max(exp(xs.differential_xs(log(eingev), z)), 1e-50) * u"cm^2"
     return v
 end

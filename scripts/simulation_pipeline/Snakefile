@@ -89,7 +89,7 @@ rule take_shower:
     resources:
         cpus_per_task=1,
         mem_mb=16000,
-        slurm_partition="sapphire,shared",
+        slurm_partition="serial_requeue",
         runtime = lambda wildcards: 48*60 if get_particle_type(wildcards.config) == "proton" else 24*60
     shell:
         """
@@ -153,11 +153,11 @@ rule process_corsika_hits:
     output:
         hits_file = f"{TAMBO_DATA_PATH}/{{config}}/hits/{{config}}_{{simset_id}}_hits.jld2"
     params:
-        n_threads = lambda wildcards: 4 if get_particle_type(wildcards.config) == "proton" else 32
-    threads: 32
+        n_threads = 8
+    threads: 8
     resources:
-        cpus_per_task = lambda wildcards: 4 if get_particle_type(wildcards.config) == "proton" else 32,
-        mem_mb = lambda wildcards: 16000 if get_particle_type(wildcards.config) == "proton" else 8000,
+        cpus_per_task=8,
+        mem_mb=16000,
         slurm_partition="sapphire,shared",
         runtime = lambda wildcards: 24*60 if get_particle_type(wildcards.config) == "proton" else 4*60
     shell:

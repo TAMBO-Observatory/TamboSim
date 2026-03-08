@@ -169,3 +169,20 @@ function p_phys(
     return p
 end
 
+"""
+    p_phys(wp::WeightParameters{T}) -> Quantity{T,ldim^-1,typeof(u"m^-1")}
+
+Calculates the physical interaction probability density using `WeightParameters`.
+
+This is a convenience method that unpacks the relevant parameters from a `WeightParameters`
+object and calls the primary `p_phys` function.
+
+# Arguments
+- `wp::WeightParameters{T}`: An object containing all necessary parameters for weight calculation.
+
+# Returns
+- `Quantity{T,ldim^-1,typeof(u"m^-1")}`: The physical interaction probability density.
+"""
+function p_phys(wp::WeightParameters{T}) where {T<:Real}
+    return p_phys(wp.generated_cd, wp.generated_density, wp.generated_diff_xs)
+end

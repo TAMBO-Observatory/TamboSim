@@ -464,9 +464,52 @@ int main(int argc, char** argv) {
   Point const showerCore{rootCS, xintercept, yintercept, surfaceHeight + zintercept};
   auto const propVector = showerCore - injectionPos;
 
-  // we make the axis much longer than the inj-core distance since the
-  // profile will go beyond the core, depending on zenith angle
-  media::ShowerAxis const showerAxis{injectionPos, (propVector) * 5.0, env};
+  // Extend the shower axis beyond the injection-to-core distance so the
+  // longitudinal profile covers the full shower development. For upgoing showers,
+  // the 5x extension goes into thinner atmosphere (safe). For downgoing showers,
+  // it can go underground where the exponential atmosphere model extrapolates to
+  // extreme densities, causing the writers to allocate enormous profile arrays.
+  // Cap the extension so the endpoint stays above the Earth's surface.
+  double axisMultiplier = 5.0;
+  {
+    auto const injVec = injectionPos - center;  // Vector from Earth center to injection
+    auto const endpoint = injectionPos + propVector * axisMultiplier;
+    auto const endVec = endpoint - center;
+    if (endVec.getNorm() < surfaceHeight) {
+      // Solve |injVec + propVector*t|^2 = surfaceHeight^2 for t
+      auto const a = propVector.getSquaredNorm();
+      auto const b_half = propVector.dot(injVec);
+      auto const c = injVec.getSquaredNorm() - surfaceHeight * surfaceHeight;
+      auto const disc = b_half * b_half - a * c;
+      // Use the smaller root (minus sign) to get the FIRST surface intersection
+      // (where the axis enters the ground), not the far-side exit point.
+      axisMultiplier = (-b_half - sqrt(disc)) / a;
+      CORSIKA_LOG_INFO("Shower axis capped to avoid underground extension: "
+                       "axisMultiplier = {:.3f} (default was 5.0)", axisMultiplier);
+    }
+  }
+  // Also cap the shower axis at 20 km altitude. For nearly-horizontal or
+  // upgoing showers, the 5x extension (a straight line in Cartesian space)
+  // can exit the atmosphere due to Earth's curvature. 20 km is well above
+  // where any significant shower development occurs.
+  {
+    auto const maxRadius = surfaceHeight + 20_km;
+    auto const endpoint = injectionPos + propVector * axisMultiplier;
+    auto const endVec = endpoint - center;
+    if (endVec.getNorm() > maxRadius) {
+      auto const injVec = injectionPos - center;
+      auto const a = propVector.getSquaredNorm();
+      auto const b_half = propVector.dot(injVec);
+      auto const c = injVec.getSquaredNorm() - maxRadius * maxRadius;
+      auto const disc = b_half * b_half - a * c;
+      // Use the LARGER root (+ sign) to get the LAST crossing of the
+      // 20 km sphere, preserving shower coverage through the core.
+      axisMultiplier = (-b_half + sqrt(disc)) / a;
+      CORSIKA_LOG_INFO("Shower axis capped at 20 km altitude: "
+                       "axisMultiplier = {:.3f} (default was 5.0)", axisMultiplier);
+    }
+  }
+  media::ShowerAxis const showerAxis{injectionPos, propVector * axisMultiplier, env};
   auto const dX = 10_g / square(1_cm); // Binning of the writers along the shower axis
   /* === END: CONSTRUCT GEOMETRY === */
 

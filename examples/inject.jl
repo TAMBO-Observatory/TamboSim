@@ -26,8 +26,8 @@ function parse_commandline()
             help = "Number of events to simulate"
             arg_type = Int
             default = 100000
-        "--nu-pdg", "-p"
-            help = "Neutrino PDG code (e.g., 16 for nutau)"
+        "--pdg", "-p"
+            help = "Particle PDG code (e.g., 16 for nutau, 14 for numu)"
             arg_type = Int
             default = 16
         "--no-cut"
@@ -47,18 +47,18 @@ args = parse_commandline()
 config_file = args["config"]
 outfile = args["outfile"]
 nevent = args["nevent"]
-nu_pdg = args["nu-pdg"]
+pdg = args["pdg"]
 cut_failed = !args["no-cut"]
 
 sim = Simulation(config_file)
 sim.config["injection"]["nevent"] = nevent
-sim.config["injection"]["nu_pdg"] = nu_pdg
+sim.config["injection"]["pdg"] = pdg
 if !isnothing(args["seed"])
     sim.config["injection"]["pinecone"] = args["seed"]
 end
 
 @show sim.config["injection"]["nevent"]
-@show nu_pdg
+@show pdg
 @show cut_failed
 
 inject!(sim)

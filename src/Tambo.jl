@@ -6,6 +6,7 @@ export Ray,
        Earth,
        intersect_all,
        inject!,
+       inject_protons!,
        proposal_propagation!,
        cut_frames!,
        Simulation,
@@ -236,6 +237,11 @@ function inject!(
     outprefix::String="injection",
     earth::Union{Earth, Nothing}=nothing
 )
+    if !isempty(sim.results)
+        error("sim.results is not empty. Each Simulation must contain only one particle type. " *
+              "Create a new Simulation() before calling inject!().")
+    end
+
     cfg = sim.config[outprefix]
 
     relativize!(cfg)
@@ -270,7 +276,7 @@ function inject!(
     @llama_showprogress "Injecting" for frame in sim.results
         tr_seed = rand(UInt32)
         istate, cstate, fstate, wp = inject_event(
-            cfg["nu_pdg"],
+            cfg["pdg"],
             earth,
             as,
             pl,
@@ -309,6 +315,88 @@ function inject_ν!(
 )
     @warn("`inject_ν!` is deprecated. Please use `inject!`.")
     inject!(sim; outprefix=outprefix, earth=earth)
+end
+
+"""
+    inject_protons!(
+        sim::Simulation;
+        outprefix::String="injection",
+        earth::Union{Earth, Nothing}=nothing
+    )
+
+Injects downgoing cosmic ray protons into the simulation.
+
+Unlike `inject!`, this function skips TauRunner and PROPOSAL propagation.
+Each proton starts at a configurable altitude (default 50 km) and travels
+downward toward the detector, ready for direct CORSIKA shower simulation.
+
+# Arguments
+- `sim::Simulation`: The `Simulation` object to modify.
+- `outprefix::String`: Prefix for frame keys. Defaults to "injection".
+- `earth::Union{Earth, Nothing}`: Optional `Earth` object. Created from config if not provided.
+"""
+function inject_protons!(
+    sim::Simulation;
+    outprefix::String="injection",
+    earth::Union{Earth, Nothing}=nothing
+)
+    if !isempty(sim.results)
+        error("sim.results is not empty. Each Simulation must contain only one particle type. " *
+              "Create a new Simulation() before calling inject_protons!().")
+    end
+
+    cfg = sim.config[outprefix]
+    relativize!(cfg)
+    for idx in 1:cfg["nevent"]
+        push!(sim.results, Frame(Dict("event_id"=>idx)))
+    end
+
+    if isnothing(earth)
+        earth = Earth(
+            sim.config["geometry"]["earth_path"],
+            sim.config["geometry"]["detector_key"],
+        )
+    end
+
+    pl = UnitfulPowerLawSampler(
+        cfg["gamma"],
+        cfg["emin"] * u"GeV",
+        cfg["emax"] * u"GeV"
+    )
+    as = UniformAngularSampler(
+        deg2rad(cfg["thetamin"]),
+        deg2rad(cfg["thetamax"]),
+        deg2rad(cfg["phimin"]),
+        deg2rad(cfg["phimax"]),
+    )
+    altitude = get(cfg, "altitude", 50.0) * u"km"
+    detector_props = precompute_detector_properties(earth)
+    Random.seed!(cfg["pinecone"])
+
+    @llama_showprogress "Injecting protons" for frame in sim.results
+        initial_proton, final_proton, visible_areas, passes_through_rock = inject_proton_event(earth, as, pl, detector_props; altitude=altitude)
+        if !isnan(initial_proton.energy)
+            frame["$(outprefix)_initial_state"] = initial_proton
+            frame["$(outprefix)_final_state"] = final_proton
+            frame["particle_passes_through_rock"] = passes_through_rock
+            frame["weight_params"] = WeightParameters(
+                sum(visible_areas),
+                pl.emin,
+                pl.emax,
+                pl.γ,
+                as.θmin,
+                as.θmax,
+                as.ϕmin,
+                as.ϕmax,
+                initial_proton.energy,
+                NaN * u"GeV",
+                NaN * u"g/cm^2",
+                NaN * u"g/cm^3",
+                NaN * u"cm^2",
+                NaN * u"cm^2",
+            )
+        end
+    end
 end
 
 """

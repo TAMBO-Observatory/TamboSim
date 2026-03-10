@@ -9,7 +9,7 @@ tambo_coordinates = [-15.622267, -72.279397] # Larger valley, lat, long in degre
 plane_orientation = [0.5172072191801592, -0.03577867639105598, 0.8551120270137889] # Larger valley
 
 [injection]
-nu_pdg = 16
+pdg = 16
 gamma = 2.0
 emin = 3.0e5 # GeV
 emax = 1.0e9

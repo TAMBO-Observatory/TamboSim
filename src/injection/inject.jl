@@ -433,3 +433,109 @@ function inject_event(
         epsilon, tr_seed
     )
 end
+
+"""
+    inject_proton_event(
+        earth::Earth,
+        as::UniformAngularSampler,
+        pl::UnitfulPowerLawSampler,
+        detector_props::DetectorProperties{T};
+        altitude::Quantity=50.0u"km",
+        epsilon=1e-6*u"m"
+    ) where {T<:Real}
+
+Simulates the injection of a downgoing cosmic ray proton.
+
+Unlike neutrino injection, this skips TauRunner/PROPOSAL and directly produces
+a proton particle suitable for CORSIKA shower simulation. The proton starts at
+the specified altitude above the detector, traveling downward along the sampled
+direction.
+
+# Steps
+1. Samples a direction using the angular sampler.
+2. Samples a point on the detector surface using `sample_detector_point`.
+3. Traces back along the trajectory to find the starting position at the given altitude.
+4. Samples energy from the power-law sampler.
+
+# Arguments
+- `earth::Earth`: The Earth model containing detector geometry.
+- `as::UniformAngularSampler`: Sampler for the angular distribution.
+- `pl::UnitfulPowerLawSampler`: Sampler for the energy distribution.
+- `detector_props::DetectorProperties{T}`: Pre-computed detector properties.
+- `altitude::Quantity`: Starting altitude for the proton (default: 50 km).
+- `epsilon`: Small offset to avoid self-intersections (default: 1e-6 m).
+
+# Returns
+- `(initial_proton::Particle, final_proton::Particle, visible_areas, passes_through_rock)`:
+  `initial_proton` is at the detector surface point (before backtracing),
+  `final_proton` is at the specified altitude (after backtracing, ready for CORSIKA).
+  If no visible triangles exist, both particles have `NaN` energy and `visible_areas` is `nothing`.
+"""
+function inject_proton_event(
+    earth::Earth,
+    as::UniformAngularSampler,
+    pl::UnitfulPowerLawSampler,
+    detector_props::DetectorProperties{T};
+    altitude::Quantity=50.0u"km",
+    epsilon=1e-6*u"m"
+) where {T<:Real}
+    cs = CoordinateSystem(earth)
+    d = rand(as, cs)
+
+    # Same detector point sampling as neutrino
+    p, visible_areas = sample_detector_point(
+        detector_props.triangles, detector_props.normals, detector_props.areas,
+        detector_props.bvh, d, cs, epsilon
+    )
+    if isnothing(p)
+        coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
+        dir = Direction([NaN, NaN, NaN], cs)
+        nan_particle = Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, PPlus, NaN*u"GeV", coord, dir)
+        return nan_particle, nan_particle, nothing, false
+    end
+
+    # Trace back along trajectory to reach the specified altitude above the curved Earth's
+    # surface. For nearly horizontal directions, the flat-Earth approximation (z = altitude)
+    # fails because the injection point can be thousands of km from the detector, where
+    # Earth's curvature significantly changes the true altitude. Instead, solve for the
+    # parameter t such that the ECEF distance from Earth's center equals R_earth + altitude.
+    revd = reverse(d)
+    alt_m = uconvert(u"m", altitude)
+
+    # Convert detector surface point and reversed direction to ECEF
+    ecef_p = convert(ecefcoordinates, p)
+    ecef_revd = convert(ecefcoordinates, revd)
+    a = ecef_p.point       # ECEF position (meters)
+    b = ecef_revd.point    # ECEF direction (unitless)
+
+    # Earth radius from the detector CS origin
+    rearth = sqrt(cs.origin[1]^2 + cs.origin[2]^2 + cs.origin[3]^2)
+    target_r = rearth + alt_m
+
+    # Solve ||a + b*t||^2 = target_r^2
+    # => t^2 + 2(a·b)t + (||a||^2 - target_r^2) = 0
+    a_dot_b = a[1]*b[1] + a[2]*b[2] + a[3]*b[3]
+    a_sq = a[1]^2 + a[2]^2 + a[3]^2
+    discriminant = a_dot_b^2 - a_sq + target_r^2
+    t = -a_dot_b + sqrt(discriminant)
+
+    proton_position = Coordinate(p.point + revd.point * t, cs)
+
+    energy = rand(pl)
+    initial_proton = Particle(PPlus, energy, p, d)
+    final_proton = Particle(PPlus, energy, proton_position, d)
+
+    # Check if the proton path passes through rock (mountains between injection and detector)
+    forward_ray = Ray(proton_position, d)
+    topo_hits = intersect_all(earth.bvh, forward_ray)
+    detector_indices = Set(earth.detector_region)
+    diff = proton_position.point - p.point
+    path_len = sqrt(diff[1]^2 + diff[2]^2 + diff[3]^2)
+    # Check if any non-detector topography triangle (i.e. a mountain) is hit
+    # within the path from the injection point to the detector surface
+    passes_through_rock = any(topo_hits) do ix
+        ix.index ∉ detector_indices && ix.distance < path_len
+    end
+
+    return initial_proton, final_proton, visible_areas, passes_through_rock
+end

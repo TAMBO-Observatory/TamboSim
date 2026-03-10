@@ -13,7 +13,7 @@
         generated_density::Quantity{T,mdim/ldim^3},
         generated_xs::Quantity{T,ldim^2},
         generated_diff_xs::Quantity{T,ldim^2},
-       )::Quantity{T,ldim^-3 * edim^-1,typeof(u"GeV^-1 * m^-3")}
+       )::Quantity{T,ldim^-3 * edim^-1,typeof(u"GeV^-1 * m^-3 * sr^-1")}
 
 Calculates the Monte Carlo probability density for a generated event.
 
@@ -37,7 +37,7 @@ of generating a specific event.
 - `generated_diff_xs::Quantity{T,ldim^2}`: The differential cross-section at the generated energy.
 
 # Returns
-- `Quantity{T,ldim^-3 * edim^-1,typeof(u"GeV^-1 * m^-3")}`: The Monte Carlo probability density.
+- `Quantity{T,ldim^-3 * edim^-1,typeof(u"GeV^-1 * m^-3 * sr^-1")}`: The Monte Carlo probability density.
 """
 function p_mc(
     area::Quantity{T,ldim^2},
@@ -53,14 +53,14 @@ function p_mc(
     generated_density::Quantity{T,mdim/ldim^3},
     generated_xs::Quantity{T,ldim^2},
     generated_diff_xs::Quantity{T,ldim^2},
-   )::Quantity{T,ldim^-3 * edim^-1,typeof(u"GeV^-1 * m^-3")} where {T<:Real}
+   )::Quantity{T,ldim^-3 * edim^-1,typeof(u"GeV^-1 * m^-3 * sr^-1")} where {T<:Real}
 
     if generated_initial_e==0.0u"GeV" || isnan(ustrip(generated_initial_e))
-        return 0.0 * u"GeV^-1 * m^-3"
+        return 0.0 * u"GeV^-1 * m^-3 * sr^-1"
     end
     norm = pl_norm(gamma, emin, emax)
     p = norm * (generated_initial_e / emin) ^ -gamma
-    Ω = (cos(thetamin) - cos(thetamax)) * (phimax - phimin)
+    Ω = (cos(thetamin) - cos(thetamax)) * (phimax - phimin) * u"sr"
     p /= Ω
     p /= area
     # This only applies when interadtion forced
@@ -75,7 +75,7 @@ function p_mc(
 end
 
 """
-    p_mc(wp::WeightParameters{T}) -> Quantity{T,ldim^-3 * edim^-1,typeof(u"GeV^-1 * m^-3")}
+    p_mc(wp::WeightParameters{T}) -> Quantity{T,ldim^-3 * edim^-1,typeof(u"GeV^-1 * m^-3 * sr^-1")}
 
 Calculates the Monte Carlo probability density for a generated event using `WeightParameters`.
 
@@ -86,7 +86,7 @@ object and calls the primary `p_mc` function.
 - `wp::WeightParameters{T}`: An object containing all necessary parameters for Monte Carlo weight calculation.
 
 # Returns
-- `Quantity{T,ldim^-3 * edim^-1,typeof(u"GeV^-1 * m^-3")}`: The Monte Carlo probability density.
+- `Quantity{T,ldim^-3 * edim^-1,typeof(u"GeV^-1 * m^-3 * sr^-1")}`: The Monte Carlo probability density.
 """
 function p_mc(wp::WeightParameters{T}) where {T<:Real}
     return p_mc(

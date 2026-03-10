@@ -62,7 +62,7 @@ end
 Construct the detector array as a BVH of oriented bounding boxes (OBBs). Places
 detection units on a regular triangular grid (125 m nearest-neighbor spacing along
 the slope surface) over the topography. Grid bounds are derived from the detector
-region triangle vertices. Each unit is a 2m × 2m × 0.25m OBB oriented to the
+region triangle vertices. Each unit is a 2m × 2m × 0.02m OBB oriented to the
 local surface normal. Returns `(bvh, coordinate_system)`.
 """
 function build_detection_units(earth, sim)
@@ -115,7 +115,7 @@ function build_detection_units(earth, sim)
 
     # Create oriented bounding boxes for detection units
     detection_units = Tambo.OBB{Float64}[]
-    half_lengths = [1.0u"m", 1.0u"m", 0.125u"m"]
+    half_lengths = [1.0u"m", 1.0u"m", 0.01u"m"]
     for p in ps
         ray = Tambo.Ray(p, up)
         ixs = Tambo.intersect_all(bvh, ray)

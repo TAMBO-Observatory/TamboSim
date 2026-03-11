@@ -61,6 +61,7 @@
 #include <corsika/modules/Epos.hpp>
 #include <corsika/modules/EposLhcr.hpp>
 #include <corsika/modules/ObservationMesh.hpp>
+#include <corsika/modules/ObservationPlane.hpp>
 #include <corsika/modules/PROPOSAL.hpp>
 #include <corsika/modules/ParticleCut.hpp>
 #include <corsika/modules/Pythia8.hpp>
@@ -430,6 +431,34 @@ int main(int argc, char** argv) {
   std::array<double, 3> eastHat, northHat, upHat;
   ecefToENU(cx, cy, cz, eastHat, northHat, upHat);
 
+  /* === ESCAPE PLANE: 1 mm below the lowest point of the observation mesh ===
+   *
+   * The plane is perpendicular to the upward radial direction at the
+   * area-weighted centroid of the observation mesh (i.e. normal = upHat).
+   * "Lowest" is measured as the minimum projection of obs-mesh vertices
+   * onto upHat, which is the vertical distance from Earth centre.
+   * Absorbing: particles that escape the obs mesh and terrain are recorded
+   * and removed here instead of propagating indefinitely.
+   */
+  double minVertProj = std::numeric_limits<double>::infinity();
+  for (size_t vi = 0; vi < obsMesh.getVertexCount(); ++vi) {
+    auto const coords = obsMesh.getVertex(vi).getCoordinates(rootCS);
+    double const proj = coords.getX() / 1_m * upHat[0]
+                      + coords.getY() / 1_m * upHat[1]
+                      + coords.getZ() / 1_m * upHat[2];
+    minVertProj = std::min(minVertProj, proj);
+  }
+  double const escapePlaneDist = minVertProj - 0.001; // 1 mm below lowest vertex
+  Point const escapePlaneCenter{rootCS,
+      escapePlaneDist * upHat[0] * 1_m,
+      escapePlaneDist * upHat[1] * 1_m,
+      escapePlaneDist * upHat[2] * 1_m};
+  DirectionVector const escapeNormal{rootCS, {upHat[0], upHat[1], upHat[2]}};
+  DirectionVector const escapeRefDir{rootCS, {eastHat[0], eastHat[1], eastHat[2]}};
+  Plane const escapePlane{escapePlaneCenter, escapeNormal};
+  CORSIKA_LOG_INFO("Escape plane distance from Earth centre: {:.1f} m  ({:.1f} mm below lowest obs vertex)",
+                   escapePlaneDist, 1.0);
+
   /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
   // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
   //   B_E ~ -1700 nT (slightly westward)
@@ -633,6 +662,11 @@ int main(int argc, char** argv) {
       obsMesh, true, 1e-6_m};
   output.add("particles", observationLevel);
 
+  /* === ESCAPE PLANE (absorbing: catches particles that miss the obs mesh) === */
+  ObservationPlane<TrackingType, ParticleWriterParquet> escapeLevel{
+      escapePlane, escapeRefDir, true, 1e-6_m};
+  output.add("escape", escapeLevel);
+
   PrimaryWriter<TrackingType, ParticleWriterParquet> primaryWriter(obsMesh);
   output.add("primary", primaryWriter);
 
@@ -708,9 +742,9 @@ int main(int argc, char** argv) {
         *terrainMeshPtr, true, 1e-6_m};
     output.add("terrain", terrainLevel);
 
-    // Core sequence contains the observation meshes; per-shower processes are
-    // prepended inside runOneShower
-    auto obsMeshSequence = make_sequence(observationLevel, terrainLevel);
+    // Core sequence contains the observation meshes and escape plane;
+    // per-shower processes are prepended inside runOneShower
+    auto obsMeshSequence = make_sequence(observationLevel, terrainLevel, escapeLevel);
 
     output.startOfLibrary();
     for (int i = 1; i <= nev; ++i) {
@@ -721,13 +755,15 @@ int main(int argc, char** argv) {
       runOneShower(obsMeshSequence, i, E);
     }
   } else {
+    auto obsMeshSequence = make_sequence(observationLevel, escapeLevel);
+
     output.startOfLibrary();
     for (int i = 1; i <= nev; ++i) {
       PowerLawDistribution<HEPEnergyType> plRng(eSlope, eMin, eMax);
       HEPEnergyType const E = (eMax == eMin)
           ? eMin
           : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
-      runOneShower(observationLevel, i, E);
+      runOneShower(obsMeshSequence, i, E);
     }
   }
 

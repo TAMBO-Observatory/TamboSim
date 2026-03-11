@@ -60,7 +60,7 @@ half_lengths = [1.0u"m", 1.0u"m", 0.125u"m"]
 for p in ps
     ray = Tambo.Ray(p, up)
     ixs = Tambo.intersect_all(bvh, ray)
-    n̂ = cross(ixs[1].normal, up)
+    n̂ = cross(up, ixs[1].normal)
     ψ = acos(dot(ixs[1].normal, up))
     rot = AngleAxis(ψ, n̂...)
     center = ixs[1].point

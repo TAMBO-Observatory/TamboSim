@@ -252,12 +252,13 @@ int main(int argc, char** argv) {
   // ---- Geometry / mesh ----
   app.add_option("--obs-mesh",
                  "Path to the observation-region PLY file (ECEF metres)")
-      ->default_val("injection_region_corsika.ply")
+      ->required()
+      ->check(CLI::ExistingFile)
       ->group("Geometry");
   app.add_option("--terrain-mesh",
                  "Path to the terrain PLY file used as an absorbing boundary "
                  "(ECEF metres).  Leave empty to disable.")
-      ->default_val("terrain_corsika.ply")
+      ->default_val("")
       ->group("Geometry");
   app.add_option("--injection-distance",
                  "Distance along the shower axis from the observation-mesh centroid "

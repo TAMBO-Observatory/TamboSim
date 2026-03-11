@@ -77,7 +77,8 @@ function read_corsika(
         push!(filenames, particles_file)
         push!(transforms, trans)
     end
-    return MultiParquetIterator(filenames, transforms[1]; T=CorsikaEvent)
+    isempty(filenames) && throw(ArgumentError("No completed showers found in $basedir"))
+    return MultiParquetIterator(filenames, transforms; T=CorsikaEvent)
 end
 
 """

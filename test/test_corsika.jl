@@ -238,8 +238,8 @@ function run_corsika_tests()
             end
 
             # Without summary.yaml, read_corsika should skip this shower.
-            # With no valid showers, it should error because transforms is empty.
-            @test_throws BoundsError Tambo.read_corsika(tmpdir, cs)
+            # With no valid showers, it should error with a clear message.
+            @test_throws ArgumentError Tambo.read_corsika(tmpdir, cs)
         end
     end
 

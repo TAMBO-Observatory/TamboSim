@@ -12,7 +12,7 @@ designed to handle large datasets that are split across multiple files.
 - `current_file_idx::Int`: The index of the current file being processed.
 - `current_table`: The currently open Parquet table.
 - `current_row_iterator`: The iterator for the rows of the current table.
-- `transform::Function`: A function to apply to each row to transform it into the desired type `T`.
+- `transforms::Vector{Function}`: Per-file functions to apply to each row to transform it into the desired type `T`.
 - `chunk_size::Int`: The number of records to buffer in memory.
 - `T::Type{T}`: The element type that the iterator yields.
 - `records_buffer::Vector{T}`: A buffer to hold the transformed records.
@@ -23,7 +23,7 @@ mutable struct MultiParquetIterator{T}
     current_file_idx::Int
     current_table::Union{Nothing, Any}
     current_row_iterator::Union{Nothing, Any}
-    transform::Function
+    transforms::Vector{Function}
     chunk_size::Int
     T::Type{T}
     records_buffer::Vector{T}
@@ -87,8 +87,8 @@ function fill_buffer!(iter::MultiParquetIterator)
             return !isempty(iter.records_buffer)
         end
 
-        # Transform and add to buffer
-        record = iter.transform(row)
+        # Transform and add to buffer using the per-file transform
+        record = iter.transforms[iter.current_file_idx - 1](row)
         push!(iter.records_buffer, record)
     end
 
@@ -168,25 +168,29 @@ Base.IteratorSize(::Type{MultiParquetIterator}) = Base.SizeUnknown()
 Base.eltype(::Type{MultiParquetIterator{T}}) where T = T
 
 """
-    MultiParquetIterator(filenames::Vector{String}, transform_func::Function;
+    MultiParquetIterator(filenames::Vector{String}, transform_funcs;
             chunk_size::Int=1_000_000, T=CorsikaEvent) -> MultiParquetIterator{T}
 
 Constructs a `MultiParquetIterator`.
 
 # Arguments
 - `filenames::Vector{String}`: A list of Parquet file paths to iterate over.
-- `transform_func::Function`: A function to apply to each row to transform it into the desired type `T`.
+- `transform_funcs`: Either a single `Function` applied to all files, or a
+  `Vector{Function}` with one entry per file for per-file transforms.
 - `chunk_size::Int`: The number of records to buffer in memory. Defaults to 1,000,000.
 - `T`: The element type that the iterator will yield. Defaults to `CorsikaEvent`.
 
 # Returns
 - A new `MultiParquetIterator` instance.
 """
-function MultiParquetIterator(filenames::Vector{String}, transform_func::Function;
+function MultiParquetIterator(filenames::Vector{String}, transform_funcs;
         chunk_size::Int=1_000_000, T=CorsikaEvent)
+    transforms = transform_funcs isa Function ?
+        fill(transform_funcs, length(filenames)) :
+        transform_funcs
     return MultiParquetIterator{T}(
         filenames, 1, nothing, nothing,
-        transform_func, chunk_size, T,
+        Vector{Function}(transforms), chunk_size, T,
         Vector{T}(), nothing
     )
 end

@@ -463,6 +463,46 @@ end
 # ============================================================================
 
 """
+    Base.show(io::IO, iter::MultiParquetIterator)
+
+Compact single-line display for MultiParquetIterator.
+"""
+function Base.show(io::IO, iter::MultiParquetIterator{T}) where T
+    n = length(iter.filenames)
+    print(io, "MultiParquetIterator{$T}($n file$(n == 1 ? "" : "s"), chunk_size=$(iter.chunk_size))")
+end
+
+"""
+    Base.show(io::IO, ::MIME"text/plain", iter::MultiParquetIterator)
+
+Multi-line display for MultiParquetIterator showing progress and file listing.
+"""
+function Base.show(io::IO, ::MIME"text/plain", iter::MultiParquetIterator{T}) where T
+    n = length(iter.filenames)
+    opened = iter.current_file_idx - 1
+
+    println(io, "MultiParquetIterator{$T}:")
+    println(io, "  files     : $n")
+    println(io, "  chunk_size: $(iter.chunk_size)")
+    println(io, "  progress  : $opened / $n file$(n == 1 ? "" : "s") opened")
+    if n > 0
+        println(io, "  file list :")
+        limit = min(n, 5)
+        for i in 1:limit
+            path = iter.filenames[i]
+            parts = splitpath(path)
+            label = joinpath(parts[max(1, end-3):end]...)
+            status = i < opened  ? " (done)" :
+                     i == opened ? " (current)" : ""
+            println(io, "    [$i] …/$label$status")
+        end
+        if n > limit
+            print(io, "    … and $(n - limit) more")
+        end
+    end
+end
+
+"""
     Base.show(io::IO, ce::CorsikaEvent)
 
 Displays a CorsikaEvent with particle type and weight.

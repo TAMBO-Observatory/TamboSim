@@ -254,7 +254,7 @@ function Base.show(io::IO, ::MIME"text/plain", p::Particle{T}) where {T}
 
     println(io, "Particle{$T}:")
     println(io, "  id:        $(p.id)")
-    println(io, "  type:      $(p.pdg)")
+    println(io, "  pdg:      $(p.pdg)")
     println(io, "  energy:    $estr")
     println(io, "  position:  [$(round(px, digits=3)), $(round(py, digits=3)), $(round(pz, digits=3))] km")
     println(io, "  direction: [$(round(dx, digits=6)), $(round(dy, digits=6)), $(round(dz, digits=6))]")

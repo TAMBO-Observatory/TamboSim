@@ -9,10 +9,15 @@
 
 ## Step 1: Build and install CORSIKA 8
 
+`tambo_shower` requires the `mesh-bvh-geometry-framework` branch of CORSIKA 8,
+which provides `TriangularMesh`, `ObservationMesh`, and PLY mesh loading. These
+features are not yet in the CORSIKA 8 mainline.
+
 Clone the upstream repository (or use an existing local copy):
 
 ```bash
-git clone https://gitlab.ikp.kit.edu/AirShowerPhysics/corsika.git corsika
+git clone --branch mesh-bvh-geometry-framework \
+  https://gitlab.iap.kit.edu/AirShowerPhysics/corsika.git corsika
 cd corsika
 pip install conan
 conan install . --output-folder=build --build=missing

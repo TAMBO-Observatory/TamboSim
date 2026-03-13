@@ -531,8 +531,27 @@ int main(int argc, char** argv) {
   // Shower core at centroid of observation mesh
   Point const showerCore{rootCS, cx * 1_m, cy * 1_m, cz * 1_m};
 
-  // Injection point: injection-distance upstream along shower axis from core
-  double const injDist = app["--injection-distance"]->as<double>();
+  // Cap injection distance so the injection point stays within the atmosphere.
+  // Atmosphere top is at R_earth + 112.75 km.  Solve for where the upstream
+  // ray from the centroid exits the atmosphere sphere.
+  //   |centroid + t * upstreamDir|^2 = R_atm^2
+  //   t^2 + 2*(centroid . upstreamDir)*t + (|centroid|^2 - R_atm^2) = 0
+  constexpr double atmosphereTopHeight = 112.75e3; // m, matches c8_air_shower default
+  double const R_atm = constants::EarthRadius::Mean / 1_m + atmosphereTopHeight;
+  double const dot_cu = cx * (-pnx) + cy * (-pny) + cz * (-pnz);
+  double const centroidR2 = cx * cx + cy * cy + cz * cz;
+  double const disc = dot_cu * dot_cu - (centroidR2 - R_atm * R_atm);
+  double const maxInjDist = (disc > 0.0) ? (-dot_cu + std::sqrt(disc)) : 0.0;
+
+  double injDist = app["--injection-distance"]->as<double>();
+  if (injDist > maxInjDist) {
+    CORSIKA_LOG_WARN(
+        "Requested injection distance {:.1f} km exceeds atmosphere top ({:.1f} km). "
+        "Clamping to atmosphere boundary.",
+        injDist / 1000., maxInjDist / 1000.);
+    injDist = maxInjDist;
+  }
+
   Point const injectionPos =
       showerCore + DirectionVector{rootCS, {-pnx, -pny, -pnz}} * (injDist * 1_m);
 

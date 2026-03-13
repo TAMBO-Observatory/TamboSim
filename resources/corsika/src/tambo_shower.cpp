@@ -751,33 +751,24 @@ int main(int argc, char** argv) {
     }
   };
 
+  // terrainLevel must outlive output.endOfLibrary() since output holds a reference to it.
+  std::optional<ObservationMesh<TrackingType, ParticleWriterParquet>> terrainLevel;
   if (useTerrainMesh) {
-    // Terrain absorber: records and absorbs particles hitting the surrounding terrain
-    ObservationMesh<TrackingType, ParticleWriterParquet> terrainLevel{
-        *terrainMeshPtr, true, 1e-6_m};
-    output.add("terrain", terrainLevel);
+    terrainLevel.emplace(*terrainMeshPtr, true, 1e-6_m);
+    output.add("terrain", *terrainLevel);
+  }
 
-    // Core sequence contains the observation meshes and escape plane;
-    // per-shower processes are prepended inside runOneShower
-    auto obsMeshSequence = make_sequence(observationLevel, terrainLevel, escapeLevel);
-
-    output.startOfLibrary();
-    for (int i = 1; i <= nev; ++i) {
-      PowerLawDistribution<HEPEnergyType> plRng(eSlope, eMin, eMax);
-      HEPEnergyType const E = (eMax == eMin)
-          ? eMin
-          : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
+  output.startOfLibrary();
+  for (int i = 1; i <= nev; ++i) {
+    PowerLawDistribution<HEPEnergyType> plRng(eSlope, eMin, eMax);
+    HEPEnergyType const E = (eMax == eMin)
+        ? eMin
+        : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
+    if (useTerrainMesh) {
+      auto obsMeshSequence = make_sequence(observationLevel, *terrainLevel, escapeLevel);
       runOneShower(obsMeshSequence, i, E);
-    }
-  } else {
-    auto obsMeshSequence = make_sequence(observationLevel, escapeLevel);
-
-    output.startOfLibrary();
-    for (int i = 1; i <= nev; ++i) {
-      PowerLawDistribution<HEPEnergyType> plRng(eSlope, eMin, eMax);
-      HEPEnergyType const E = (eMax == eMin)
-          ? eMin
-          : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
+    } else {
+      auto obsMeshSequence = make_sequence(observationLevel, escapeLevel);
       runOneShower(obsMeshSequence, i, E);
     }
   }

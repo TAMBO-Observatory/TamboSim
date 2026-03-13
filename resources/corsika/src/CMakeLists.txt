@@ -16,8 +16,14 @@ endif()
 
 find_package(corsika REQUIRED)
 
+option(WITH_FLUKA "Use FLUKA as the low-energy hadronic model instead of UrQMD" OFF)
+
 add_executable(tambo_shower tambo_shower.cpp)
 target_link_libraries(tambo_shower PRIVATE CORSIKA8::CORSIKA8)
+
+if(WITH_FLUKA)
+  target_compile_definitions(tambo_shower PRIVATE WITH_FLUKA)
+endif()
 
 set_target_properties(tambo_shower PROPERTIES
   BUILD_RPATH   "${corsika_DIR}"

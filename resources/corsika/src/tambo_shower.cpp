@@ -74,7 +74,11 @@
 #include <corsika/modules/LongitudinalProfile.hpp>
 #include <corsika/modules/ProductionProfile.hpp>
 
+#ifdef WITH_FLUKA
+#include <corsika/modules/FLUKA.hpp>
+#else
 #include <corsika/modules/UrQMD.hpp>
+#endif
 #include <corsika/modules/TAUOLA.hpp>
 
 #include <corsika/setup/SetupStack.hpp>
@@ -115,6 +119,7 @@ long registerRandomStreams(long seed) {
   RNGManager<>::getInstance().registerRandomStream("epos-lhcr");
   RNGManager<>::getInstance().registerRandomStream("pythia");
   RNGManager<>::getInstance().registerRandomStream("urqmd");
+  RNGManager<>::getInstance().registerRandomStream("fluka");
   RNGManager<>::getInstance().registerRandomStream("proposal");
   RNGManager<>::getInstance().registerRandomStream("thinning");
   RNGManager<>::getInstance().registerRandomStream("tauola");
@@ -645,7 +650,11 @@ int main(int argc, char** argv) {
   output.add("production_profile", prod_profile);
   ProductionProfile<SubWriter<decltype(prod_profile)>> prodprof{prod_profile};
 
+#ifdef WITH_FLUKA
+  corsika::fluka::Interaction leIntModel{all_elements};
+#else
   corsika::urqmd::UrQMD leIntModel{};
+#endif
   InteractionCounter leIntCounted{leIntModel};
 
   struct EnergySwitch {

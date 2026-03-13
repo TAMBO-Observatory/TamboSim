@@ -79,7 +79,6 @@
 #else
 #include <corsika/modules/UrQMD.hpp>
 #endif
-#include <corsika/modules/TAUOLA.hpp>
 
 #include <corsika/setup/SetupStack.hpp>
 #include <corsika/setup/SetupTrajectory.hpp>
@@ -122,7 +121,6 @@ long registerRandomStreams(long seed) {
   RNGManager<>::getInstance().registerRandomStream("fluka");
   RNGManager<>::getInstance().registerRandomStream("proposal");
   RNGManager<>::getInstance().registerRandomStream("thinning");
-  RNGManager<>::getInstance().registerRandomStream("tauola");
   RNGManager<>::getInstance().registerRandomStream("primary_particle");
   if (seed == 0) {
     std::random_device rd;
@@ -591,15 +589,7 @@ int main(int argc, char** argv) {
 
   InteractionCounter heCounted{heModel};
 
-  corsika::pythia8::Decay decayPythia;
-  corsika::tauola::Decay decayTauola(corsika::tauola::Helicity::LeftHanded);
-
-  struct IsTauSwitch {
-    bool operator()(Particle const& p) const {
-      return (p.getPID() == Code::TauMinus || p.getPID() == Code::TauPlus);
-    }
-  };
-  auto decaySequence = make_select(IsTauSwitch(), decayTauola, decayPythia);
+  corsika::pythia8::Decay decaySequence;
 
   bool NC = false, CC = false;
   if (auto const s = app["--neutrino-interaction-type"]->as<std::string>();

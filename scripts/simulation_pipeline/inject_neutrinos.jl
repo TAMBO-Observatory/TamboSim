@@ -102,6 +102,7 @@ function main()
 
     jldopen(output_filename, "w") do file
         file["sim"] = sim
+        file["git_commit"] = Tambo.get_git_commit_hash()
     end
 end
 

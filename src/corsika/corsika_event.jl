@@ -215,6 +215,9 @@ function CorsikaEvent(
 ) where {U<:Real}
     earth_dir = dir_rot * SVector(row.nx, row.ny, row.nz)
 
+    # CORSIKA 8 ObservationMesh writes positions as displacement from the mesh
+    # bounding-box centre (not absolute ECEF).  coord_offset already includes
+    # the mesh centre shift: coord_offset = mesh_center_ecef - cs_earth.origin
     raw_pos   = SVector(row.x, row.y, row.z) .* u"m"
     earth_pos = dir_rot * (raw_pos .+ coord_offset)
 
@@ -238,9 +241,11 @@ end
 
 Read particles from a `tambo_shower` (CORSIKA 8 mesh) output directory.
 
-The function scans `outdir/shower_*/particles/` for `particles.parquet` files.
-Positions and directions in those files are absolute ECEF metres / unit vectors;
-they are rotated into `cs_earth` using `precompute_cs_transform`.
+The directory must contain `particles/particles.parquet` and
+`particles/config.yaml`.  CORSIKA 8's `ObservationMesh` writer stores particle
+positions as displacements from the mesh bounding-box centre (in ECEF metres),
+so this function reads the centre from `config.yaml` and folds it into the
+coordinate transform.
 
 # Arguments
 - `outdir::String`: Top-level output directory passed to `tambo_shower` with `-f`.
@@ -257,13 +262,23 @@ function read_corsika_mesh(
     t0=0.0u"s",
     filter_fxn::Function=x->true
 ) where {T<:Real}
-    # CORSIKA 8 OutputManager writes a flat structure: <outdir>/particles/particles.parquet
-    # (all showers accumulated into a single file regardless of -N)
-    pfile = joinpath(outdir, "particles", "particles.parquet")
-    isfile(pfile) || throw(ArgumentError("No particles.parquet found in $outdir/particles/"))
-    filenames = [pfile]
+    pfile   = joinpath(outdir, "particles", "particles.parquet")
+    cfgfile = joinpath(outdir, "particles", "config.yaml")
+    isfile(pfile)   || throw(ArgumentError("No particles.parquet found in $outdir/particles/"))
+    isfile(cfgfile) || throw(ArgumentError("No config.yaml found in $outdir/particles/"))
+
+    # Read the mesh bounding-box centre (ECEF metres) from config.yaml.
+    # Particle (x,y,z) are displacements from this centre, not absolute ECEF.
+    cfg  = open(cfgfile) do f; YAML.load(f); end
+    bmin = Float64.(cfg["mesh"]["bounds"]["min"])
+    bmax = Float64.(cfg["mesh"]["bounds"]["max"])
+    mesh_center = SVector{3,Float64}((bmin .+ bmax) ./ 2) .* u"m"
 
     dir_rot, coord_offset = precompute_cs_transform(ecefcoordinates, cs_earth)
-    trans(row) = CorsikaEvent(row, cs_earth, dir_rot, coord_offset; t0=t0)
-    return MultiParquetIterator(filenames, trans; T=CorsikaEvent)
+    # Fold the mesh centre into the offset so the CorsikaEvent constructor
+    # can simply do:  earth_pos = dir_rot * (raw_pos + coord_offset_with_center)
+    coord_offset_with_center = coord_offset .+ mesh_center
+
+    trans(row) = CorsikaEvent(row, cs_earth, dir_rot, coord_offset_with_center; t0=t0)
+    return MultiParquetIterator([pfile], trans; T=CorsikaEvent)
 end

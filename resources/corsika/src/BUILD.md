@@ -38,10 +38,11 @@ nodes, use `-j1` or submit the build as a job.
 ### Harvard FAS RC
 
 CORSIKA 8 requires GCC 13 and cmake 3.14+, neither of which are in the default
-environment.  Load them before building and running:
+environment.  Load them **at build time only** — the resulting binary embeds
+the GCC runtime path (RPATH) and runs without any module loaded:
 
 ```bash
-module load gcc/13.2.0-fasrc01 cmake/3.30.3-fasrc01
+module load gcc/13.2.0-fasrc01 cmake/3.31.6-fasrc01
 ```
 
 The Conan toolchain file at `~/corsika/build/conan_toolchain.cmake` must be
@@ -51,30 +52,32 @@ passed to cmake (see Step 2).
 
 ```bash
 cd resources/corsika/src
-mkdir -p build && cd build
-cmake .. \
-  -Dcorsika_DIR=$HOME/.local/lib/cmake/corsika \
-  -DCMAKE_TOOLCHAIN_FILE=$HOME/corsika/build/conan_toolchain.cmake
-cmake --build . -j4
+cmake -S . -B build \
+  -DCMAKE_TOOLCHAIN_FILE=$HOME/corsika/build/conan_toolchain.cmake \
+  -DCMAKE_PREFIX_PATH=$HOME/corsika/build \
+  -Dcorsika_DIR=$HOME/corsika/build \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j4
 ```
 
 To build with FLUKA as the low-energy hadronic model instead of UrQMD, add
 `-DWITH_FLUKA=ON` (requires FLUKA support in your CORSIKA 8 installation):
 
 ```bash
-cmake .. \
-  -Dcorsika_DIR=$HOME/.local/lib/cmake/corsika \
+cmake -S . -B build \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/corsika/build/conan_toolchain.cmake \
+  -DCMAKE_PREFIX_PATH=$HOME/corsika/build \
+  -Dcorsika_DIR=$HOME/corsika/build \
+  -DCMAKE_BUILD_TYPE=Release \
   -DWITH_FLUKA=ON
+cmake --build build -j4
 ```
+
+The `CMakeLists.txt` automatically detects the GCC runtime library directory
+from `${CMAKE_CXX_COMPILER}` and embeds it as an RPATH, so the binary runs
+without loading any compiler module at runtime.
 
 ## Step 3: Run
-
-On Harvard FAS RC, load gcc before running:
-
-```bash
-module load gcc/13.2.0-fasrc01
-```
 
 The injection trajectory is specified by two ECEF points: the injection point
 (upstream, e.g. at ~112 km altitude) and the intercept on the observation mesh.

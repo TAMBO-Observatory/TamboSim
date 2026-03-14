@@ -25,9 +25,22 @@ if(WITH_FLUKA)
   target_compile_definitions(tambo_shower PRIVATE WITH_FLUKA)
 endif()
 
+# Embed the GCC runtime lib directory so the binary runs without loading any
+# compiler module.  The path is derived from the compiler itself so it works
+# across different GCC module versions and installation prefixes.
+execute_process(
+  COMMAND ${CMAKE_CXX_COMPILER} -print-file-name=libstdc++.so
+  OUTPUT_VARIABLE _GCC_STDCXX_LIB
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+)
+# Resolve symlinks / ".." components using CMake's native REALPATH mode
+get_filename_component(_GCC_STDCXX_REAL "${_GCC_STDCXX_LIB}" REALPATH)
+get_filename_component(_GCC_LIB_DIR "${_GCC_STDCXX_REAL}" DIRECTORY)
+message(STATUS "Embedding GCC runtime rpath: ${_GCC_LIB_DIR}")
+
 set_target_properties(tambo_shower PROPERTIES
-  BUILD_RPATH   "${corsika_DIR}"
-  INSTALL_RPATH "$ORIGIN/../lib/corsika"
+  BUILD_RPATH   "${corsika_DIR};${_GCC_LIB_DIR}"
+  INSTALL_RPATH "$ORIGIN/../lib/corsika;${_GCC_LIB_DIR}"
 )
 
 install(TARGETS tambo_shower DESTINATION bin)

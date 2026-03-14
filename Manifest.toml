@@ -1519,7 +1519,6 @@ version = "1.10.0"
 [[deps.TauRunner]]
 deps = ["ArgParse", "Dierckx", "Interpolations", "JLD2", "JSON3", "LRUCache", "LinearAlgebra", "NPZ", "PROPOSAL", "QuadGK", "Random", "Roots", "StaticArrays"]
 git-tree-sha1 = "f92f785610c5f571b5846988ea8f0dc7b4f0eed1"
-path = "/Users/jlazar/research/TauRunner/TauRunner.jl/"
 repo-subdir = "TauRunner.jl"
 repo-url = "https://github.com/icecube/TauRunner.git"
 uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"

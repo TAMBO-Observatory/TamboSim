@@ -1,7 +1,7 @@
 name = "Tambo"
 uuid = "d9a96183-4919-46da-8188-64ea4e10e0ed"
-version = "0.1.0"
 authors = ["Carlos A. Arguelles <carguelles@fas.harvard.edu>", "Jeffrey Lazar <jeffreylazar@fas.harvard.edu>"]
+version = "0.1.0"
 
 [deps]
 ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
@@ -33,6 +33,10 @@ TauRunner = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
+[sources]
+PROPOSAL = {url = "https://github.com/jlazar17/PROPOSAL.jl.git"}
+TauRunner = {subdir = "TauRunner.jl", url = "https://github.com/icecube/TauRunner.git"}
+
 [compat]
 ArgParse = "1.2.0"
 Arrow = "2.8.0"
@@ -51,10 +55,6 @@ QuadGK = "2.11.2"
 Tables = "1.12.1"
 Unitful = "1.25.1"
 YAML = "0.4.16"
-
-[sources]
-PROPOSAL = {url = "https://github.com/jlazar17/PROPOSAL.jl.git"}
-TauRunner = {url = "https://github.com/icecube/TauRunner.git", subdir = "TauRunner.jl"}
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"

@@ -257,14 +257,11 @@ function read_corsika_mesh(
     t0=0.0u"s",
     filter_fxn::Function=x->true
 ) where {T<:Real}
-    dirs = glob("shower_*/particles/", outdir)
-    filenames = String[]
-    for dir in dirs
-        pfile = joinpath(dir, "particles.parquet")
-        isfile(pfile) || continue
-        push!(filenames, pfile)
-    end
-    isempty(filenames) && throw(ArgumentError("No completed showers found in $outdir"))
+    # CORSIKA 8 OutputManager writes a flat structure: <outdir>/particles/particles.parquet
+    # (all showers accumulated into a single file regardless of -N)
+    pfile = joinpath(outdir, "particles", "particles.parquet")
+    isfile(pfile) || throw(ArgumentError("No particles.parquet found in $outdir/particles/"))
+    filenames = [pfile]
 
     dir_rot, coord_offset = precompute_cs_transform(ecefcoordinates, cs_earth)
     trans(row) = CorsikaEvent(row, cs_earth, dir_rot, coord_offset; t0=t0)

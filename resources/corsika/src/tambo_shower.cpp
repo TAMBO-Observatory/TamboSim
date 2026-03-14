@@ -7,10 +7,11 @@
  *   injection_region_corsika.ply  -  valley floor observation surface
  *   terrain_corsika.ply           -  surrounding terrain absorber (optional)
  *
- * The injection point is placed injection-distance metres upstream of the
- * centroid of the observation mesh, along the shower axis defined by the
- * requested zenith and azimuth angles.  Zenith/azimuth are interpreted in the
- * local ENU frame at that centroid, with azimuth measured clockwise from North.
+ * The shower trajectory is specified by two ECEF points passed on the command
+ * line: the injection point (--inject-x/y/z, upstream, ~112 km altitude) and
+ * the intercept on the detection region (--intercept-x/y/z).  In normal use
+ * these coordinates are computed by the Julia corsika_run(particle, earth, ...)
+ * wrapper, which traces the tau decay-product trajectory to the detector mesh.
  *
  * Usage is modelled after c8_air_shower.cpp from the CORSIKA 8 repository.
  */
@@ -138,46 +139,6 @@ using MyExtraEnv = media::GladstoneDaleRefractiveIndex<
     media::MediumPropertyModel<media::UniformMagneticField<T>>>;
 
 // ---------------------------------------------------------------------------
-// Compute the area-weighted centroid of a TriangularMesh.
-// Returns ECEF components in metres via cx, cy, cz.
-// ---------------------------------------------------------------------------
-static void computeMeshCentroid(TriangularMesh const& mesh, CoordinateSystemPtr rootCS,
-                                double& cx, double& cy, double& cz) {
-  double totalArea = 0.0;
-  cx = cy = cz = 0.0;
-
-  for (size_t i = 0; i < mesh.getTriangleCount(); ++i) {
-    Triangle const& tri = mesh.getTriangle(i);
-    auto const& idx = tri.getVertexIndices();
-    auto const c0 = mesh.getVertex(idx[0]).getCoordinates(rootCS);
-    auto const c1 = mesh.getVertex(idx[1]).getCoordinates(rootCS);
-    auto const c2 = mesh.getVertex(idx[2]).getCoordinates(rootCS);
-
-    double const x0 = c0.getX() / 1_m, y0 = c0.getY() / 1_m, z0 = c0.getZ() / 1_m;
-    double const x1 = c1.getX() / 1_m, y1 = c1.getY() / 1_m, z1 = c1.getZ() / 1_m;
-    double const x2 = c2.getX() / 1_m, y2 = c2.getY() / 1_m, z2 = c2.getZ() / 1_m;
-
-    double const ex = x1 - x0, ey = y1 - y0, ez = z1 - z0;
-    double const fx = x2 - x0, fy = y2 - y0, fz = z2 - z0;
-    double const area =
-        0.5 * std::sqrt((ey * fz - ez * fy) * (ey * fz - ez * fy) +
-                        (ez * fx - ex * fz) * (ez * fx - ex * fz) +
-                        (ex * fy - ey * fx) * (ex * fy - ey * fx));
-
-    cx += area * (x0 + x1 + x2) / 3.0;
-    cy += area * (y0 + y1 + y2) / 3.0;
-    cz += area * (z0 + z1 + z2) / 3.0;
-    totalArea += area;
-  }
-
-  if (totalArea > 0.0) {
-    cx /= totalArea;
-    cy /= totalArea;
-    cz /= totalArea;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Derive local ENU basis vectors from an ECEF point (metres).
 // east, north, up are unit vectors in the ECEF frame.
 // ---------------------------------------------------------------------------
@@ -242,16 +203,6 @@ int main(int argc, char** argv) {
   app.add_option("--eslope", "Spectral index for energy sampling, dN/dE = E^eSlope")
       ->default_val(-1.0)
       ->group("Primary");
-  app.add_option("-z,--zenith", "Primary zenith angle in the local ENU frame (deg)")
-      ->default_val(0.)
-      ->check(CLI::Range(0., 90.))
-      ->group("Primary");
-  app.add_option("-a,--azimuth",
-                 "Primary azimuth angle clockwise from North in the local ENU frame (deg)")
-      ->default_val(0.)
-      ->check(CLI::Range(0., 360.))
-      ->group("Primary");
-
   // ---- Geometry / mesh ----
   app.add_option("--obs-mesh",
                  "Path to the observation-region PLY file (ECEF metres)")
@@ -263,12 +214,26 @@ int main(int argc, char** argv) {
                  "(ECEF metres).  Leave empty to disable.")
       ->default_val("")
       ->group("Geometry");
-  app.add_option("--injection-altitude",
-                 "Altitude above the Earth's surface of the injection point (m). "
-                 "The injection distance is computed as the upstream ray-sphere "
-                 "intersection from the observation-mesh centroid.")
-      ->default_val(112.75e3)
-      ->check(CLI::PositiveNumber)
+  app.add_option("--inject-x", "X component of the injection point (ECEF metres)")
+      ->required()
+      ->group("Geometry");
+  app.add_option("--inject-y", "Y component of the injection point (ECEF metres)")
+      ->required()
+      ->group("Geometry");
+  app.add_option("--inject-z", "Z component of the injection point (ECEF metres)")
+      ->required()
+      ->group("Geometry");
+  app.add_option("--intercept-x",
+                 "X component of the shower-core intercept on the detection region (ECEF metres)")
+      ->required()
+      ->group("Geometry");
+  app.add_option("--intercept-y",
+                 "Y component of the shower-core intercept on the detection region (ECEF metres)")
+      ->required()
+      ->group("Geometry");
+  app.add_option("--intercept-z",
+                 "Z component of the shower-core intercept on the detection region (ECEF metres)")
+      ->required()
       ->group("Geometry");
 
   // ---- Energy cuts ----
@@ -427,11 +392,15 @@ int main(int argc, char** argv) {
                      terrainMeshPath);
   }
 
-  /* === ECEF CENTROID AND ENU FRAME === */
-  double cx, cy, cz;
-  computeMeshCentroid(obsMesh, rootCS, cx, cy, cz);
-  CORSIKA_LOG_INFO("Observation mesh centroid (ECEF m): ({:.1f}, {:.1f}, {:.1f})",
-                   cx, cy, cz);
+  /* === INTERCEPT POINT AND ENU FRAME ===
+   * The intercept is the pre-computed intersection of the particle trajectory
+   * with the detector region, passed in ECEF metres from the Julia caller.
+   * The ENU frame at the intercept is used for the magnetic field and escape plane.
+   */
+  double const cx = app["--intercept-x"]->as<double>();
+  double const cy = app["--intercept-y"]->as<double>();
+  double const cz = app["--intercept-z"]->as<double>();
+  CORSIKA_LOG_INFO("Shower core / intercept (ECEF m): ({:.1f}, {:.1f}, {:.1f})", cx, cy, cz);
 
   std::array<double, 3> eastHat, northHat, upHat;
   ecefToENU(cx, cy, cz, eastHat, northHat, upHat);
@@ -510,57 +479,36 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  /* === INJECTION GEOMETRY === */
-  double const thetaRad = app["--zenith"]->as<double>() / 180. * M_PI;
-  double const phiRad = app["--azimuth"]->as<double>() / 180. * M_PI;
+  /* === INJECTION GEOMETRY ===
+   * The injection point and shower-core intercept are provided directly in
+   * ECEF metres. The shower direction is the unit vector from inject to intercept.
+   */
+  double const injectX = app["--inject-x"]->as<double>();
+  double const injectY = app["--inject-y"]->as<double>();
+  double const injectZ = app["--inject-z"]->as<double>();
 
-  // Shower propagation direction in ENU: azimuth clockwise from North
-  //   E-component = sin(theta) * sin(azimuth)
-  //   N-component = sin(theta) * cos(azimuth)
-  //   U-component = -cos(theta)  (downgoing shower)
-  double const dE_enu = std::sin(thetaRad) * std::sin(phiRad);
-  double const dN_enu = std::sin(thetaRad) * std::cos(phiRad);
-  double const dU_enu = -std::cos(thetaRad);
-
-  // Rotate ENU propagation direction into ECEF
-  double const pnx = dE_enu * eastHat[0] + dN_enu * northHat[0] + dU_enu * upHat[0];
-  double const pny = dE_enu * eastHat[1] + dN_enu * northHat[1] + dU_enu * upHat[1];
-  double const pnz = dE_enu * eastHat[2] + dN_enu * northHat[2] + dU_enu * upHat[2];
-
-  DirectionVector const propDir{rootCS, {pnx, pny, pnz}};
-
-  // Shower core at centroid of observation mesh
-  Point const showerCore{rootCS, cx * 1_m, cy * 1_m, cz * 1_m};
-
-  // Compute injection distance as the upstream ray-sphere intersection.
-  // Find t such that |centroid + t * (-propDir)| = R_earth + injection_altitude.
-  //   t^2 + 2*(centroid . (-propDir))*t + (|centroid|^2 - R_inj^2) = 0
-  double const injAlt = app["--injection-altitude"]->as<double>();
-  double const R_inj = constants::EarthRadius::Mean / 1_m + injAlt;
-  double const dot_cu = cx * (-pnx) + cy * (-pny) + cz * (-pnz);
-  double const centroidR2 = cx * cx + cy * cy + cz * cz;
-  double const disc = dot_cu * dot_cu - (centroidR2 - R_inj * R_inj);
-  if (disc <= 0.0) {
-    CORSIKA_LOG_CRITICAL(
-        "Upstream ray from obs-mesh centroid does not intersect the injection "
-        "altitude sphere (alt={:.1f} km). Check zenith angle and altitude.", injAlt / 1000.);
+  // Propagation direction: inject → intercept (normalised)
+  double const dx = cx - injectX, dy = cy - injectY, dz = cz - injectZ;
+  double const dnorm = std::sqrt(dx * dx + dy * dy + dz * dz);
+  if (dnorm == 0.0) {
+    CORSIKA_LOG_CRITICAL("Inject and intercept points are identical.");
     return EXIT_FAILURE;
   }
-  double const injDist = -dot_cu + std::sqrt(disc);
+  double const pnx = dx / dnorm, pny = dy / dnorm, pnz = dz / dnorm;
 
-  Point const injectionPos =
-      showerCore + DirectionVector{rootCS, {-pnx, -pny, -pnz}} * (injDist * 1_m);
+  DirectionVector const propDir{rootCS, {pnx, pny, pnz}};
+  Point const showerCore{rootCS, cx * 1_m, cy * 1_m, cz * 1_m};
+  Point const injectionPos{rootCS, injectX * 1_m, injectY * 1_m, injectZ * 1_m};
 
   // Shower axis: from injection through core and 20% beyond
   media::ShowerAxis const showerAxis{injectionPos, (showerCore - injectionPos) * 1.2,
                                      env};
   auto const dX = 10_g / square(1_cm);
 
-  CORSIKA_LOG_INFO("Shower core (ECEF m): ({:.1f}, {:.1f}, {:.1f})", cx, cy, cz);
-  CORSIKA_LOG_INFO("Injection distance: {:.1f} km", injDist / 1000.);
-  CORSIKA_LOG_INFO("Injection point: {}", injectionPos.getCoordinates());
-  CORSIKA_LOG_INFO("Propagation direction (ECEF): ({:.4f}, {:.4f}, {:.4f})",
-                   pnx, pny, pnz);
+  CORSIKA_LOG_INFO("Injection point (ECEF m): ({:.1f}, {:.1f}, {:.1f})", injectX, injectY, injectZ);
+  CORSIKA_LOG_INFO("Shower core / intercept (ECEF m): ({:.1f}, {:.1f}, {:.1f})", cx, cy, cz);
+  CORSIKA_LOG_INFO("Injection distance: {:.1f} km", dnorm / 1000.);
+  CORSIKA_LOG_INFO("Propagation direction (ECEF): ({:.4f}, {:.4f}, {:.4f})", pnx, pny, pnz);
 
   /* === OUTPUT MANAGER === */
   std::stringstream args;
@@ -720,9 +668,7 @@ int main(int argc, char** argv) {
     stack.clear();
 
     CORSIKA_LOG_INFO("Primary: {}  E_kin = {} GeV", beamCode, eKin / 1_GeV);
-    CORSIKA_LOG_INFO("Shower {} of {} at zenith={:.1f} deg, azimuth={:.1f} deg",
-                     i_shower, nev,
-                     app["--zenith"]->as<double>(), app["--azimuth"]->as<double>());
+    CORSIKA_LOG_INFO("Shower {} of {}", i_shower, nev);
 
     auto const primaryProperties =
         std::make_tuple(beamCode, eKin, propDir.normalized(), injectionPos, 0_ns);

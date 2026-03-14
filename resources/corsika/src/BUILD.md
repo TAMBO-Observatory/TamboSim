@@ -76,30 +76,30 @@ On Harvard FAS RC, load gcc before running:
 module load gcc/13.2.0-fasrc01
 ```
 
-A basic proton shower at 10^8 GeV, vertical incidence:
+The injection trajectory is specified by two ECEF points: the injection point
+(upstream, e.g. at ~112 km altitude) and the intercept on the observation mesh.
+Both are provided in metres.
+
+A proton shower at 10^8 GeV injected from directly above the detector:
 
 ```bash
 ./tambo_shower \
   -Z 1 -A 1 \
   -E 1e8 \
+  --inject-x    1234567.0 \
+  --inject-y    -5678901.0 \
+  --inject-z    2345678.0 \
+  --intercept-x 1234500.0 \
+  --intercept-y -5678800.0 \
+  --intercept-z 2345500.0 \
   --obs-mesh    /path/to/injection_region_corsika.ply \
   --terrain-mesh /path/to/terrain_corsika.ply \
   -f output_dir
 ```
 
-A 45-degree shower injected from 112.75 km altitude, 10 events:
-
-```bash
-./tambo_shower \
-  -Z 1 -A 1 \
-  -E 1e8 \
-  -z 45 -a 180 \
-  --injection-altitude 112750 \
-  --obs-mesh    /path/to/injection_region_corsika.ply \
-  --terrain-mesh /path/to/terrain_corsika.ply \
-  -N 10 \
-  -f output_dir
-```
+In normal use the injection and intercept coordinates are computed by the Julia
+`corsika_run(particle, earth, ...)` wrapper, which traces the particle trajectory
+to the detector region of the `Earth` struct and converts both endpoints to ECEF.
 
 The PLY mesh files (`injection_region_corsika.ply`, `terrain_corsika.ply`) are
 in `resources/` in this repository.
@@ -116,11 +116,10 @@ rm -rf output_dir
 | `-Z -A` | Atomic number and mass of primary | required (or `--pdg`) |
 | `-p,--pdg` | Primary PDG code (e.g. 2212=proton, 22=gamma) | required (or `-Z -A`) |
 | `-E` | Primary energy (GeV) | required |
-| `-z` | Zenith angle in local ENU frame (deg, 0=vertical) | 0 |
-| `-a` | Azimuth clockwise from North in local ENU frame (deg) | 0 |
+| `--inject-x/y/z` | Injection point in ECEF metres | required |
+| `--intercept-x/y/z` | Shower-core intercept on detection region in ECEF metres | required |
 | `--obs-mesh` | Path to observation-region PLY (ECEF m) | required |
 | `--terrain-mesh` | Path to terrain PLY (ECEF m); omit to disable | (disabled) |
-| `--injection-altitude` | Altitude above Earth's surface of injection point (m) | 112750 |
 | `-N` | Number of showers | 1 |
 | `-f` | Output directory name (must not exist) | required |
 | `--emcut` | Min kinetic energy of photons/electrons/positrons (GeV) | 10 |
@@ -133,9 +132,9 @@ rm -rf output_dir
 
 ## Coordinate system
 
-The PLY files must be in Earth-Centered Earth-Fixed (ECEF) coordinates in
-metres. CORSIKA 8's root coordinate system is also ECEF, so vertices are loaded
-directly with `scale=1_m`.
+The PLY files and the `--inject-x/y/z` / `--intercept-x/y/z` values must all be
+in Earth-Centered Earth-Fixed (ECEF) coordinates in metres. CORSIKA 8's root
+coordinate system is also ECEF, so vertices are loaded directly with `scale=1_m`.
 
 The injection geometry is computed as follows:
 

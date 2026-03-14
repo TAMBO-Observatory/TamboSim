@@ -1,4 +1,4 @@
-"""Mean Earth radius in kilometers, used for coordinate transformations."""
+"""Mean Earth radius in kilometres, used for coordinate transformations."""
 const EARTH_RADIUS = 6371.0u"km"
 
 """
@@ -188,4 +188,85 @@ function CorsikaEvent(
     p = Coordinate(earth_pos, cs_earth)
     particle = Particle(pdg, e, p, d, U(t0 + row.time*u"s"), U(speed))
     return CorsikaEvent(particle, Float64(row.weight))
+end
+
+"""
+    CorsikaEvent(
+        row,
+        cs_earth::CoordinateSystem{U},
+        dir_rot::SMatrix{3,3,Float64,9},
+        coord_offset;
+        t0=0.0u"s"
+    ) where {U<:Real}
+
+Construct a `CorsikaEvent` from a CORSIKA 8 mesh-output parquet row.
+
+Positions `(row.x, row.y, row.z)` are absolute ECEF metres (no shower-plane
+rotation or Earth-radius offset). Directions `(row.nx, row.ny, row.nz)` are
+unit vectors in the ECEF frame.  Use `precompute_cs_transform(ecefcoordinates,
+cs_earth)` once per run to obtain `dir_rot` and `coord_offset`.
+"""
+function CorsikaEvent(
+    row,
+    cs_earth::CoordinateSystem{U},
+    dir_rot::SMatrix{3,3,Float64,9},
+    coord_offset;
+    t0=0.0u"s"
+) where {U<:Real}
+    earth_dir = dir_rot * SVector(row.nx, row.ny, row.nz)
+
+    raw_pos   = SVector(row.x, row.y, row.z) .* u"m"
+    earth_pos = dir_rot * (raw_pos .+ coord_offset)
+
+    e   = U(row.kinetic_energy * u"GeV")
+    pdg = ParticleType(Int64(row.pdg))
+    speed = haskey(particle_masses, pdg) ? particle_speed(e, pdg) : speedoflight
+
+    d = Direction(earth_dir, cs_earth)
+    p = Coordinate(earth_pos, cs_earth)
+    particle = Particle(pdg, e, p, d, U(t0 + row.time * u"s"), U(speed))
+    return CorsikaEvent(particle, Float64(row.weight))
+end
+
+"""
+    read_corsika_mesh(
+        outdir::String,
+        cs_earth::CoordinateSystem{T};
+        t0=0.0u"s",
+        filter_fxn::Function=x->true
+    ) where {T<:Real}
+
+Read particles from a `tambo_shower` (CORSIKA 8 mesh) output directory.
+
+The function scans `outdir/shower_*/particles/` for `particles.parquet` files.
+Positions and directions in those files are absolute ECEF metres / unit vectors;
+they are rotated into `cs_earth` using `precompute_cs_transform`.
+
+# Arguments
+- `outdir::String`: Top-level output directory passed to `tambo_shower` with `-f`.
+- `cs_earth::CoordinateSystem{T}`: Target coordinate system for the returned particles.
+- `t0`: Optional time offset added to CORSIKA hit times. Defaults to `0.0u"s"`.
+- `filter_fxn::Function`: Optional per-event filter; unused by the iterator itself.
+
+# Returns
+- A `MultiParquetIterator` that yields `CorsikaEvent` objects.
+"""
+function read_corsika_mesh(
+    outdir::String,
+    cs_earth::CoordinateSystem{T};
+    t0=0.0u"s",
+    filter_fxn::Function=x->true
+) where {T<:Real}
+    dirs = glob("shower_*/particles/", outdir)
+    filenames = String[]
+    for dir in dirs
+        pfile = joinpath(dir, "particles.parquet")
+        isfile(pfile) || continue
+        push!(filenames, pfile)
+    end
+    isempty(filenames) && throw(ArgumentError("No completed showers found in $outdir"))
+
+    dir_rot, coord_offset = precompute_cs_transform(ecefcoordinates, cs_earth)
+    trans(row) = CorsikaEvent(row, cs_earth, dir_rot, coord_offset; t0=t0)
+    return MultiParquetIterator(filenames, trans; T=CorsikaEvent)
 end

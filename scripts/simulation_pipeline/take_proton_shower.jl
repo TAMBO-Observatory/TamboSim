@@ -85,21 +85,21 @@ function main()
 
     particle = frame["injection_final_state"]
 
-    # Setup plane and energy cuts from config
+    # Setup energy cuts from config
     cfg = sim.config["corsika"]
+    Tambo.relativize!(cfg)
     earth = Tambo.Earth(
         sim.config["geometry"]["earth_path"],
         sim.config["geometry"]["detector_key"]
     )
 
-    d = Tambo.Direction(cfg["plane_orientation"], Tambo.ecefcoordinates)
-    d = convert(Tambo.CoordinateSystem(earth), d)
-    point = Tambo.Coordinate(cfg["plane_coordinates"] .* u"m", Tambo.ecefcoordinates)
-    point = convert(Tambo.CoordinateSystem(earth), point)
-    plane = Tambo.Plane(point, d)
+    ecuts = SVector{3, Float64}([cfg["em_ecut"], cfg["mu_ecut"], cfg["hadron_ecut"]]) * u"GeV"
 
-    ecuts = SVector{4, Float64}([cfg["em_ecut"], cfg["photon_ecut"],
-                                  cfg["mu_ecut"], cfg["hadron_ecut"]]) * u"GeV"
+    obs_mesh_path     = cfg["obs_mesh_path"]
+    terrain_mesh_path = get(cfg, "terrain_mesh_path", "")
+    hadron_model      = get(cfg, "hadron_model", "SIBYLL-2.3d")
+    ENV["FLUPRO"]     = cfg["FLUPRO"]
+    ENV["FLUFOR"]     = cfg["FLUFOR"]
 
     # Generate reproducible seed based on simset_id and event_id
     base_pinecone = get(cfg, "pinecone", 925)
@@ -113,14 +113,14 @@ function main()
 
     Tambo.corsika_run(
         particle,
-        plane,
-        cfg["thinning"],
+        earth,
+        obs_mesh_path,
+        terrain_mesh_path,
         ecuts,
         cfg["corsika_path"],
-        cfg["FLUPRO"],
-        cfg["FLUFOR"],
         output_dir,
-        Int64(seed)
+        Int64(seed);
+        hadron_model=hadron_model
     )
 end
 

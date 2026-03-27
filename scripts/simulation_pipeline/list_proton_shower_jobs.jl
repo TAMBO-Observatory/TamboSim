@@ -26,16 +26,16 @@ function parse_commandline()
 end
 
 """
-    list_proton_shower_jobs(sim, plane)
+    list_proton_shower_jobs(sim, detector_bvh)
 
 Extract event_id values from simulation results for proton CORSIKA shower jobs.
 Each proton produces exactly one shower, so there is no decay_id.
 Only includes events with an `injection_final_state` that intersects the
-observation plane.
+detector region BVH.
 
 Returns a vector of event_id integers.
 """
-function list_proton_shower_jobs(sim, plane)
+function list_proton_shower_jobs(sim, detector_bvh)
     jobs = Int[]
 
     for frame in sim.results
@@ -47,10 +47,10 @@ function list_proton_shower_jobs(sim, plane)
 
         particle = frame["injection_final_state"]
 
-        # Skip particles that don't intersect the observation plane
+        # Skip particles that don't intersect the detector region
         ray = Tambo.Ray(particle)
-        _, t = Tambo.find_intersection(ray, plane)
-        if isnothing(t)
+        isect = Tambo.find_intersect(ray, detector_bvh)
+        if isnothing(isect)
             continue
         end
 
@@ -63,10 +63,9 @@ end
 """
     main()
 
-List all proton CORSIKA shower jobs for a proton injection file. Sets up the
-observation plane from the config, calls `list_proton_shower_jobs` to enumerate
-valid event_ids, and prints them as a JSON array to stdout for consumption by
-the Snakefile.
+List all proton CORSIKA shower jobs for a proton injection file. Builds a BVH from
+the detector region, calls `list_proton_shower_jobs` to enumerate valid event_ids,
+and prints them as a JSON array to stdout for consumption by the Snakefile.
 """
 function main()
     args = parse_commandline()
@@ -77,20 +76,14 @@ function main()
         file["sim"]
     end
 
-    # Set up the observation plane from config
-    cfg = sim.config["corsika"]
+    # Build detector region BVH for intersection filtering
     earth = Tambo.Earth(
         sim.config["geometry"]["earth_path"],
         sim.config["geometry"]["detector_key"]
     )
-    cs = Tambo.CoordinateSystem(earth)
-    d = Tambo.Direction(cfg["plane_orientation"], Tambo.ecefcoordinates)
-    d = convert(cs, d)
-    point = Tambo.Coordinate(cfg["plane_coordinates"] .* u"m", Tambo.ecefcoordinates)
-    point = convert(cs, point)
-    plane = Tambo.Plane(point, d)
+    detector_bvh = Tambo.BVHTree(earth.topography[earth.detector_region])
 
-    jobs = list_proton_shower_jobs(sim, plane)
+    jobs = list_proton_shower_jobs(sim, detector_bvh)
 
     # Output as JSON array of objects
     print("[")

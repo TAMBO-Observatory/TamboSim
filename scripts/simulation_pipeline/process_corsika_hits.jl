@@ -70,12 +70,13 @@ function build_detection_units(earth, sim)
     bvh = Tambo.BVHTree(earth.topography[earth.detector_region])
     up = Tambo.Direction([0.0, 0.0, 1.0], cs)
 
-    # Get plane parameters from config
-    point = Tambo.Coordinate(sim.config["corsika"]["plane_coordinates"] .* u"m", Tambo.ecefcoordinates)
-    point = convert(cs, point)
-    direction = Tambo.Direction(sim.config["corsika"]["plane_orientation"], Tambo.ecefcoordinates)
-    direction = convert(cs, direction)
-    plane = Tambo.Plane(point, direction)
+    # Compute area-weighted average normal of detector region for slope correction
+    det_tris = earth.topography[earth.detector_region]
+    normals = Tambo.normal.(det_tris)
+    areas = Tambo.area.(det_tris)
+    avg_normal_vec = sum(ustrip.(u"m^2", areas) .* getfield.(normals, :point)) / sum(ustrip.(u"m^2", areas))
+    avg_normal_vec = normalize(avg_normal_vec)
+    avg_normal = Tambo.Direction(avg_normal_vec, cs)
 
     # Calculate grid spacing for a regular triangular lattice with nearest-neighbor
     # distance d along the slope surface. The correct relationship is:
@@ -84,10 +85,9 @@ function build_detection_units(earth, sim)
     # This matches the old TAMBO-MC convention (detector.jl make_triangle_grid).
     d  = 125.0u"m"
     Δy = d * sqrt(3) / 2
-    Δx = dot(up, plane.normal) * d
+    Δx = dot(up, avg_normal) * d
 
     # Build grid of detection unit positions using geometry-derived bounds
-    det_tris = earth.topography[earth.detector_region]
     all_x = [ustrip(u"m", v.point[1]) for tri in det_tris for v in [tri.v1, tri.v2, tri.v3]]
     all_y = [ustrip(u"m", v.point[2]) for tri in det_tris for v in [tri.v1, tri.v2, tri.v3]]
     x_min = minimum(all_x) * u"m"
@@ -172,15 +172,25 @@ function main()
             continue
         end
 
-        # read_corsika expects event_dir containing shower_*/particles/ subdirectories
-        events = nothing
-        try
-            events = Tambo.read_corsika(event_dir, cs)
-        catch e
-            # No CORSIKA data for this event, skip
+        # Read CORSIKA mesh output from each shower subdirectory
+        shower_dirs = sort(filter(isdir, Tambo.Glob.glob("shower_*/", event_dir)))
+        if isempty(shower_dirs)
             next!(progress)
             continue
         end
+        all_events = Tambo.CorsikaEvent[]
+        for sdir in shower_dirs
+            try
+                append!(all_events, collect(Tambo.read_corsika_mesh(sdir, cs)))
+            catch e
+                @warn "Failed to read $sdir" exception=e
+            end
+        end
+        if isempty(all_events)
+            next!(progress)
+            continue
+        end
+        events = all_events
 
         # Find intersections with detection units
         for event in events

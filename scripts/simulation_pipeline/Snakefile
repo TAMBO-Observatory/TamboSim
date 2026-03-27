@@ -90,7 +90,7 @@ rule take_shower:
         cpus_per_task=1,
         mem_mb=16000,
         slurm_partition="serial_requeue",
-        runtime = lambda wildcards: 48*60 if get_particle_type(wildcards.config) == "proton" else 24*60
+        runtime = lambda wildcards: 48*60 if get_particle_type(wildcards.config) == "proton" else 48*60
     shell:
         """
         julia {params.script} \

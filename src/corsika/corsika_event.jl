@@ -233,22 +233,25 @@ end
 
 """
     read_corsika_mesh(
-        outdir::String,
+        basedir::String,
         cs_earth::CoordinateSystem{T};
         t0=0.0u"s",
         filter_fxn::Function=x->true
     ) where {T<:Real}
 
-Read particles from a `tambo_shower` (CORSIKA 8 mesh) output directory.
+Read particles from one or more `tambo_shower` (CORSIKA 8 mesh) output directories.
 
-The directory must contain `particles/particles.parquet` and
-`particles/config.yaml`.  CORSIKA 8's `ObservationMesh` writer stores particle
-positions as displacements from the mesh bounding-box centre (in ECEF metres),
-so this function reads the centre from `config.yaml` and folds it into the
-coordinate transform.
+Scans `basedir` for `shower_*/particles/` subdirectories, reads `config.yaml` and
+`particles.parquet` from each completed shower, and returns a `MultiParquetIterator`
+over all of them.  CORSIKA 8's `ObservationMesh` writer stores particle positions as
+displacements from the mesh bounding-box centre (in ECEF metres), so the centre is
+read from each shower's `config.yaml` and folded into that shower's coordinate transform.
+
+A shower is considered incomplete and skipped (with a warning) if `summary.yaml` is
+absent from its shower directory.
 
 # Arguments
-- `outdir::String`: Top-level output directory passed to `tambo_shower` with `-f`.
+- `basedir::String`: Top-level output directory passed to `tambo_shower` with `-f`.
 - `cs_earth::CoordinateSystem{T}`: Target coordinate system for the returned particles.
 - `t0`: Optional time offset added to CORSIKA hit times. Defaults to `0.0u"s"`.
 - `filter_fxn::Function`: Optional per-event filter; unused by the iterator itself.
@@ -257,28 +260,46 @@ coordinate transform.
 - A `MultiParquetIterator` that yields `CorsikaEvent` objects.
 """
 function read_corsika_mesh(
-    outdir::String,
+    basedir::String,
     cs_earth::CoordinateSystem{T};
     t0=0.0u"s",
     filter_fxn::Function=x->true
 ) where {T<:Real}
-    pfile   = joinpath(outdir, "particles", "particles.parquet")
-    cfgfile = joinpath(outdir, "particles", "config.yaml")
-    isfile(pfile)   || throw(ArgumentError("No particles.parquet found in $outdir/particles/"))
-    isfile(cfgfile) || throw(ArgumentError("No config.yaml found in $outdir/particles/"))
-
-    # Read the mesh bounding-box centre (ECEF metres) from config.yaml.
-    # Particle (x,y,z) are displacements from this centre, not absolute ECEF.
-    cfg  = open(cfgfile) do f; YAML.load(f); end
-    bmin = Float64.(cfg["mesh"]["bounds"]["min"])
-    bmax = Float64.(cfg["mesh"]["bounds"]["max"])
-    mesh_center = SVector{3,Float64}((bmin .+ bmax) ./ 2) .* u"m"
+    dirs = glob("shower_*/particles/", basedir)
+    filenames, transforms = String[], Function[]
 
     dir_rot, coord_offset = precompute_cs_transform(ecefcoordinates, cs_earth)
-    # Fold the mesh centre into the offset so the CorsikaEvent constructor
-    # can simply do:  earth_pos = dir_rot * (raw_pos + coord_offset_with_center)
-    coord_offset_with_center = coord_offset .+ mesh_center
 
-    trans(row) = CorsikaEvent(row, cs_earth, dir_rot, coord_offset_with_center; t0=t0)
-    return MultiParquetIterator([pfile], trans; T=CorsikaEvent)
+    for pdir in dirs
+        shower_dir = dirname(pdir)
+        if !isfile(joinpath(shower_dir, "summary.yaml"))
+            @warn "$shower_dir did not finish running."
+            continue
+        end
+
+        pfile   = joinpath(pdir, "particles.parquet")
+        cfgfile = joinpath(pdir, "config.yaml")
+        if !isfile(pfile) || !isfile(cfgfile)
+            @warn "Missing particles.parquet or config.yaml in $pdir, skipping."
+            continue
+        end
+
+        # Read the mesh bounding-box centre (ECEF metres) from config.yaml.
+        # Particle (x,y,z) are displacements from this centre, not absolute ECEF.
+        cfg = open(cfgfile) do f; YAML.load(f); end
+        bmin = Float64.(cfg["mesh"]["bounds"]["min"])
+        bmax = Float64.(cfg["mesh"]["bounds"]["max"])
+        mesh_center = SVector{3,Float64}((bmin .+ bmax) ./ 2) .* u"m"
+
+        # Fold the mesh centre into the offset so the CorsikaEvent constructor
+        # can simply do:  earth_pos = dir_rot * (raw_pos + coord_offset_with_center)
+        coord_offset_with_center = coord_offset .+ mesh_center
+
+        trans(row) = CorsikaEvent(row, cs_earth, dir_rot, coord_offset_with_center; t0=t0)
+        push!(filenames, pfile)
+        push!(transforms, trans)
+    end
+
+    isempty(filenames) && throw(ArgumentError("No completed showers found in $basedir"))
+    return MultiParquetIterator(filenames, transforms; T=CorsikaEvent)
 end

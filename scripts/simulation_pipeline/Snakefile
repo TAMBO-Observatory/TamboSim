@@ -60,8 +60,8 @@ checkpoint inject:
     resources:
         cpus_per_task=1,
         mem_mb=10000,
-        slurm_partition="sapphire,shared",
-        runtime=8*60
+        slurm_partition="serial_requeue",
+        runtime=2*60
     shell:
         """
         julia {params.script} \
@@ -90,7 +90,7 @@ rule take_shower:
         cpus_per_task=1,
         mem_mb=16000,
         slurm_partition="serial_requeue",
-        runtime = lambda wildcards: 48*60 if get_particle_type(wildcards.config) == "proton" else 48*60
+        runtime = lambda wildcards: 48*60 if get_particle_type(wildcards.config) == "proton" else 72*60
     shell:
         """
         julia {params.script} \

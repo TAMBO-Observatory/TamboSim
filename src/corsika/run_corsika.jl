@@ -211,10 +211,11 @@ and `--intercept-x/y/z` (intercept on detector region), both in ECEF metres.
 - `earth::Earth`: Detector geometry; `earth.detector_region` selects detection triangles.
 - `obs_mesh_path::String`: Path to the observation-region PLY file (ECEF metres).
 - `terrain_mesh_path::String`: Path to the terrain PLY file, or `""` to disable.
-- `ecuts`: Four energy cuts `(emcut, hadcut, mucut, taucut)` as `Quantity` values.
+- `ecuts`: Three energy cuts `(emcut, mucut, hadcut)` as `Quantity` values.
 - `corsika_path::String`: Path to the `tambo_shower` executable.
 - `outdir::String`: Output directory (removed and recreated if it already exists).
 - `seed::Int64`: Random seed (0 = auto).
+- `thinning::Float64`: EM thinning fraction (passed as `--emthin`). Default `1e-6`.
 - `nevent::Int`: Number of showers to simulate. Default 1.
 - `hadron_model::String`: High-energy hadronic model name. Default `"SIBYLL-2.3d"`.
 - `sbatch_command`: Optional sbatch prefix for cluster submission.
@@ -228,6 +229,7 @@ function corsika_run(
     corsika_path::String,
     outdir::String,
     seed::Int64;
+    thinning::Float64=1e-6,
     nevent::Int=1,
     hadron_model::String="SIBYLL-2.3d",
     sbatch_command=""
@@ -255,7 +257,8 @@ function corsika_run(
     interceptY = ustrip(u"m", intercept_ecef.point[2])
     interceptZ = ustrip(u"m", intercept_ecef.point[3])
 
-    emcut, hadcut, mucut, taucut = ustrip.(collect(ecuts) .|> u"GeV")
+    emcut, mucut, hadcut = ustrip.(collect(ecuts) .|> u"GeV")
+    taucut = mucut  # no separate tau cut in config; default to muon cut
 
     if isdir(outdir)
         rm(outdir, recursive=true)
@@ -279,6 +282,7 @@ function corsika_run(
         "-M",            hadron_model,
         "-N",            string(nevent),
         "--seed",        string(seed),
+        "--emthin",      string(thinning),
         "-f",            outdir,
     ]
     if !isempty(terrain_mesh_path)

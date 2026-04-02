@@ -533,6 +533,7 @@ function corsika_run(
     obs_mesh_path     = cfg["obs_mesh_path"]
     terrain_mesh_path = get(cfg, "terrain_mesh_path", "")
     hadron_model      = get(cfg, "hadron_model", "SIBYLL-2.3d")
+    thinning          = get(cfg, "thinning", 1e-6)
 
     if haskey(cfg, "pinecone")
         Random.seed!(cfg["pinecone"])
@@ -542,7 +543,7 @@ function corsika_run(
         sim.config["corsika"]["pinecone"] = pinecone
     end
     sbatch_command = parallelize ? cfg["sbatch_command"] : ""
-    ecuts = SVector{4, Float64}([cfg["em_ecut"], cfg["photon_ecut"], cfg["mu_ecut"], cfg["hadron_ecut"]]) * u"GeV"
+    ecuts = SVector{3, Float64}([cfg["em_ecut"], cfg["mu_ecut"], cfg["hadron_ecut"]]) * u"GeV"
     for frame in sim.results
         if !(haskey(frame, inkey))
             continue
@@ -570,6 +571,7 @@ function corsika_run(
                     cfg["corsika_path"],
                     output_dir,
                     seed;
+                    thinning=thinning,
                     hadron_model=hadron_model,
                     sbatch_command=sbatch_command
                 )

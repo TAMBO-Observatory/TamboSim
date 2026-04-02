@@ -139,6 +139,38 @@ using MyExtraEnv = media::GladstoneDaleRefractiveIndex<
     media::MediumPropertyModel<media::UniformMagneticField<T>>>;
 
 // ---------------------------------------------------------------------------
+// Custom 5-layer atmosphere for the Colca Valley (TAMBO site).
+// Layer parameters fitted to local radiosonde / reanalysis data.
+// ---------------------------------------------------------------------------
+template <typename TEnvironmentInterface, template <typename> typename TExtraEnv,
+          typename TEnvironment, typename... TArgs>
+void create_5layer_colca_atmosphere(TEnvironment& env,
+                                    Point const& center, TArgs... args) {
+  auto builder = media::make_layered_spherical_atmosphere_builder<
+      TEnvironmentInterface, TExtraEnv>::create(center, constants::EarthRadius::Mean,
+                                                std::forward<TArgs>(args)...);
+
+  builder.setNuclearComposition(media::standardAirComposition);
+
+  using media::AtmosphereLayerParameters;
+  constexpr std::array<AtmosphereLayerParameters, 5> params{{
+      {3.8_km,   1208.0663_g / (1_cm * 1_cm), 1045629.03_cm},
+      {9.7_km,   1148.2458_g / (1_cm * 1_cm),  963788.26_cm},
+      {26.5_km,  1182.7783_g / (1_cm * 1_cm),  770343.77_cm},
+      {100_km,   1510.0311_g / (1_cm * 1_cm),  701471.17_cm},
+      {5000_km,  1_g / (1_cm * 1_cm),          1e9_cm},
+  }};
+
+  for (int i = 0; i < 4; ++i) {
+    builder.addExponentialLayer(params[i].offset, params[i].scaleHeight,
+                                params[i].altitude);
+  }
+  builder.addLinearLayer(params[4].offset, params[4].scaleHeight, params[4].altitude);
+
+  builder.assemble(env);
+}
+
+// ---------------------------------------------------------------------------
 // Derive local ENU basis vectors from an ECEF point (metres).
 // east, north, up are unit vectors in the ECEF frame.
 // ---------------------------------------------------------------------------
@@ -451,8 +483,8 @@ int main(int argc, char** argv) {
                    obsField.getY(rootCS) / 1_nT,
                    obsField.getZ(rootCS) / 1_nT);
 
-  media::create_5layer_atmosphere<EnvironmentInterface, MyExtraEnv>(
-      env, media::AtmosphereId::USStdBK, earthCenter, 1.000327, earthSurface,
+  create_5layer_colca_atmosphere<EnvironmentInterface, MyExtraEnv>(
+      env, earthCenter, 1.000327, earthSurface,
       media::Medium::AirDry1Atm, obsField);
 
   /* === PRIMARY PARTICLE ID === */

@@ -115,6 +115,7 @@ function main()
     obs_mesh_path     = cfg["obs_mesh_path"]
     terrain_mesh_path = get(cfg, "terrain_mesh_path", "")
     hadron_model      = get(cfg, "hadron_model", "SIBYLL-2.3d")
+    thinning          = get(cfg, "thinning", 1e-6)
     ENV["FLUPRO"]     = cfg["FLUPRO"]
     ENV["FLUFOR"]     = cfg["FLUFOR"]
 
@@ -137,6 +138,7 @@ function main()
         cfg["corsika_path"],
         output_dir,
         Int64(seed);
+        thinning=thinning,
         hadron_model=hadron_model
     )
 end

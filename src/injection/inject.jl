@@ -206,7 +206,7 @@ function compute_final_state(
         distance, cd, density = find_vertex_distance_by_cd(revd, range, intersections)
     end
 
-    pout = Coordinate(first(intersections).point.point + revd.point * distance, cs)
+    pout = Coordinate(last(intersections).point.point + revd.point * distance, cs)
     final_state = Particle(pdg_out, eout, pout, d)
 
     return final_state, eout, cd, density
@@ -432,4 +432,64 @@ function inject_event(
         detector_props.bvh, detector_props.areas,
         epsilon, tr_seed
     )
+end
+
+"""
+    inject_muon_event(pdg, earth, as, pl, detector_props; epsilon)
+
+Injects an atmospheric muon at the detector surface and traces back through rock
+to find the muon origin point.
+
+The muon is sampled on the detector surface (like neutrinos), but instead of
+propagating through Earth via TauRunner, we use `particle_rock_range` to estimate
+how far the muon could have traveled in rock at the sampled energy, then place the
+origin vertex at that distance along the reversed trajectory.
+
+# Returns
+- `(initial_state, final_state, final_state, weight_params)` — initial_state is at the
+  detector surface, final_state is at the muon origin point.
+"""
+function inject_muon_event(
+    pdg::Int,
+    earth::Earth,
+    as::UniformAngularSampler,
+    pl::UnitfulPowerLawSampler,
+    detector_props::DetectorProperties{T};
+    epsilon=1e-6*u"m"
+) where {T<:Real}
+    cs = CoordinateSystem(earth)
+    d = rand(as, cs)
+
+    p, visible_areas = sample_detector_point(
+        detector_props.triangles, detector_props.normals, detector_props.areas,
+        detector_props.bvh, d, cs, epsilon
+    )
+    if isnothing(p)
+        return create_null_result(pdg, INJECTION_ERROR_NO_VISIBLE_TRIANGLES, d, cs, T)
+    end
+
+    revd = reverse(d)
+    intersections, error_code = validate_trajectory(earth, p, revd)
+    if isnothing(intersections)
+        return create_null_result(pdg, error_code, d, cs, T)
+    end
+
+    # Sample energy; inject muon at the rock surface (first air-rock interface)
+    energy = rand(pl)
+    pdg_type = ParticleType(pdg)
+    origin = first(intersections).point
+
+    initial_state = Particle(pdg_type, energy, origin, d)  # at rock surface
+    final_state = Particle(pdg_type, energy, origin, d)    # same point
+
+    weight_params = WeightParameters(
+        sum(visible_areas),
+        pl, as,
+        energy,
+        NaN * u"GeV",
+        NaN * u"g/cm^2",
+        NaN * u"g/cm^3"
+    )
+
+    return initial_state, final_state, final_state, weight_params
 end

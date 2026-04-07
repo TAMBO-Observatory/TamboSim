@@ -206,7 +206,7 @@ function compute_final_state(
         distance, cd, density = find_vertex_distance_by_cd(revd, range, intersections)
     end
 
-    pout = Coordinate(last(intersections).point.point + revd.point * distance, cs)
+    pout = Coordinate(first(intersections).point.point + revd.point * distance, cs)
     final_state = Particle(pdg_out, eout, pout, d)
 
     return final_state, eout, cd, density
@@ -477,7 +477,7 @@ function inject_muon_event(
     # Sample energy; inject muon at the rock surface (first air-rock interface)
     energy = rand(pl)
     pdg_type = ParticleType(pdg)
-    origin = first(intersections).point
+    origin = last(intersections).point
 
     initial_state = Particle(pdg_type, energy, origin, d)  # at rock surface
     final_state = Particle(pdg_type, energy, origin, d)    # same point

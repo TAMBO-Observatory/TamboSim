@@ -1,8 +1,8 @@
 /*
  * TAMBO cosmic-ray air-shower simulation using CORSIKA 8.
  *
- * Simulates downgoing showers observed at the TAMBO detector site in the Colca
- * Valley, Peru.  Two triangular meshes in ECEF coordinates drive the geometry:
+ * Simulates showers observed at the TAMBO detector site in the Colca
+ * Valley, Peru. Two triangular meshes in ECEF coordinates drive the geometry:
  *
  *   injection_region_corsika.ply  -  valley floor observation surface
  *   terrain_corsika.ply           -  surrounding terrain absorber (optional)
@@ -11,7 +11,7 @@
  * line: the injection point (--inject-x/y/z, upstream, ~112 km altitude) and
  * the intercept on the detection region (--intercept-x/y/z).  In normal use
  * these coordinates are computed by the Julia corsika_run(particle, earth, ...)
- * wrapper, which traces the tau decay-product trajectory to the detector mesh.
+ * wrapper, which traces the particle trajectory to the detector mesh.
  *
  * Usage is modelled after c8_air_shower.cpp from the CORSIKA 8 repository.
  */
@@ -187,9 +187,15 @@ static void ecefToENU(double cx, double cy, double cz, std::array<double, 3>& ea
     east = {1.0, 0.0, 0.0}; // fallback at poles
   }
 
-  // north = east x up  (right-hand cross product gives northward ECEF direction)
-  north = {east[1] * up[2] - east[2] * up[1], east[2] * up[0] - east[0] * up[2],
-           east[0] * up[1] - east[1] * up[0]};
+  // north = up x east  (right-handed ENU basis)
+  north = {up[1] * east[2] - up[2] * east[1],
+          up[2] * east[0] - up[0] * east[2],
+          up[0] * east[1] - up[1] * east[0]};
+
+  // // north = east x up  (right-hand cross product gives northward ECEF direction)
+  // north = {east[1] * up[2] - east[2] * up[1], east[2] * up[0] - east[0] * up[2],
+  //          east[0] * up[1] - east[1] * up[0]};
+
   double const nm =
       std::sqrt(north[0] * north[0] + north[1] * north[1] + north[2] * north[2]);
   north[0] /= nm;
@@ -226,7 +232,9 @@ int main(int argc, char** argv) {
       ->excludes(opt_A)
       ->excludes(opt_Z)
       ->group("Primary");
-  app.add_option("-E,--energy", "Primary energy in GeV")->default_val(0);
+  app.add_option("-E,--energy", "Primary energy in GeV")
+      ->default_val(0)
+      ->group("Primary");
   app.add_option("--energy_range", cli_energy_range,
                  "Low and high values for the primary energy range in GeV")
       ->expected(2)
@@ -235,6 +243,7 @@ int main(int argc, char** argv) {
   app.add_option("--eslope", "Spectral index for energy sampling, dN/dE = E^eSlope")
       ->default_val(-1.0)
       ->group("Primary");
+      
   // ---- Geometry / mesh ----
   app.add_option("--obs-mesh",
                  "Path to the observation-region PLY file (ECEF metres)")
@@ -268,7 +277,7 @@ int main(int argc, char** argv) {
       ->required()
       ->group("Geometry");
 
-  // ---- Energy cuts ----
+  // ---- Config ----
   app.add_option("--emcut",
                  "Min. kin. energy of photons, electrons and positrons (GeV)")
       ->default_val(10.0)
@@ -291,6 +300,7 @@ int main(int argc, char** argv) {
       ->default_val(0.2)
       ->check(CLI::Range(1e-8, 1.))
       ->group("Config");
+
   bool track_neutrinos = false;
   app.add_flag("--track-neutrinos", track_neutrinos, "Enable neutrino tracking")
       ->group("Config");
@@ -299,7 +309,6 @@ int main(int argc, char** argv) {
                "Enable charmed hadron tracking (Sibyll, Pythia8, EPOS-LHC-R, QGSJet-III)")
       ->group("Config");
 
-  // ---- Hadronic model ----
   app.add_option("-M,--hadronModel", "High-energy hadronic interaction model")
       ->default_val("SIBYLL-2.3d")
       ->check(CLI::IsMember({"SIBYLL-2.3d", "QGSJet-II.04", "QGSJet-III", "EPOS-LHC",
@@ -326,7 +335,7 @@ int main(int argc, char** argv) {
   app.add_flag("--multithin", multithin, "Keep thinned particles (weight=0)")
       ->group("Thinning");
 
-  // ---- Output / misc ----
+  // ---- Output ----
   app.add_option("-N,--nevent", nevent, "Number of showers to simulate")
       ->default_val(1)
       ->check(CLI::PositiveNumber)
@@ -339,6 +348,8 @@ int main(int argc, char** argv) {
   bool compressOutput = false;
   app.add_flag("--compress", compressOutput, "Compress output directory to tarball")
       ->group("Output");
+
+  // ---- Misc ----
   app.add_option("-s,--seed", "Random number seed (0 = auto)")
       ->default_val(0)
       ->check(CLI::NonNegativeNumber)
@@ -350,7 +361,7 @@ int main(int argc, char** argv) {
   bool force_decay = false;
   app.add_flag("--force-decay", force_decay, "Force the primary to immediately decay")
       ->group("Misc");
-  bool disable_interaction_hists = false;
+  bool disable_interaction_hists = true;
   app.add_flag("--disable-interaction-histograms", disable_interaction_hists,
                "Disable saving interaction histograms")
       ->group("Misc");
@@ -397,7 +408,7 @@ int main(int argc, char** argv) {
   CoordinateSystemPtr const& rootCS = env.getCoordinateSystem();
   Point const earthCenter{rootCS, 0_m, 0_m, 0_m};
   Point const earthSurface{rootCS, 0_m, 0_m, constants::EarthRadius::Mean};
-  media::GeomagneticModel wmm(earthCenter, corsika_data("GeoMag/WMM.COF"));
+  // media::GeomagneticModel wmm(earthCenter, corsika_data("GeoMag/WMM.COF"));
 
   /* === LOAD MESHES === */
   std::string const obsMeshPath = app["--obs-mesh"]->as<std::string>();
@@ -471,13 +482,24 @@ int main(int argc, char** argv) {
   //   B_N ~ 25500 nT (mostly northward)
   //   B_U ~ 11000 nT (upward, southern hemisphere)
   // Rotate these ENU components into ECEF using the site's ENU basis vectors.
-  constexpr double B_E_T =  -1700e-9;  // Tesla (eastward component)
-  constexpr double B_N_T =  25500e-9;  // Tesla (northward component)
-  constexpr double B_U_T =  11000e-9;  // Tesla (upward component)
-  double const Bx = B_E_T * eastHat[0] + B_N_T * northHat[0] + B_U_T * upHat[0];
-  double const By = B_E_T * eastHat[1] + B_N_T * northHat[1] + B_U_T * upHat[1];
-  double const Bz = B_E_T * eastHat[2] + B_N_T * northHat[2] + B_U_T * upHat[2];
-  MagneticFieldVector const obsField{rootCS, Bx * 1_T, By * 1_T, Bz * 1_T};
+  // constexpr double B_E_T =  -1700e-9;  // Tesla (eastward component)
+  // constexpr double B_N_T =  25500e-9;  // Tesla (northward component)
+  // constexpr double B_U_T =  11000e-9;  // Tesla (upward component)
+  // double const Bx = B_E_T * eastHat[0] + B_N_T * northHat[0] + B_U_T * upHat[0];
+  // double const By = B_E_T * eastHat[1] + B_N_T * northHat[1] + B_U_T * upHat[1];
+  // double const Bz = B_E_T * eastHat[2] + B_N_T * northHat[2] + B_U_T * upHat[2];
+  // MagneticFieldVector const obsField{rootCS, Bx * 1_T, By * 1_T, Bz * 1_T};
+
+  // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
+  // see https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
+  constexpr double B_E =  -2.5;  // uT (eastward component)
+  constexpr double B_N =  22.9;  // uT (northward component)
+  constexpr double B_U =  -3.7;  // uT (upward component)
+  double const Bx = B_E * eastHat[0] + B_N * northHat[0] + B_U * upHat[0];
+  double const By = B_E * eastHat[1] + B_N * northHat[1] + B_U * upHat[1];
+  double const Bz = B_E * eastHat[2] + B_N * northHat[2] + B_U * upHat[2];
+  MagneticFieldVector const obsField{rootCS, Bx * 1_uT, By * 1_uT, Bz * 1_uT};
+
   CORSIKA_LOG_INFO("Magnetic field (ECEF nT): ({:.1f}, {:.1f}, {:.1f})",
                    obsField.getX(rootCS) / 1_nT,
                    obsField.getY(rootCS) / 1_nT,
@@ -631,9 +653,9 @@ int main(int argc, char** argv) {
   output.add("profile", profile);
   LongitudinalProfile<SubWriter<decltype(profile)>> longprof{profile};
 
-  ProductionWriter prod_profile{showerAxis, dX};
-  output.add("production_profile", prod_profile);
-  ProductionProfile<SubWriter<decltype(prod_profile)>> prodprof{prod_profile};
+  // ProductionWriter prod_profile{showerAxis, dX};
+  // output.add("production_profile", prod_profile);
+  // ProductionProfile<SubWriter<decltype(prod_profile)>> prodprof{prod_profile};
 
 #ifdef WITH_FLUKA
   corsika::fluka::Interaction leIntModel{all_elements};
@@ -654,7 +676,13 @@ int main(int argc, char** argv) {
 
   /* === OBSERVATION MESH (absorbing: records and removes particles at valley floor) === */
   ObservationMesh<TrackingType, ParticleWriterParquet> observationLevel{
-      obsMesh, true, 1e-6_m};
+      obsMesh, 
+      true,     // absorbinb
+      1e-6_m,   // padding
+      false,    // writeHitInfo
+      true,     // recordEntry
+      false,    // recordExit
+    };
   output.add("particles", observationLevel);
 
   /* === ESCAPE PLANE (absorbing: catches particles that miss the obs mesh) === */
@@ -690,9 +718,14 @@ int main(int argc, char** argv) {
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut
-    auto fullSequence = make_sequence(stackInspect, neutrinoPrimaryPythia, hadronSequence,
-                                      decaySequence, emCascade, prodprof, emContinuous,
-                                      longprof, sequence, inter_writer, thinning, cut);
+    auto fullSequence = make_sequence(stackInspect, 
+                                      neutrinoPrimaryPythia, hadronSequence,
+                                      decaySequence, emCascade, 
+                                      // prodprof, 
+                                      emContinuous,
+                                      longprof, sequence, 
+                                      inter_writer, 
+                                      thinning, cut);
 
     TrackingType tracking(maxDefl);
     StackType stack;

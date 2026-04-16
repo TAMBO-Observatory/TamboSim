@@ -157,8 +157,9 @@ end
 """
     relativize!(d::Dict)
 
-Recursively replaces the placeholder `_TAMBOSIM_PATH_` in a dictionary with the value
-of the `TAMBOSIM_PATH` environment variable.
+Recursively resolves relative path strings in a dictionary against the package root directory.
+Strings containing `/` but not starting with `/` are treated as relative paths.
+Also handles the legacy `_TAMBOSIM_PATH_` placeholder for backward compatibility.
 
 This function modifies the dictionary in-place.
 
@@ -166,10 +167,14 @@ This function modifies the dictionary in-place.
 - `d::Dict`: The dictionary to modify.
 """
 function relativize!(d::Dict)
-    tambosim_path = get_tambosim_path()
+    pkg_root = dirname(@__DIR__)
     for (k, v) in pairs(d)
         if isa(v, String)
-            d[k] = replace(v, "_TAMBOSIM_PATH_" => tambosim_path)
+            if contains(v, "_TAMBOSIM_PATH_")
+                d[k] = replace(v, "_TAMBOSIM_PATH_" => pkg_root)
+            elseif contains(v, '/') && !startswith(v, '/')
+                d[k] = joinpath(pkg_root, v)
+            end
         elseif isa(v, Dict)
             relativize!(v)
         end

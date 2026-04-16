@@ -44,6 +44,7 @@
 #include <corsika/modules/writers/PrimaryWriter.hpp>
 #include <corsika/modules/writers/SubWriter.hpp>
 #include <corsika/modules/writers/ParticleWriterParquet.hpp>
+// #include <corsika/modules/TrackWriter.hpp>
 #include <corsika/output/OutputManager.hpp>
 
 #include <corsika/media/CORSIKA7Atmospheres.hpp>
@@ -191,10 +192,6 @@ static void ecefToENU(double cx, double cy, double cz, std::array<double, 3>& ea
   north = {up[1] * east[2] - up[2] * east[1],
           up[2] * east[0] - up[0] * east[2],
           up[0] * east[1] - up[1] * east[0]};
-
-  // // north = east x up  (right-hand cross product gives northward ECEF direction)
-  // north = {east[1] * up[2] - east[2] * up[1], east[2] * up[0] - east[0] * up[2],
-  //          east[0] * up[1] - east[1] * up[0]};
 
   double const nm =
       std::sqrt(north[0] * north[0] + north[1] * north[1] + north[2] * north[2]);
@@ -477,11 +474,11 @@ int main(int argc, char** argv) {
                    escapePlaneDist, 1.0);
 
   /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
-  // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
-  //   B_E ~ -1700 nT (slightly westward)
-  //   B_N ~ 25500 nT (mostly northward)
-  //   B_U ~ 11000 nT (upward, southern hemisphere)
-  // Rotate these ENU components into ECEF using the site's ENU basis vectors.
+  // // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
+  // //   B_E ~ -1700 nT (slightly westward)
+  // //   B_N ~ 25500 nT (mostly northward)
+  // //   B_U ~ 11000 nT (upward, southern hemisphere)
+  // // Rotate these ENU components into ECEF using the site's ENU basis vectors.
   // constexpr double B_E_T =  -1700e-9;  // Tesla (eastward component)
   // constexpr double B_N_T =  25500e-9;  // Tesla (northward component)
   // constexpr double B_U_T =  11000e-9;  // Tesla (upward component)
@@ -572,6 +569,13 @@ int main(int argc, char** argv) {
 
   EnergyLossWriter dEdX{showerAxis, dX};
   output.add("energyloss", dEdX);
+
+  // TrackWriter records every tracking step (start/end position, energy, PDG, weight)
+  // to tracks.parquet -- useful for shower visualisations.  Note: files can be very
+  // large for high-energy showers (O(GB) at 1 PeV without thinning); consider
+  // enabling only for low-multiplicity or thinned runs.
+  // TrackWriter<TrackWriterParquet> trackWriter;
+  // output.add("tracks", trackWriter);
 
   /* === PHYSICS PROCESSES === */
   DynamicInteractionProcess<StackType> heModel;
@@ -723,7 +727,8 @@ int main(int argc, char** argv) {
                                       decaySequence, emCascade, 
                                       // prodprof, 
                                       emContinuous,
-                                      longprof, sequence, 
+                                      longprof, sequence,
+    // trackWriter,  // uncomment together with the block above 
                                       inter_writer, 
                                       thinning, cut);
 

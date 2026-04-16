@@ -10,6 +10,7 @@ notebooks/output/*
 fort*
 
 src/corsika/build/
+resources/corsika/src/build/
 
 *.pdf
 *.png

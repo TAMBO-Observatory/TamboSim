@@ -524,21 +524,16 @@ function corsika_run(
     relativize!(cfg)
 
     if isnothing(earth)
-
         earth = Earth(
             sim.config["geometry"]["earth_path"],
             sim.config["geometry"]["detector_key"],
         )
     end
 
-    up = Direction([0.0, 0.0, 1.0], CoordinateSystem(earth))
-
-    # Define plane
-    d = Tambo.Direction(cfg["plane_orientation"], ecefcoordinates)
-    d = convert(CoordinateSystem(earth), d)
-    point = Coordinate(cfg["plane_coordinates"] .* u"m", ecefcoordinates)
-    point = convert(CoordinateSystem(earth), point)
-    plane = Plane(point, d)
+    obs_mesh_path     = cfg["obs_mesh_path"]
+    terrain_mesh_path = get(cfg, "terrain_mesh_path", "")
+    hadron_model      = get(cfg, "hadron_model", "SIBYLL-2.3d")
+    thinning          = get(cfg, "thinning", 1e-6)
 
     if haskey(cfg, "pinecone")
         Random.seed!(cfg["pinecone"])
@@ -548,7 +543,7 @@ function corsika_run(
         sim.config["corsika"]["pinecone"] = pinecone
     end
     sbatch_command = parallelize ? cfg["sbatch_command"] : ""
-    ecuts = SVector{4, Float64}([cfg["em_ecut"], cfg["photon_ecut"], cfg["mu_ecut"], cfg["hadron_ecut"]]) * u"GeV"
+    ecuts = SVector{3, Float64}([cfg["em_ecut"], cfg["mu_ecut"], cfg["hadron_ecut"]]) * u"GeV"
     for frame in sim.results
         if !(haskey(frame, inkey))
             continue
@@ -560,17 +555,6 @@ function corsika_run(
             if abs(Int(particle.pdg)) in [12,14,16]
                 continue
             end
-
-            ray = Ray(particle)
-            i, t = find_intersection(ray, plane)
-            if isnothing(t)
-                continue
-            end
-            #ray = Ray(particle.position, up)
-            #ixs = intersect_all(earth, ray)
-            #if length(ixs) > 0
-            #    continue
-            #end
             output_dir = "$(base_outdir)/event_$(lpad(frame["event_id"], 6, '0'))/shower_$(idx)/"
             push!(paths, output_dir)
             if isdir(output_dir)
@@ -580,14 +564,15 @@ function corsika_run(
             try
                 corsika_run(
                     particle,
-                    plane,
-                    cfg["thinning"],
+                    earth,
+                    obs_mesh_path,
+                    terrain_mesh_path,
                     ecuts,
                     cfg["corsika_path"],
-                    cfg["FLUPRO"],
-                    cfg["FLUFOR"],
                     output_dir,
                     seed;
+                    thinning=thinning,
+                    hadron_model=hadron_model,
                     sbatch_command=sbatch_command
                 )
             catch e

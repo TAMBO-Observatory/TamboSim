@@ -164,7 +164,7 @@ function Base.close(iter::MultiParquetIterator)
     empty!(iter.records_buffer)
 end
 
-Base.IteratorSize(::Type{MultiParquetIterator}) = Base.SizeUnknown()
+Base.IteratorSize(::Type{<:MultiParquetIterator}) = Base.SizeUnknown()
 Base.eltype(::Type{MultiParquetIterator{T}}) where T = T
 
 """

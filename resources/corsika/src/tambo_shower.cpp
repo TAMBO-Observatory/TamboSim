@@ -1,16 +1,17 @@
 /*
  * TAMBO cosmic-ray air-shower simulation using CORSIKA 8.
  *
- * Simulates downgoing showers observed at the TAMBO detector site in the Colca
- * Valley, Peru.  Two triangular meshes in ECEF coordinates drive the geometry:
+ * Simulates showers observed at the TAMBO detector site in the Colca
+ * Valley, Peru. Two triangular meshes in ECEF coordinates drive the geometry:
  *
  *   injection_region_corsika.ply  -  valley floor observation surface
  *   terrain_corsika.ply           -  surrounding terrain absorber (optional)
  *
- * The injection point is placed injection-distance metres upstream of the
- * centroid of the observation mesh, along the shower axis defined by the
- * requested zenith and azimuth angles.  Zenith/azimuth are interpreted in the
- * local ENU frame at that centroid, with azimuth measured clockwise from North.
+ * The shower trajectory is specified by two ECEF points passed on the command
+ * line: the injection point (--inject-x/y/z, upstream, ~112 km altitude) and
+ * the intercept on the detection region (--intercept-x/y/z).  In normal use
+ * these coordinates are computed by the Julia corsika_run(particle, earth, ...)
+ * wrapper, which traces the particle trajectory to the detector mesh.
  *
  * Usage is modelled after c8_air_shower.cpp from the CORSIKA 8 repository.
  */
@@ -43,6 +44,7 @@
 #include <corsika/modules/writers/PrimaryWriter.hpp>
 #include <corsika/modules/writers/SubWriter.hpp>
 #include <corsika/modules/writers/ParticleWriterParquet.hpp>
+// #include <corsika/modules/TrackWriter.hpp>
 #include <corsika/output/OutputManager.hpp>
 
 #include <corsika/media/CORSIKA7Atmospheres.hpp>
@@ -138,43 +140,35 @@ using MyExtraEnv = media::GladstoneDaleRefractiveIndex<
     media::MediumPropertyModel<media::UniformMagneticField<T>>>;
 
 // ---------------------------------------------------------------------------
-// Compute the area-weighted centroid of a TriangularMesh.
-// Returns ECEF components in metres via cx, cy, cz.
+// Custom 5-layer atmosphere for the Colca Valley (TAMBO site).
+// Layer parameters fitted to local radiosonde / reanalysis data.
 // ---------------------------------------------------------------------------
-static void computeMeshCentroid(TriangularMesh const& mesh, CoordinateSystemPtr rootCS,
-                                double& cx, double& cy, double& cz) {
-  double totalArea = 0.0;
-  cx = cy = cz = 0.0;
+template <typename TEnvironmentInterface, template <typename> typename TExtraEnv,
+          typename TEnvironment, typename... TArgs>
+void create_5layer_colca_atmosphere(TEnvironment& env,
+                                    Point const& center, TArgs... args) {
+  auto builder = media::make_layered_spherical_atmosphere_builder<
+      TEnvironmentInterface, TExtraEnv>::create(center, constants::EarthRadius::Mean,
+                                                std::forward<TArgs>(args)...);
 
-  for (size_t i = 0; i < mesh.getTriangleCount(); ++i) {
-    Triangle const& tri = mesh.getTriangle(i);
-    auto const& idx = tri.getVertexIndices();
-    auto const c0 = mesh.getVertex(idx[0]).getCoordinates(rootCS);
-    auto const c1 = mesh.getVertex(idx[1]).getCoordinates(rootCS);
-    auto const c2 = mesh.getVertex(idx[2]).getCoordinates(rootCS);
+  builder.setNuclearComposition(media::standardAirComposition);
 
-    double const x0 = c0.getX() / 1_m, y0 = c0.getY() / 1_m, z0 = c0.getZ() / 1_m;
-    double const x1 = c1.getX() / 1_m, y1 = c1.getY() / 1_m, z1 = c1.getZ() / 1_m;
-    double const x2 = c2.getX() / 1_m, y2 = c2.getY() / 1_m, z2 = c2.getZ() / 1_m;
+  using media::AtmosphereLayerParameters;
+  constexpr std::array<AtmosphereLayerParameters, 5> params{{
+      {3.8_km,   1208.0663_g / (1_cm * 1_cm), 1045629.03_cm},
+      {9.7_km,   1148.2458_g / (1_cm * 1_cm),  963788.26_cm},
+      {26.5_km,  1182.7783_g / (1_cm * 1_cm),  770343.77_cm},
+      {100_km,   1510.0311_g / (1_cm * 1_cm),  701471.17_cm},
+      {5000_km,  1_g / (1_cm * 1_cm),          1e9_cm},
+  }};
 
-    double const ex = x1 - x0, ey = y1 - y0, ez = z1 - z0;
-    double const fx = x2 - x0, fy = y2 - y0, fz = z2 - z0;
-    double const area =
-        0.5 * std::sqrt((ey * fz - ez * fy) * (ey * fz - ez * fy) +
-                        (ez * fx - ex * fz) * (ez * fx - ex * fz) +
-                        (ex * fy - ey * fx) * (ex * fy - ey * fx));
-
-    cx += area * (x0 + x1 + x2) / 3.0;
-    cy += area * (y0 + y1 + y2) / 3.0;
-    cz += area * (z0 + z1 + z2) / 3.0;
-    totalArea += area;
+  for (int i = 0; i < 4; ++i) {
+    builder.addExponentialLayer(params[i].offset, params[i].scaleHeight,
+                                params[i].altitude);
   }
+  builder.addLinearLayer(params[4].offset, params[4].scaleHeight, params[4].altitude);
 
-  if (totalArea > 0.0) {
-    cx /= totalArea;
-    cy /= totalArea;
-    cz /= totalArea;
-  }
+  builder.assemble(env);
 }
 
 // ---------------------------------------------------------------------------
@@ -194,9 +188,11 @@ static void ecefToENU(double cx, double cy, double cz, std::array<double, 3>& ea
     east = {1.0, 0.0, 0.0}; // fallback at poles
   }
 
-  // north = east x up  (right-hand cross product gives northward ECEF direction)
-  north = {east[1] * up[2] - east[2] * up[1], east[2] * up[0] - east[0] * up[2],
-           east[0] * up[1] - east[1] * up[0]};
+  // north = up x east  (right-handed ENU basis)
+  north = {up[1] * east[2] - up[2] * east[1],
+          up[2] * east[0] - up[0] * east[2],
+          up[0] * east[1] - up[1] * east[0]};
+
   double const nm =
       std::sqrt(north[0] * north[0] + north[1] * north[1] + north[2] * north[2]);
   north[0] /= nm;
@@ -233,7 +229,9 @@ int main(int argc, char** argv) {
       ->excludes(opt_A)
       ->excludes(opt_Z)
       ->group("Primary");
-  app.add_option("-E,--energy", "Primary energy in GeV")->default_val(0);
+  app.add_option("-E,--energy", "Primary energy in GeV")
+      ->default_val(0)
+      ->group("Primary");
   app.add_option("--energy_range", cli_energy_range,
                  "Low and high values for the primary energy range in GeV")
       ->expected(2)
@@ -242,16 +240,7 @@ int main(int argc, char** argv) {
   app.add_option("--eslope", "Spectral index for energy sampling, dN/dE = E^eSlope")
       ->default_val(-1.0)
       ->group("Primary");
-  app.add_option("-z,--zenith", "Primary zenith angle in the local ENU frame (deg)")
-      ->default_val(0.)
-      ->check(CLI::Range(0., 90.))
-      ->group("Primary");
-  app.add_option("-a,--azimuth",
-                 "Primary azimuth angle clockwise from North in the local ENU frame (deg)")
-      ->default_val(0.)
-      ->check(CLI::Range(0., 360.))
-      ->group("Primary");
-
+      
   // ---- Geometry / mesh ----
   app.add_option("--obs-mesh",
                  "Path to the observation-region PLY file (ECEF metres)")
@@ -263,15 +252,29 @@ int main(int argc, char** argv) {
                  "(ECEF metres).  Leave empty to disable.")
       ->default_val("")
       ->group("Geometry");
-  app.add_option("--injection-altitude",
-                 "Altitude above the Earth's surface of the injection point (m). "
-                 "The injection distance is computed as the upstream ray-sphere "
-                 "intersection from the observation-mesh centroid.")
-      ->default_val(112.75e3)
-      ->check(CLI::PositiveNumber)
+  app.add_option("--inject-x", "X component of the injection point (ECEF metres)")
+      ->required()
+      ->group("Geometry");
+  app.add_option("--inject-y", "Y component of the injection point (ECEF metres)")
+      ->required()
+      ->group("Geometry");
+  app.add_option("--inject-z", "Z component of the injection point (ECEF metres)")
+      ->required()
+      ->group("Geometry");
+  app.add_option("--intercept-x",
+                 "X component of the shower-core intercept on the detection region (ECEF metres)")
+      ->required()
+      ->group("Geometry");
+  app.add_option("--intercept-y",
+                 "Y component of the shower-core intercept on the detection region (ECEF metres)")
+      ->required()
+      ->group("Geometry");
+  app.add_option("--intercept-z",
+                 "Z component of the shower-core intercept on the detection region (ECEF metres)")
+      ->required()
       ->group("Geometry");
 
-  // ---- Energy cuts ----
+  // ---- Config ----
   app.add_option("--emcut",
                  "Min. kin. energy of photons, electrons and positrons (GeV)")
       ->default_val(10.0)
@@ -294,6 +297,7 @@ int main(int argc, char** argv) {
       ->default_val(0.2)
       ->check(CLI::Range(1e-8, 1.))
       ->group("Config");
+
   bool track_neutrinos = false;
   app.add_flag("--track-neutrinos", track_neutrinos, "Enable neutrino tracking")
       ->group("Config");
@@ -302,7 +306,6 @@ int main(int argc, char** argv) {
                "Enable charmed hadron tracking (Sibyll, Pythia8, EPOS-LHC-R, QGSJet-III)")
       ->group("Config");
 
-  // ---- Hadronic model ----
   app.add_option("-M,--hadronModel", "High-energy hadronic interaction model")
       ->default_val("SIBYLL-2.3d")
       ->check(CLI::IsMember({"SIBYLL-2.3d", "QGSJet-II.04", "QGSJet-III", "EPOS-LHC",
@@ -329,7 +332,7 @@ int main(int argc, char** argv) {
   app.add_flag("--multithin", multithin, "Keep thinned particles (weight=0)")
       ->group("Thinning");
 
-  // ---- Output / misc ----
+  // ---- Output ----
   app.add_option("-N,--nevent", nevent, "Number of showers to simulate")
       ->default_val(1)
       ->check(CLI::PositiveNumber)
@@ -342,6 +345,8 @@ int main(int argc, char** argv) {
   bool compressOutput = false;
   app.add_flag("--compress", compressOutput, "Compress output directory to tarball")
       ->group("Output");
+
+  // ---- Misc ----
   app.add_option("-s,--seed", "Random number seed (0 = auto)")
       ->default_val(0)
       ->check(CLI::NonNegativeNumber)
@@ -353,7 +358,7 @@ int main(int argc, char** argv) {
   bool force_decay = false;
   app.add_flag("--force-decay", force_decay, "Force the primary to immediately decay")
       ->group("Misc");
-  bool disable_interaction_hists = false;
+  bool disable_interaction_hists = true;
   app.add_flag("--disable-interaction-histograms", disable_interaction_hists,
                "Disable saving interaction histograms")
       ->group("Misc");
@@ -400,7 +405,7 @@ int main(int argc, char** argv) {
   CoordinateSystemPtr const& rootCS = env.getCoordinateSystem();
   Point const earthCenter{rootCS, 0_m, 0_m, 0_m};
   Point const earthSurface{rootCS, 0_m, 0_m, constants::EarthRadius::Mean};
-  media::GeomagneticModel wmm(earthCenter, corsika_data("GeoMag/WMM.COF"));
+  // media::GeomagneticModel wmm(earthCenter, corsika_data("GeoMag/WMM.COF"));
 
   /* === LOAD MESHES === */
   std::string const obsMeshPath = app["--obs-mesh"]->as<std::string>();
@@ -427,11 +432,15 @@ int main(int argc, char** argv) {
                      terrainMeshPath);
   }
 
-  /* === ECEF CENTROID AND ENU FRAME === */
-  double cx, cy, cz;
-  computeMeshCentroid(obsMesh, rootCS, cx, cy, cz);
-  CORSIKA_LOG_INFO("Observation mesh centroid (ECEF m): ({:.1f}, {:.1f}, {:.1f})",
-                   cx, cy, cz);
+  /* === INTERCEPT POINT AND ENU FRAME ===
+   * The intercept is the pre-computed intersection of the particle trajectory
+   * with the detector region, passed in ECEF metres from the Julia caller.
+   * The ENU frame at the intercept is used for the magnetic field and escape plane.
+   */
+  double const cx = app["--intercept-x"]->as<double>();
+  double const cy = app["--intercept-y"]->as<double>();
+  double const cz = app["--intercept-z"]->as<double>();
+  CORSIKA_LOG_INFO("Shower core / intercept (ECEF m): ({:.1f}, {:.1f}, {:.1f})", cx, cy, cz);
 
   std::array<double, 3> eastHat, northHat, upHat;
   ecefToENU(cx, cy, cz, eastHat, northHat, upHat);
@@ -465,25 +474,36 @@ int main(int argc, char** argv) {
                    escapePlaneDist, 1.0);
 
   /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
+  // // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
+  // //   B_E ~ -1700 nT (slightly westward)
+  // //   B_N ~ 25500 nT (mostly northward)
+  // //   B_U ~ 11000 nT (upward, southern hemisphere)
+  // // Rotate these ENU components into ECEF using the site's ENU basis vectors.
+  // constexpr double B_E_T =  -1700e-9;  // Tesla (eastward component)
+  // constexpr double B_N_T =  25500e-9;  // Tesla (northward component)
+  // constexpr double B_U_T =  11000e-9;  // Tesla (upward component)
+  // double const Bx = B_E_T * eastHat[0] + B_N_T * northHat[0] + B_U_T * upHat[0];
+  // double const By = B_E_T * eastHat[1] + B_N_T * northHat[1] + B_U_T * upHat[1];
+  // double const Bz = B_E_T * eastHat[2] + B_N_T * northHat[2] + B_U_T * upHat[2];
+  // MagneticFieldVector const obsField{rootCS, Bx * 1_T, By * 1_T, Bz * 1_T};
+
   // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
-  //   B_E ~ -1700 nT (slightly westward)
-  //   B_N ~ 25500 nT (mostly northward)
-  //   B_U ~ 11000 nT (upward, southern hemisphere)
-  // Rotate these ENU components into ECEF using the site's ENU basis vectors.
-  constexpr double B_E_T =  -1700e-9;  // Tesla (eastward component)
-  constexpr double B_N_T =  25500e-9;  // Tesla (northward component)
-  constexpr double B_U_T =  11000e-9;  // Tesla (upward component)
-  double const Bx = B_E_T * eastHat[0] + B_N_T * northHat[0] + B_U_T * upHat[0];
-  double const By = B_E_T * eastHat[1] + B_N_T * northHat[1] + B_U_T * upHat[1];
-  double const Bz = B_E_T * eastHat[2] + B_N_T * northHat[2] + B_U_T * upHat[2];
-  MagneticFieldVector const obsField{rootCS, Bx * 1_T, By * 1_T, Bz * 1_T};
+  // see https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
+  constexpr double B_E =  -2.5;  // uT (eastward component)
+  constexpr double B_N =  22.9;  // uT (northward component)
+  constexpr double B_U =  -3.7;  // uT (upward component)
+  double const Bx = B_E * eastHat[0] + B_N * northHat[0] + B_U * upHat[0];
+  double const By = B_E * eastHat[1] + B_N * northHat[1] + B_U * upHat[1];
+  double const Bz = B_E * eastHat[2] + B_N * northHat[2] + B_U * upHat[2];
+  MagneticFieldVector const obsField{rootCS, Bx * 1_uT, By * 1_uT, Bz * 1_uT};
+
   CORSIKA_LOG_INFO("Magnetic field (ECEF nT): ({:.1f}, {:.1f}, {:.1f})",
                    obsField.getX(rootCS) / 1_nT,
                    obsField.getY(rootCS) / 1_nT,
                    obsField.getZ(rootCS) / 1_nT);
 
-  media::create_5layer_atmosphere<EnvironmentInterface, MyExtraEnv>(
-      env, media::AtmosphereId::USStdBK, earthCenter, 1.000327, earthSurface,
+  create_5layer_colca_atmosphere<EnvironmentInterface, MyExtraEnv>(
+      env, earthCenter, 1.000327, earthSurface,
       media::Medium::AirDry1Atm, obsField);
 
   /* === PRIMARY PARTICLE ID === */
@@ -510,57 +530,36 @@ int main(int argc, char** argv) {
     return 1;
   }
 
-  /* === INJECTION GEOMETRY === */
-  double const thetaRad = app["--zenith"]->as<double>() / 180. * M_PI;
-  double const phiRad = app["--azimuth"]->as<double>() / 180. * M_PI;
+  /* === INJECTION GEOMETRY ===
+   * The injection point and shower-core intercept are provided directly in
+   * ECEF metres. The shower direction is the unit vector from inject to intercept.
+   */
+  double const injectX = app["--inject-x"]->as<double>();
+  double const injectY = app["--inject-y"]->as<double>();
+  double const injectZ = app["--inject-z"]->as<double>();
 
-  // Shower propagation direction in ENU: azimuth clockwise from North
-  //   E-component = sin(theta) * sin(azimuth)
-  //   N-component = sin(theta) * cos(azimuth)
-  //   U-component = -cos(theta)  (downgoing shower)
-  double const dE_enu = std::sin(thetaRad) * std::sin(phiRad);
-  double const dN_enu = std::sin(thetaRad) * std::cos(phiRad);
-  double const dU_enu = -std::cos(thetaRad);
-
-  // Rotate ENU propagation direction into ECEF
-  double const pnx = dE_enu * eastHat[0] + dN_enu * northHat[0] + dU_enu * upHat[0];
-  double const pny = dE_enu * eastHat[1] + dN_enu * northHat[1] + dU_enu * upHat[1];
-  double const pnz = dE_enu * eastHat[2] + dN_enu * northHat[2] + dU_enu * upHat[2];
-
-  DirectionVector const propDir{rootCS, {pnx, pny, pnz}};
-
-  // Shower core at centroid of observation mesh
-  Point const showerCore{rootCS, cx * 1_m, cy * 1_m, cz * 1_m};
-
-  // Compute injection distance as the upstream ray-sphere intersection.
-  // Find t such that |centroid + t * (-propDir)| = R_earth + injection_altitude.
-  //   t^2 + 2*(centroid . (-propDir))*t + (|centroid|^2 - R_inj^2) = 0
-  double const injAlt = app["--injection-altitude"]->as<double>();
-  double const R_inj = constants::EarthRadius::Mean / 1_m + injAlt;
-  double const dot_cu = cx * (-pnx) + cy * (-pny) + cz * (-pnz);
-  double const centroidR2 = cx * cx + cy * cy + cz * cz;
-  double const disc = dot_cu * dot_cu - (centroidR2 - R_inj * R_inj);
-  if (disc <= 0.0) {
-    CORSIKA_LOG_CRITICAL(
-        "Upstream ray from obs-mesh centroid does not intersect the injection "
-        "altitude sphere (alt={:.1f} km). Check zenith angle and altitude.", injAlt / 1000.);
+  // Propagation direction: inject → intercept (normalised)
+  double const dx = cx - injectX, dy = cy - injectY, dz = cz - injectZ;
+  double const dnorm = std::sqrt(dx * dx + dy * dy + dz * dz);
+  if (dnorm == 0.0) {
+    CORSIKA_LOG_CRITICAL("Inject and intercept points are identical.");
     return EXIT_FAILURE;
   }
-  double const injDist = -dot_cu + std::sqrt(disc);
+  double const pnx = dx / dnorm, pny = dy / dnorm, pnz = dz / dnorm;
 
-  Point const injectionPos =
-      showerCore + DirectionVector{rootCS, {-pnx, -pny, -pnz}} * (injDist * 1_m);
+  DirectionVector const propDir{rootCS, {pnx, pny, pnz}};
+  Point const showerCore{rootCS, cx * 1_m, cy * 1_m, cz * 1_m};
+  Point const injectionPos{rootCS, injectX * 1_m, injectY * 1_m, injectZ * 1_m};
 
   // Shower axis: from injection through core and 20% beyond
   media::ShowerAxis const showerAxis{injectionPos, (showerCore - injectionPos) * 1.2,
                                      env};
   auto const dX = 10_g / square(1_cm);
 
-  CORSIKA_LOG_INFO("Shower core (ECEF m): ({:.1f}, {:.1f}, {:.1f})", cx, cy, cz);
-  CORSIKA_LOG_INFO("Injection distance: {:.1f} km", injDist / 1000.);
-  CORSIKA_LOG_INFO("Injection point: {}", injectionPos.getCoordinates());
-  CORSIKA_LOG_INFO("Propagation direction (ECEF): ({:.4f}, {:.4f}, {:.4f})",
-                   pnx, pny, pnz);
+  CORSIKA_LOG_INFO("Injection point (ECEF m): ({:.1f}, {:.1f}, {:.1f})", injectX, injectY, injectZ);
+  CORSIKA_LOG_INFO("Shower core / intercept (ECEF m): ({:.1f}, {:.1f}, {:.1f})", cx, cy, cz);
+  CORSIKA_LOG_INFO("Injection distance: {:.1f} km", dnorm / 1000.);
+  CORSIKA_LOG_INFO("Propagation direction (ECEF): ({:.4f}, {:.4f}, {:.4f})", pnx, pny, pnz);
 
   /* === OUTPUT MANAGER === */
   std::stringstream args;
@@ -570,6 +569,13 @@ int main(int argc, char** argv) {
 
   EnergyLossWriter dEdX{showerAxis, dX};
   output.add("energyloss", dEdX);
+
+  // TrackWriter records every tracking step (start/end position, energy, PDG, weight)
+  // to tracks.parquet -- useful for shower visualisations.  Note: files can be very
+  // large for high-energy showers (O(GB) at 1 PeV without thinning); consider
+  // enabling only for low-multiplicity or thinned runs.
+  // TrackWriter<TrackWriterParquet> trackWriter;
+  // output.add("tracks", trackWriter);
 
   /* === PHYSICS PROCESSES === */
   DynamicInteractionProcess<StackType> heModel;
@@ -651,9 +657,9 @@ int main(int argc, char** argv) {
   output.add("profile", profile);
   LongitudinalProfile<SubWriter<decltype(profile)>> longprof{profile};
 
-  ProductionWriter prod_profile{showerAxis, dX};
-  output.add("production_profile", prod_profile);
-  ProductionProfile<SubWriter<decltype(prod_profile)>> prodprof{prod_profile};
+  // ProductionWriter prod_profile{showerAxis, dX};
+  // output.add("production_profile", prod_profile);
+  // ProductionProfile<SubWriter<decltype(prod_profile)>> prodprof{prod_profile};
 
 #ifdef WITH_FLUKA
   corsika::fluka::Interaction leIntModel{all_elements};
@@ -674,7 +680,13 @@ int main(int argc, char** argv) {
 
   /* === OBSERVATION MESH (absorbing: records and removes particles at valley floor) === */
   ObservationMesh<TrackingType, ParticleWriterParquet> observationLevel{
-      obsMesh, true, 1e-6_m};
+      obsMesh, 
+      true,     // absorbinb
+      1e-6_m,   // padding
+      false,    // writeHitInfo
+      true,     // recordEntry
+      false,    // recordExit
+    };
   output.add("particles", observationLevel);
 
   /* === ESCAPE PLANE (absorbing: catches particles that miss the obs mesh) === */
@@ -710,9 +722,15 @@ int main(int argc, char** argv) {
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut
-    auto fullSequence = make_sequence(stackInspect, neutrinoPrimaryPythia, hadronSequence,
-                                      decaySequence, emCascade, prodprof, emContinuous,
-                                      longprof, sequence, inter_writer, thinning, cut);
+    auto fullSequence = make_sequence(stackInspect, 
+                                      neutrinoPrimaryPythia, hadronSequence,
+                                      decaySequence, emCascade, 
+                                      // prodprof, 
+                                      emContinuous,
+                                      longprof, sequence,
+    // trackWriter,  // uncomment together with the block above 
+                                      inter_writer, 
+                                      thinning, cut);
 
     TrackingType tracking(maxDefl);
     StackType stack;
@@ -720,9 +738,7 @@ int main(int argc, char** argv) {
     stack.clear();
 
     CORSIKA_LOG_INFO("Primary: {}  E_kin = {} GeV", beamCode, eKin / 1_GeV);
-    CORSIKA_LOG_INFO("Shower {} of {} at zenith={:.1f} deg, azimuth={:.1f} deg",
-                     i_shower, nev,
-                     app["--zenith"]->as<double>(), app["--azimuth"]->as<double>());
+    CORSIKA_LOG_INFO("Shower {} of {}", i_shower, nev);
 
     auto const primaryProperties =
         std::make_tuple(beamCode, eKin, propDir.normalized(), injectionPos, 0_ns);

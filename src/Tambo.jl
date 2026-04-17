@@ -12,6 +12,8 @@ export Ray,
        Simulation,
        ecefcoordinates,
        get_tambosim_path,
+       get_git_commit_hash,
+       get_version_string,
        # Llama progress utilities
        print_llama,
        llama_progress,
@@ -120,19 +122,17 @@ opens the Git repository, and returns the hash of the current HEAD commit.
 # Returns
 - A string containing the Git commit hash.
 """
-function get_git_commit_hash()
-    git_repo_path = get_tambosim_path()
+function get_git_commit_hash()::Union{String, Nothing}
+    try
+        repo = LibGit2.GitRepo(get_tambosim_path())
+        return LibGit2.string(LibGit2.head_oid(repo))
+    catch
+        return nothing
+    end
+end
 
-    # # Open the Git repository located at the module's directory
-    repo = LibGit2.GitRepo(git_repo_path)
-            
-    # Get the OID (object ID) of the current HEAD reference
-    oid = LibGit2.head_oid(repo)
-        
-    # Convert the OID to a hex string representing the commit hash
-    commit_hash = LibGit2.string(oid)
-    
-    return commit_hash
+function get_version_string()
+    string(pkgversion(Tambo))
 end
 
 

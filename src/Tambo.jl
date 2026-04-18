@@ -168,13 +168,15 @@ This function modifies the dictionary in-place.
 """
 function relativize!(d::Dict)
     pkg_root = dirname(@__DIR__)
+    tambo_data_path = get(ENV, "TAMBO_DATA_PATH", "")
     for (k, v) in pairs(d)
         if isa(v, String)
-            if contains(v, "_TAMBOSIM_PATH_")
-                d[k] = replace(v, "_TAMBOSIM_PATH_" => pkg_root)
-            elseif contains(v, '/') && !startswith(v, '/')
-                d[k] = joinpath(pkg_root, v)
+            v_new = replace(v, "_TAMBOSIM_PATH_" => pkg_root)
+            v_new = replace(v_new, "_TAMBO_DATA_PATH_" => tambo_data_path)
+            if v_new == v && contains(v, '/') && !startswith(v, '/')
+                v_new = joinpath(pkg_root, v)
             end
+            d[k] = v_new
         elseif isa(v, Dict)
             relativize!(v)
         end

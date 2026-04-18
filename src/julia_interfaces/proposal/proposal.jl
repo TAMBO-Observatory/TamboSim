@@ -50,9 +50,11 @@ function init_proposal(config)
 
     _proposal_available[] = true
 
-    # Set up config and tables directory
-    _config_dir[] = get(config, "tablespath", tempdir())
+    # Set up tables directory and propagate path to subprocesses (e.g. CORSIKA)
+    _config_dir[] = get(config, "tablespath", joinpath(get(ENV, "TAMBO_DATA_PATH", tempdir()), "proposal_tables"))
+    mkpath(_config_dir[])
     PP.set_tables_path(_config_dir[])
+    ENV["PROPOSAL_TABLES_PATH"] = _config_dir[]
 
     # Generate and cache propagators for all particle types and media
     pdg_lepton_ids = [11, 13, 15, -11, -13, -15]
@@ -133,10 +135,10 @@ function generate_config(lepton_id::Int, medium::String, ecut::Real, vcut::Real,
         config["CrossSections"] = cross_sections
     end
 
-    # Write config to file
+    # Write config to a temp dir (not _config_dir[], which may be read-only)
     particle_name = pdg_to_name(lepton_id)
     config_filename = "proposal_config_$(particle_name)_$(medium).json"
-    config_path = joinpath(_config_dir[], config_filename)
+    config_path = joinpath(tempdir(), config_filename)
 
     open(config_path, "w") do io
         JSON3.write(io, config)

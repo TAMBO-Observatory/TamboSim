@@ -52,25 +52,25 @@ passed to cmake (see Step 2).
 
 ```bash
 cd resources/corsika/src
-cmake -S . -B build \
+cmake -S . -B ../build \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/corsika/build/conan_toolchain.cmake \
   -DCMAKE_PREFIX_PATH=$HOME/corsika/build \
   -Dcorsika_DIR=$HOME/corsika/build \
   -DCMAKE_BUILD_TYPE=Release
-cmake --build build -j4
+cmake --build ../build
 ```
 
 To build with FLUKA as the low-energy hadronic model instead of UrQMD, add
 `-DWITH_FLUKA=ON` (requires FLUKA support in your CORSIKA 8 installation):
 
 ```bash
-cmake -S . -B build \
+cmake -S . -B ../build \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/corsika/build/conan_toolchain.cmake \
   -DCMAKE_PREFIX_PATH=$HOME/corsika/build \
   -Dcorsika_DIR=$HOME/corsika/build \
   -DCMAKE_BUILD_TYPE=Release \
   -DWITH_FLUKA=ON
-cmake --build build -j4
+cmake --build ../build -j4
 ```
 
 The `CMakeLists.txt` automatically detects the GCC runtime library directory

@@ -4,13 +4,9 @@
 *.ipynb_checkpoints
 *Untitled*.ipynb
 notebooks/output/*
-**/.snakemake
 
 **/Manifest.toml
 fort*
-
-src/corsika/build/
-resources/corsika/src/build/
 
 *.pdf
 *.png

@@ -202,14 +202,31 @@ static void ecefToENU(double cx, double cy, double cz, std::array<double, 3>& ea
 
 // ---------------------------------------------------------------------------
 // Detection trait: true when T has a getDirection() member (i.e. is a particle).
-// Used by UpwardFilter to safely handle non-particle call sites in
-// SwitchProcessSequence::doSecondaries / doSecondariesSelect.
+// Needed because SwitchProcessSequence calls the selector from selectDecay with a
+// SecondaryView iterator type that is not a particle -- the if constexpr guards the
+// body so the call is always valid.
 // ---------------------------------------------------------------------------
 template <typename T, typename = void>
 struct has_getDirection : std::false_type {};
 template <typename T>
 struct has_getDirection<T, std::void_t<decltype(std::declval<T>().getDirection())>>
     : std::true_type {};
+
+// Selects upward-going particles (direction · upHat > 0) for make_select.
+// Defined at file scope (not inside main) so GCC 8 does not eagerly instantiate
+// the member template before if constexpr can discard the unreachable branch.
+struct UpwardFilter {
+  std::array<double, 3> upHat_;
+  template <typename TParticle>
+  bool operator()(TParticle const& p) const {
+    if constexpr (has_getDirection<TParticle>::value) {
+      auto const& ev = p.getDirection().getComponents().getEigenVector();
+      return ev.dot(Eigen::Vector3d{upHat_[0], upHat_[1], upHat_[2]}) > 0.0;
+    } else {
+      return false; // non-particle call sites (e.g. selectDecay): route to NullModel
+    }
+  }
+};
 
 // ---------------------------------------------------------------------------
 // main
@@ -724,18 +741,6 @@ int main(int argc, char** argv) {
       altPlane, escapeRefDir, true, 1e-6_m};
   output.add("flat_plane_20km", altLevel);
 
-  struct UpwardFilter {
-    std::array<double, 3> upHat_;
-    template <typename TParticle>
-    bool operator()(TParticle const& p) const {
-      if constexpr (has_getDirection<TParticle>::value) {
-        auto const& ev = p.getDirection().getComponents().eigenVector_;
-        return ev[0] * upHat_[0] + ev[1] * upHat_[1] + ev[2] * upHat_[2] > 0.0;
-      } else {
-        return false; // non-particle call sites (e.g. doSecondaries): pass through
-      }
-    }
-  };
   auto directionalAlt = make_select(UpwardFilter{upHat}, altLevel, NullModel{});
 
   /* === ESCAPE PLANE (absorbing: catches particles that miss the obs mesh) === */

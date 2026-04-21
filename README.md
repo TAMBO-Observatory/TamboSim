@@ -3,8 +3,8 @@
 
 Welcome to TamboSim! This is the main simulation code for the Tambo Collaboration, and is (thus far) capable of:
 - Injecting (and forcing the interaction of) neutrinos, protons, in a realistic canyon geometry
-- Propagating charged secondaries through rock and air,
-- Passing the remaining secondaries to CORSIKA to propagate through the valley until they hit a realistic "detection surface,"
+- Propagating charged leptonic secondaries through rock and air with PROPOSAL,
+- Passing particles to CORSIKA to simulate air shower propagation in a realistic canyon topography,
 - Aggregating CORSIKA hits on smaller detection units placed on that surface.
 
 The entire codebase has been designed to use triangulated mesh parameterizations of the local topography. By default, TamboSim ships with the topography of the Colca Canyon in Peru; there are instructions in the examples on how to substitute alternate topographies.

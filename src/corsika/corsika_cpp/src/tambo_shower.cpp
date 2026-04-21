@@ -201,10 +201,22 @@ static void ecefToENU(double cx, double cy, double cz, std::array<double, 3>& ea
 }
 
 // ---------------------------------------------------------------------------
-// Detection trait: true when T has a getDirection() member (i.e. is a particle).
-// Needed because SwitchProcessSequence calls the selector from selectDecay with a
-// SecondaryView iterator type that is not a particle -- the if constexpr guards the
-// body so the call is always valid.
+// Direction filter for the 20 km observation plane.
+//
+// UpwardFilter decides which particles the 20 km plane acts on: it returns
+// true for upward-going particles (those with a positive dot product with the
+// local "up" direction) and false for downward-going ones.  It is used with
+// make_select so that the plane only absorbs upward-going particles and is
+// completely invisible to downward-going shower particles.
+//
+// CORSIKA internally also calls this filter on some non-particle objects
+// (secondary-particle list iterators), which do not have a direction at all.
+// has_getDirection is a compile-time check that lets UpwardFilter safely
+// return false for those objects instead of crashing.
+//
+// UpwardFilter is defined here at file scope rather than inside main() due to
+// a compiler limitation in GCC 8: member function templates inside locally-
+// defined structs are not handled correctly, causing spurious compile errors.
 // ---------------------------------------------------------------------------
 template <typename T, typename = void>
 struct has_getDirection : std::false_type {};
@@ -212,9 +224,6 @@ template <typename T>
 struct has_getDirection<T, std::void_t<decltype(std::declval<T>().getDirection())>>
     : std::true_type {};
 
-// Selects upward-going particles (direction · upHat > 0) for make_select.
-// Defined at file scope (not inside main) so GCC 8 does not eagerly instantiate
-// the member template before if constexpr can discard the unreachable branch.
 struct UpwardFilter {
   std::array<double, 3> upHat_;
   template <typename TParticle>
@@ -502,8 +511,10 @@ int main(int argc, char** argv) {
                    escapePlaneDist, 1.0);
 
   /* === FLAT OBSERVATION PLANE at 20 km altitude ===
-   * Plane normal points down (-upHat) so downward-going shower particles are
-   * recorded as they cross from above.  Non-absorbing: particles continue.
+   * Plane center is at 20 km altitude along the local vertical (upHat).
+   * The normal points downward (-upHat); this only affects the coordinate
+   * system used for output, not which particles are absorbed.
+   * Absorption is one-directional: see directionalAlt below.
    */
   constexpr double altKm = 20.0;
   double const altPlaneDist = constants::EarthRadius::Mean / 1_m + altKm * 1e3;
@@ -517,19 +528,6 @@ int main(int argc, char** argv) {
                    altKm, altPlaneDist);
 
   /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
-  // // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
-  // //   B_E ~ -1700 nT (slightly westward)
-  // //   B_N ~ 25500 nT (mostly northward)
-  // //   B_U ~ 11000 nT (upward, southern hemisphere)
-  // // Rotate these ENU components into ECEF using the site's ENU basis vectors.
-  // constexpr double B_E_T =  -1700e-9;  // Tesla (eastward component)
-  // constexpr double B_N_T =  25500e-9;  // Tesla (northward component)
-  // constexpr double B_U_T =  11000e-9;  // Tesla (upward component)
-  // double const Bx = B_E_T * eastHat[0] + B_N_T * northHat[0] + B_U_T * upHat[0];
-  // double const By = B_E_T * eastHat[1] + B_N_T * northHat[1] + B_U_T * upHat[1];
-  // double const Bz = B_E_T * eastHat[2] + B_N_T * northHat[2] + B_U_T * upHat[2];
-  // MagneticFieldVector const obsField{rootCS, Bx * 1_T, By * 1_T, Bz * 1_T};
-
   // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
   // see https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
   constexpr double B_E =  -2.5;  // uT (eastward component)

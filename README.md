@@ -105,7 +105,7 @@ The shared CORSIKA installation on the Harvard research computing cluster can be
 ```
 [Kiara Carloni](mailto:kcarloni@g.harvard.edu) and [Will Thompson](mailto:will_thompson@g.harvard.edu) are responsible for maintaining this shared resource; if you run into any issues, please contact them. 
 
-Your final step before running your own simulations is to compile your copy of Tambo's `tambo_shower` executable. The source code for this ships natively with TAMBOSim and can be found at `TAMBOSim/src/corsika/source/tambo_shower.cpp`. Instructions for compiling this against the provided CORSIKA library can be found in this README: 
+Your final step before running your own simulations is to compile your copy of Tambo's `tambo_shower` executable. The source code for this ships natively with TAMBOSim and can be found at `TAMBOSim/src/corsika/corsika_cpp/src/tambo_shower.cpp`. Instructions for compiling this against the provided CORSIKA library can be found in this README: 
 ```
 /n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika/README.md
 ```
@@ -124,7 +124,7 @@ git clone --recursive --branch mesh-bvh-geometry-framework \
 
 3. Optionally, you should ensure you have a copy of FLUKA, which is one of two packages that can be used for the low energy hadronic interactions in CORSIKA. FLUKA is not strictly required, but it is significantly faster than the alternative. To install FLUKA, you will need to register for an account [on the FLUKA website](http://www.fluka.eu/Fluka/www/html/fluka.php?). To then compile CORSIKA with FLUKA, you simply need to provide the runtime environment variables `FLUPRO`, which points to the directory containing the executable `flupro`, and `FLUFOR`, which points to the fortran executable used to compile FLUKA.
 
-4. Next step is to use conan to install and precompile all the C++ packages CORSIKA depends on. This looks something like the following: 
+4. Next step is to use Conan to install and precompile all the C++ packages CORSIKA depends on. This looks something like the following: 
 ```shell
 mkdir -p "${CORSIKA_PREFIX}/corsika-build"
 cd "${CORSIKA_PREFIX}/corsika-build"

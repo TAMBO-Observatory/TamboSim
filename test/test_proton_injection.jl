@@ -13,7 +13,7 @@ using Unitful
 
 function make_test_earth()
     tambosim_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
-    earth_path = joinpath(tambosim_path, "resources", "basic_geometry.h5") * ":colca_valley_30000"
+    earth_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley.h5") * ":colca_valley_30000"
     Tambo.Earth(earth_path, "detector1")
 end
 
@@ -128,7 +128,7 @@ function test_inject_protons_produces_frames()
 
     config = Dict{String,Any}(
         "geometry" => Dict{String,Any}(
-            "earth_path" => joinpath(tambosim_path, "resources", "basic_geometry.h5") * ":colca_valley_30000",
+            "earth_path" => joinpath(tambosim_path, "resources", "geometry", "colca_valley.h5") * ":colca_valley_30000",
             "detector_key" => "detector1"
         ),
         "injection" => Dict{String,Any}(
@@ -167,7 +167,7 @@ function _make_proton_config()
     tambosim_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
     Dict{String,Any}(
         "geometry" => Dict{String,Any}(
-            "earth_path" => joinpath(tambosim_path, "resources", "basic_geometry.h5") * ":colca_valley_30000",
+            "earth_path" => joinpath(tambosim_path, "resources", "geometry", "colca_valley.h5") * ":colca_valley_30000",
             "detector_key" => "detector1"
         ),
         "injection" => Dict{String,Any}(
@@ -192,7 +192,7 @@ function test_inject_rejects_nonempty_sim()
     tambosim_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
     config = Dict{String,Any}(
         "geometry" => Dict{String,Any}(
-            "earth_path" => joinpath(tambosim_path, "resources", "basic_geometry.h5") * ":colca_valley_30000",
+            "earth_path" => joinpath(tambosim_path, "resources", "geometry", "colca_valley.h5") * ":colca_valley_30000",
             "detector_key" => "detector1"
         ),
         "injection" => Dict{String,Any}(

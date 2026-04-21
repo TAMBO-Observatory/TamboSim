@@ -4,8 +4,8 @@
  * Simulates showers observed at the TAMBO detector site in the Colca
  * Valley, Peru. Two triangular meshes in ECEF coordinates drive the geometry:
  *
- *   injection_region_corsika.ply  -  valley floor observation surface
- *   terrain_corsika.ply           -  surrounding terrain absorber (optional)
+ *   colca_valley_obs_surface.ply  -  valley floor observation surface
+ *   colca_valley_terrain.ply           -  surrounding terrain absorber (optional)
  *
  * The shower trajectory is specified by two ECEF points passed on the command
  * line: the injection point (--inject-x/y/z, upstream, ~112 km altitude) and

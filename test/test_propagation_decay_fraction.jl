@@ -28,7 +28,7 @@ function isinair_prop(particle, earth)
 end
 
 function run_propagation_decay_fraction_tests()
-    earth_path = get_tambosim_path() * "/resources/basic_geometry.h5:colca_valley_30000"
+    earth_path = get_tambosim_path() * "/resources/geometry/colca_valley.h5:colca_valley_30000"
     xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
     earth = Earth(earth_path, "detector1")

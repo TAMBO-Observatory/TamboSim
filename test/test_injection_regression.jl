@@ -70,7 +70,7 @@ function run_injection(earth, xs, detector_props, as, gamma, n_events, seed)
 end
 
 function run_injection_regression_tests()
-    earth_path = get_tambosim_path() * "/resources/basic_geometry.h5:colca_valley_30000"
+    earth_path = get_tambosim_path() * "/resources/geometry/colca_valley.h5:colca_valley_30000"
     xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
     earth = Earth(earth_path, "detector1")

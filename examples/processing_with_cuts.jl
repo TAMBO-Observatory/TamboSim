@@ -24,6 +24,8 @@ cut_inmountain = true
 println("=== Stage 1: Neutrino Injection ===")
 
 sim = Simulation(config_file)
+sim.config["injection"]["nevent"] = 500  # override for a quick example run
+
 inject!(sim)
 
 if cut_failed_injections
@@ -49,7 +51,7 @@ if cut_inmountain
         sim.config["geometry"]["earth_path"],
         sim.config["geometry"]["detector_key"]
     )
-    
+
     function upray(particle, earth)
         d = Direction(
             normalize(convert(ecefcoordinates, particle.position)),
@@ -58,7 +60,7 @@ if cut_inmountain
         d = convert(particle.position.coordinate_system, d)
         return Ray(particle.position, d)
     end
-    
+
     isinair(particle) = length(intersect_all(earth, upray(particle, earth))) == 0
     emerged_in_air(frame) = isinair(frame["proposal_final_state"])
     cut_frames!(sim.results, emerged_in_air)
@@ -73,14 +75,23 @@ println("Saved to: $propagation_outfile")
 # =============================================================================
 # Stage 3: CORSIKA Air Shower Simulation
 # =============================================================================
+# corsika_run writes input cards and launches the CORSIKA binary for each
+# decay product. The CORSIKA binary must be compiled separately; see
+# resources/corsika/src/BUILD.md. Output is written to corsika_dir and
+# can be read back with corsika_hits.jl.
 println("\n=== Stage 3: CORSIKA Air Shower Simulation ===")
 
-Tambo.corsika_run(sim, corsika_dir)
-
-jldopen(corsika_outfile, "w") do file
-    file["sim"] = sim
+corsika_path = sim.config["corsika"]["corsika_path"]
+if isfile(corsika_path)
+    Tambo.corsika_run(sim, corsika_dir)
+    jldopen(corsika_outfile, "w") do file
+        file["sim"] = sim
+    end
+    println("Saved to: $corsika_outfile")
+else
+    println("Skipping CORSIKA: binary not found at $corsika_path")
+    println("Build tambo_shower first (see resources/corsika/src/BUILD.md)")
 end
-println("Saved to: $corsika_outfile")
 
 println("\n=== Processing Complete ===")
 println("Final event count: $(length(sim.results))")

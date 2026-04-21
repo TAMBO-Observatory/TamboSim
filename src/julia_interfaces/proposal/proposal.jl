@@ -133,10 +133,9 @@ function generate_config(lepton_id::Int, medium::String, ecut::Real, vcut::Real,
         config["CrossSections"] = cross_sections
     end
 
-    # Write config to file
     particle_name = pdg_to_name(lepton_id)
     config_filename = "proposal_config_$(particle_name)_$(medium).json"
-    config_path = joinpath(_config_dir[], config_filename)
+    config_path = joinpath(tempdir(), config_filename)
 
     open(config_path, "w") do io
         JSON3.write(io, config)

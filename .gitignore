@@ -11,6 +11,7 @@ fort*
 
 src/corsika/build/
 resources/corsika/src/build/
+resources/proposal_tables/*.json
 
 *.pdf
 *.png

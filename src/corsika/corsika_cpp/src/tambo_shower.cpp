@@ -201,6 +201,17 @@ static void ecefToENU(double cx, double cy, double cz, std::array<double, 3>& ea
 }
 
 // ---------------------------------------------------------------------------
+// Detection trait: true when T has a getDirection() member (i.e. is a particle).
+// Used by UpwardFilter to safely handle non-particle call sites in
+// SwitchProcessSequence::doSecondaries / doSecondariesSelect.
+// ---------------------------------------------------------------------------
+template <typename T, typename = void>
+struct has_getDirection : std::false_type {};
+template <typename T>
+struct has_getDirection<T, std::void_t<decltype(std::declval<T>().getDirection())>>
+    : std::true_type {};
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 int main(int argc, char** argv) {
@@ -717,8 +728,12 @@ int main(int argc, char** argv) {
     std::array<double, 3> upHat_;
     template <typename TParticle>
     bool operator()(TParticle const& p) const {
-      auto const& ev = p.getDirection().getComponents().eigenVector_;
-      return ev[0] * upHat_[0] + ev[1] * upHat_[1] + ev[2] * upHat_[2] > 0.0;
+      if constexpr (has_getDirection<TParticle>::value) {
+        auto const& ev = p.getDirection().getComponents().eigenVector_;
+        return ev[0] * upHat_[0] + ev[1] * upHat_[1] + ev[2] * upHat_[2] > 0.0;
+      } else {
+        return false; // non-particle call sites (e.g. doSecondaries): pass through
+      }
     }
   };
   auto directionalAlt = make_select(UpwardFilter{upHat}, altLevel, NullModel{});

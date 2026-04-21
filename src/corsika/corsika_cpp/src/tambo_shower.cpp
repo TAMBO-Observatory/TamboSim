@@ -473,6 +473,21 @@ int main(int argc, char** argv) {
   CORSIKA_LOG_INFO("Escape plane distance from Earth centre: {:.1f} m  ({:.1f} mm below lowest obs vertex)",
                    escapePlaneDist, 1.0);
 
+  /* === FLAT OBSERVATION PLANE at 20 km altitude ===
+   * Plane normal points down (-upHat) so downward-going shower particles are
+   * recorded as they cross from above.  Non-absorbing: particles continue.
+   */
+  constexpr double altKm = 20.0;
+  double const altPlaneDist = constants::EarthRadius::Mean / 1_m + altKm * 1e3;
+  Point const altPlaneCenter{rootCS,
+      altPlaneDist * upHat[0] * 1_m,
+      altPlaneDist * upHat[1] * 1_m,
+      altPlaneDist * upHat[2] * 1_m};
+  DirectionVector const altPlaneNormal{rootCS, {-upHat[0], -upHat[1], -upHat[2]}};
+  Plane const altPlane{altPlaneCenter, altPlaneNormal};
+  CORSIKA_LOG_INFO("Flat observation plane: {:.0f} km altitude, dist from Earth centre: {:.1f} m",
+                   altKm, altPlaneDist);
+
   /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
   // // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
   // //   B_E ~ -1700 nT (slightly westward)
@@ -689,6 +704,14 @@ int main(int argc, char** argv) {
     };
   output.add("particles", observationLevel);
 
+  /* === FLAT OBSERVATION PLANE at 20 km === */
+  ObservationPlane<TrackingType, ParticleWriterParquet> altLevel{
+      altPlane, 
+      escapeRefDir, 
+      true, // absorbing
+      1e-6_m};
+  output.add("flat_plane_20km", altLevel);
+
   /* === ESCAPE PLANE (absorbing: catches particles that miss the obs mesh) === */
   ObservationPlane<TrackingType, ParticleWriterParquet> escapeLevel{
       escapePlane, escapeRefDir, true, 1e-6_m};
@@ -781,10 +804,10 @@ int main(int argc, char** argv) {
         ? eMin
         : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
     if (useTerrainMesh) {
-      auto obsMeshSequence = make_sequence(observationLevel, *terrainLevel, escapeLevel);
+      auto obsMeshSequence = make_sequence(observationLevel, *terrainLevel, altLevel, escapeLevel);
       runOneShower(obsMeshSequence, i, E);
     } else {
-      auto obsMeshSequence = make_sequence(observationLevel, escapeLevel);
+      auto obsMeshSequence = make_sequence(observationLevel, altLevel, escapeLevel);
       runOneShower(obsMeshSequence, i, E);
     }
   }

@@ -97,18 +97,6 @@ Additionally, if you plan on using Harvard's research computing cluster and are 
 
 Otherwise, if you *are* interested in installing CORSIKA for yourself, you should follow the general instructions in **Section 2B** below.
 
-<!-- #### [2.1] Installing CORSIKA on Harvard's FASRC
-
-The general instructions for installing CORSIKA-8 [can be found here](https://gitlab.iap.kit.edu/AirShowerPhysics/corsika). The instructions below are based on this resource. 
-
-CORSIKA-8 uses conan to manage the C++ packages. As a first step, you will need to install conan via pip -- it's recommended to set up a specialized 
-
-You will most likely want to compile CORSIKA with [FLUKA](). An existing version of FLUKA can be found in the shared software directory for the Arguelles group. You will need the following environment variables:
-```shell
-export FLUPRO=/n/holylfs05/LABS/arguelles_delgado_lab/Lab/common_software/source/fluka
-export FLUFOR=gfortran
-``` -->
-
 #### [2A] Compiling the `tambo_shower` executable on Harvard's FASRC
 
 The shared CORSIKA installation on the Harvard research computing cluster can be found here:

@@ -5,7 +5,7 @@ using LinearAlgebra
 using Tambo
 
 # Configuration
-config_file = "$(tambo_path)/resources/configuration_examples/paper_config.toml"
+config_file = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
 output_dir = "$(tambo_path)/examples/output"
 
 # Output files for each stage

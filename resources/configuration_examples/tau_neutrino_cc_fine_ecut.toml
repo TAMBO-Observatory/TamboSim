@@ -1,3 +1,8 @@
+# Tau-neutrino charged-current configuration with fine CORSIKA energy cuts.
+# Identical physics to tau_neutrino_cc.toml but with lower CORSIKA energy
+# thresholds, producing more complete shower particle lists at higher
+# computational cost. Useful for detailed shower studies.
+
 [geometry]
 earth_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley.h5:colca_valley_30000"
 detector_key = "detector1"
@@ -8,17 +13,17 @@ nevent = 500000
 pdg = 16
 gamma = 1.5
 emin = 3.0e5 # GeV
-emax = 1.0e9
-thetamin = 0 # degrees
+emax = 1.0e9 # GeV
+thetamin = 0   # degrees
 thetamax = 117 # degrees
-phimin = 90 # degrees
-phimax = 290 # degrees
+phimin = 90    # degrees
+phimax = 290   # degrees
 xs_location = "_TAMBOSIM_PATH_/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 track_progress = false
 
 [proposal]
 pinecone = 925
-ecut = -1 # GeV. Negative <-> Infinity
+ecut = -1   # GeV; negative means infinity (ionization-only threshold)
 vcut = 1e-2
 do_interpolate = true
 do_continuous = true
@@ -27,14 +32,12 @@ track_progress = false
 
 [corsika]
 pinecone = 925
-should_run_corsika = false
-parallelize_corsika = false
 thinning = 1.0e-6
 hadron_model = "SIBYLL-2.3d"
-hadron_ecut = 1.0 # GeV
-em_ecut = 1.0 # GeV
-photon_ecut = 1.0 # GeV
-mu_ecut = 1.0 # GeV
+hadron_ecut = 0.05   # GeV
+em_ecut = 0.001      # GeV
+photon_ecut = 0.001  # GeV
+mu_ecut = 0.05       # GeV
 corsika_path = "_TAMBOSIM_PATH_/resources/corsika/src/build/tambo_shower"
 obs_mesh_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_obs_surface.ply"
 terrain_mesh_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_terrain.ply"

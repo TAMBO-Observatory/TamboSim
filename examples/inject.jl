@@ -13,7 +13,7 @@ function parse_commandline()
         "--config", "-c"
             help = "Path to configuration TOML file"
             arg_type = String
-            default = "$(tambo_path)/resources/configuration_examples/paper_config.toml"
+            default = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
         "--outfile", "-o"
             help = "Output JLD2 file path"
             arg_type = String

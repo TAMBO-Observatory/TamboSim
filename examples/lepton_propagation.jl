@@ -1,9 +1,5 @@
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(@__DIR__))
 
-import Pkg
-Pkg.activate(".")
-Pkg.develop(path=tambo_path)
-
 using ArgParse
 using JLD2
 using LinearAlgebra

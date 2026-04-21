@@ -1,7 +1,3 @@
-import Pkg
-Pkg.activate(".")
-Pkg.develop(path="../")
-
 using JLD2
 using LinearAlgebra
 using ProgressMeter
@@ -20,7 +16,7 @@ function intersect_module_signed(event, bvh)
     return nothing
 end
 
-earth = Tambo.Earth("../resources/basic_geometry.h5:colca_valley_30000", "detector1")
+earth = Tambo.Earth("../resources/geometry/colca_valley.h5:colca_valley_30000", "detector1")
 cs = Tambo.CoordinateSystem(earth)
 bvh = Tambo.BVHTree(earth.topography[earth.detector_region])
 

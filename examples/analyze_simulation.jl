@@ -17,6 +17,7 @@ saved as file["sim"] = sim.
 
 using JLD2
 using LinearAlgebra
+using Statistics
 using Tambo
 using Unitful: ustrip, @u_str
 

@@ -704,13 +704,24 @@ int main(int argc, char** argv) {
     };
   output.add("particles", observationLevel);
 
-  /* === FLAT OBSERVATION PLANE at 20 km === */
+  /* === FLAT OBSERVATION PLANE at 20 km: absorbs and records upward-going particles ===
+   * Downward-going particles pass through unaffected via the NullModel branch.
+   * UpwardFilter returns true (→ altLevel) when particle direction · upHat > 0,
+   * i.e. particle is moving upward in local ENU coordinates.
+   */
   ObservationPlane<TrackingType, ParticleWriterParquet> altLevel{
-      altPlane, 
-      escapeRefDir, 
-      true, // absorbing
-      1e-6_m};
+      altPlane, escapeRefDir, true, 1e-6_m};
   output.add("flat_plane_20km", altLevel);
+
+  struct UpwardFilter {
+    std::array<double, 3> upHat_;
+    template <typename TParticle>
+    bool operator()(TParticle const& p) const {
+      auto const& ev = p.getDirection().getComponents().eigenVector_;
+      return ev[0] * upHat_[0] + ev[1] * upHat_[1] + ev[2] * upHat_[2] > 0.0;
+    }
+  };
+  auto directionalAlt = make_select(UpwardFilter{upHat}, altLevel, NullModel{});
 
   /* === ESCAPE PLANE (absorbing: catches particles that miss the obs mesh) === */
   ObservationPlane<TrackingType, ParticleWriterParquet> escapeLevel{
@@ -804,10 +815,10 @@ int main(int argc, char** argv) {
         ? eMin
         : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
     if (useTerrainMesh) {
-      auto obsMeshSequence = make_sequence(observationLevel, *terrainLevel, altLevel, escapeLevel);
+      auto obsMeshSequence = make_sequence(observationLevel, *terrainLevel, directionalAlt, escapeLevel);
       runOneShower(obsMeshSequence, i, E);
     } else {
-      auto obsMeshSequence = make_sequence(observationLevel, altLevel, escapeLevel);
+      auto obsMeshSequence = make_sequence(observationLevel, directionalAlt, escapeLevel);
       runOneShower(obsMeshSequence, i, E);
     }
   }

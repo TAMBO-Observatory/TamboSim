@@ -8,8 +8,7 @@ notebooks/output/*
 **/Manifest.toml
 fort*
 
-src/corsika/build/
-resources/corsika/src/build/
+src/corsika/tambo_shower/build/
 resources/proposal_tables/*.json
 resources/proposal_tables/*.dat
 examples/output/

@@ -51,7 +51,7 @@ passed to cmake (see Step 2).
 ## Step 2: Build the application
 
 ```bash
-cd resources/corsika/src
+cd src/corsika/tambo_shower/src
 cmake -S . -B ../build \
   -DCMAKE_TOOLCHAIN_FILE=$HOME/corsika/build/conan_toolchain.cmake \
   -DCMAKE_PREFIX_PATH=$HOME/corsika/build \

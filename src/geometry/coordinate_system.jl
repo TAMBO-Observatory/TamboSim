@@ -28,7 +28,7 @@ latitude, and the rotation is calculated to align the z-axis with the local zeni
 # Returns
 - A new `CoordinateSystem` object.
 """
-function CoordinateSystem(longlat::Tuple{Float64, Float64}, rearth::Quantity)
+function CoordinateSystem(longlat::NTuple{2,<:Real}, rearth::Quantity)
     origin = SVector{3}(longlat_to_cart(longlat...) * rearth)
     rotation = compute_rotation(longlat)
     return CoordinateSystem(origin, rotation)
@@ -47,6 +47,8 @@ Returns the element type of the `CoordinateSystem`, which is typically the eleme
 """
 Base.eltype(cs::CoordinateSystem) = eltype(cs.rotation)
 
+# Float64 precision floor: all geometry ultimately references this constant,
+# so sub-Float64 precision is not achievable end-to-end.
 const ecefcoordinates = CoordinateSystem(
     SVector{3}([0.0*u"m", 0.0*u"m", 0.0*u"m"]),
     SMatrix{3, 3, Float64, 9}([1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0])

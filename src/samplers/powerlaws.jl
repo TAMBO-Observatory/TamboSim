@@ -27,7 +27,7 @@ struct UnitfulPowerLawSampler{T <: Real}
         if γ >= 1
             @assert !isinf(emax)
         end
-        T = Float64
+        T = promote_type(typeof(γ), typeof(ustrip(emin)), typeof(ustrip(emax)), typeof(ustrip(norm)))
         return new{T}(γ, emin, emax, norm)
     end
 end

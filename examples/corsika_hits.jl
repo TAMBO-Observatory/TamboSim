@@ -18,17 +18,21 @@ end
 
 frames = Tambo.load_frames("$(basedir)/simfile_corsika.jld2")
 gframe = Tambo.get_frame(frames, 'G')
-cframe = Tambo.get_frame(frames, 'C')
 q_frames = filter(f -> f.stream == 'Q', frames)
 
 cs  = gframe["cs"]
 bvh = Tambo.BVHTree(gframe["topography"][gframe["detector_region"]])
 
 Δy = 125.0u"m"
-point = Tambo.Coordinate(cframe["corsika"]["plane_coordinates"].*u"m", Tambo.ecefcoordinates)
-point = convert(cs, point)
-direction = Tambo.Direction(cframe["corsika"]["plane_orientation"], Tambo.ecefcoordinates)
-direction = convert(cs, direction)
+det_triangles = gframe["topography"][gframe["detector_region"]]
+areas     = ustrip.(u"m^2", Tambo.area.(det_triangles))
+centroids = [ustrip.(u"m", (t.v1.point + t.v2.point + t.v3.point) ./ 3) for t in det_triangles]
+normals   = [Tambo.normal(t).point for t in det_triangles]
+total_a   = sum(areas)
+wc = sum(a .* c for (a, c) in zip(areas, centroids)) ./ total_a
+wn = sum(a .* n for (a, n) in zip(areas, normals))
+point     = Tambo.Coordinate(wc .* u"m", cs)
+direction = Tambo.Direction(wn, cs)
 plane = Tambo.Plane(point, direction)
 up = Tambo.Direction([0.0, 0.0, 1.0], cs)
 Δx = dot(up, plane.normal) * Δy * sqrt(3) / 2

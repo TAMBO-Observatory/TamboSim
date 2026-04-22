@@ -63,11 +63,14 @@ function test_proton_altitude()
     @test !isnothing(final_proton)
 
     if !isnothing(final_proton)
-        # z-coordinate in local (ENU) frame should be near 50 km.
-        # For off-nadir directions at an elevated site (Colca Valley ~3-4 km),
-        # ENU z diverges from geodetic altitude, so allow a generous tolerance.
-        z_m = ustrip(u"m", final_proton.position.point[3])
-        @test isapprox(z_m, 50_000.0, atol=5000.0)
+        # Check geodetic altitude via ECEF radial distance minus Earth radius at the detector.
+        # ENU z is not a valid proxy: for off-nadir directions the injection point can be
+        # thousands of km from the detector horizontally, so ENU z << geodetic altitude.
+        ecef_pos = convert(ecefcoordinates, final_proton.position)
+        r_m = ustrip(u"m", norm(ecef_pos.point))
+        rearth_m = ustrip(u"m", norm(gframe["cs"].origin))
+        altitude_m = r_m - rearth_m
+        @test isapprox(altitude_m, 50_000.0, atol=1000.0)
     end
 end
 

@@ -4,7 +4,7 @@
     {
       "name": "default",
       "displayName": "Local build (corsika_upstream + Conan)",
-      "binaryDir": "${sourceDir}/build",
+      "binaryDir": "${sourceDir}/../build",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CMAKE_TOOLCHAIN_FILE": "$env{HOME}/research/corsika/build/conan_toolchain.cmake",

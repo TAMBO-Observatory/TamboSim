@@ -16,6 +16,8 @@ export Ray,
        get_frame,
        ecefcoordinates,
        get_tambosim_path,
+       get_git_commit_hash,
+       get_version_string,
        # Llama progress utilities
        print_llama,
        llama_progress,
@@ -118,24 +120,46 @@ end
 
 Retrieves the Git commit hash of the Tambo repository.
 """
-function get_git_commit_hash()
-    git_repo_path = get_tambosim_path()
-    repo = LibGit2.GitRepo(git_repo_path)
-    oid = LibGit2.head_oid(repo)
-    return LibGit2.string(oid)
+function get_git_commit_hash()::Union{String, Nothing}
+    try
+        repo = LibGit2.GitRepo(get_tambosim_path())
+        return LibGit2.string(LibGit2.head_oid(repo))
+    catch
+        return nothing
+    end
+end
+
+function get_version_string()
+    string(pkgversion(Tambo))
 end
 
 """
     relativize!(d::Dict)
 
-Recursively replaces the placeholder `_TAMBOSIM_PATH_` in a dictionary with the
-actual repository root path.
+Recursively resolves relative path strings in a dictionary against the package root directory.
+Strings containing `/` but not starting with `/` are treated as relative paths.
+Also handles the legacy `_TAMBOSIM_PATH_` placeholder for backward compatibility.
+
+This function modifies the dictionary in-place.
+
+# Arguments
+- `d::Dict`: The dictionary to modify.
 """
 function relativize!(d::Dict)
-    tambosim_path = get_tambosim_path()
+    pkg_root = dirname(@__DIR__)
+    tambo_data_path = get(ENV, "TAMBO_DATA_PATH", "")
+    tambo_corsika_path = get(ENV, "TAMBO_CORSIKA_PATH", "")
+    tambo_flupro_path = get(ENV, "TAMBO_FLUPRO_PATH", "")
     for (k, v) in pairs(d)
         if isa(v, String)
-            d[k] = replace(v, "_TAMBOSIM_PATH_" => tambosim_path)
+            v_new = replace(v, "_TAMBOSIM_PATH_" => pkg_root)
+            v_new = replace(v_new, "_TAMBO_DATA_PATH_" => tambo_data_path)
+            v_new = replace(v_new, "_TAMBO_CORSIKA_PATH_" => tambo_corsika_path)
+            v_new = replace(v_new, "_TAMBO_FLUPRO_PATH_" => tambo_flupro_path)
+            if v_new == v && contains(v, '/') && !startswith(v, '/')
+                v_new = joinpath(pkg_root, v)
+            end
+            d[k] = v_new
         elseif isa(v, Dict)
             relativize!(v)
         end

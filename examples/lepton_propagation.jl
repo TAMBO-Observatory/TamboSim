@@ -1,11 +1,6 @@
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(@__DIR__))
 
-import Pkg
-Pkg.activate(".")
-Pkg.develop(path=tambo_path)
-
 using ArgParse
-using JLD2
 using LinearAlgebra
 using Tambo
 
@@ -16,11 +11,15 @@ function parse_commandline()
 
     @add_arg_table! s begin
         "--infile", "-i"
-            help = "Input JLD2 file with injected events"
+            help = "Input JLD2 file with injected Q frames"
             arg_type = String
             default = "$(tambo_path)/examples/output/injected_events.jld2"
+        "--gc-file"
+            help = "GC frames JLD2 file (defaults to gc_frames.jld2 in same directory as infile)"
+            arg_type = String
+            default = nothing
         "--outfile", "-o"
-            help = "Output JLD2 file path"
+            help = "Output JLD2 file path for Q frames"
             arg_type = String
             default = "$(tambo_path)/examples/output/propagated_events.jld2"
         "--cut-inmountain"
@@ -37,49 +36,44 @@ end
 
 args = parse_commandline()
 
-infile = args["infile"]
-outfile = args["outfile"]
+infile        = args["infile"]
+gc_file       = something(args["gc-file"], joinpath(dirname(infile), "gc_frames.jld2"))
+outfile       = args["outfile"]
 cut_inmountain = args["cut-inmountain"]
 
 @show infile
+@show gc_file
 @show outfile
 @show cut_inmountain
 
-sim = jldopen(infile) do file
-    file["sim"]
-end
+frames = load_frames([gc_file, infile])
 
 if !isnothing(args["seed"])
-    sim.config["proposal"]["pinecone"] = args["seed"]
+    get_frame(frames, 'C')["proposal"]["pinecone"] = args["seed"]
 end
 
-# uncomment if cut not performed in previous step
-# injection_succeeded(frame) = haskey(frame, "injection_final_state")
-# cut_frames!(sim.results, injection_succeeded)
+proposal_propagation!(frames)
 
-proposal_propagation!(sim)
+@show count(f -> f.stream == 'Q', frames)
 
-@show length(sim.results)
 if cut_inmountain
-    earth = Earth(
-        sim.config["geometry"]["earth_path"],
-        sim.config["geometry"]["detector_key"]
-    )
-    function upray(particle, earth)
+    earth = get_earth(frames)
+
+    function upray(particle)
         d = Direction(
             normalize(convert(ecefcoordinates, particle.position)),
             ecefcoordinates
         )
         d = convert(particle.position.coordinate_system, d)
-        ray = Ray(particle.position, d)
-        return ray
+        return Ray(particle.position, d)
     end
-    isinair(particle) = length(intersect_all(earth, upray(particle, earth)))==0
-    fxn(frame) = isinair(frame["proposal_final_state"])
-    cut_frames!(sim.results, fxn)
-end
-@show length(sim.results)
 
-jldopen(outfile, "w") do file
-    file["sim"] = sim
+    isinair(particle) = isempty(intersect_all(earth, upray(particle)))
+    cut_frames!(frames, frame -> isinair(frame["proposal_final_state"]))
 end
+
+@show count(f -> f.stream == 'Q', frames)
+
+mkpath(dirname(outfile))
+save_frames(outfile, frames)  # Q frames only (default)
+println("Q frames → $outfile")

@@ -51,19 +51,15 @@ end
 """
     mask_helper(
         intersections::AbstractVector{Intersection{T}},
-        earth::Earth{T},
+        detector_region,
         revd::Direction{T}
     ) -> BitVector
 
 Generates a boolean mask for intersections, marking certain intersections as "bad" based on detector region entry/exit.
 
-This function is used to filter out intersections that correspond to entering and immediately
-exiting a detector region without traversing any significant material, or other conditions
-that should not be considered valid interaction points.
-
 # Arguments
-- `intersections::AbstractVector{Intersection{T}}`: A sorted list of `Intersection` objects along a ray.
-- `earth::Earth{T}`: The Earth model, containing information about detector regions.
+- `intersections`: A sorted list of `Intersection` objects along a ray.
+- `detector_region`: Indices of detector-region triangles.
 - `revd::Direction{T}`: The reverse direction of the particle's travel.
 
 # Returns
@@ -71,7 +67,7 @@ that should not be considered valid interaction points.
 """
 function mask_helper(
     intersections::I,
-    earth::Earth{T},
+    detector_region,
     revd::Direction{T}
 ) where {T<:Real, I<:AbstractVector{Intersection{T}}}
     mask = ones(Bool, length(intersections))
@@ -80,7 +76,7 @@ function mask_helper(
         if idx in bad_idxs || isa(i, SphereIntersection)
             continue
         end
-        if i.index in earth.detector_region
+        if i.index in detector_region
             entering = dot(i.normal, revd) < 0
             if entering && idx < length(intersections) && !isa(intersections[idx+1], SphereIntersection)
                 push!(bad_idxs, idx)

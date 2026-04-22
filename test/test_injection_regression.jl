@@ -12,27 +12,26 @@ Requires HDF5 geometry and cross-section data files.
 """
 
 import Tambo: UnitfulPowerLawSampler, UniformAngularSampler, CoordinateSystem,
-              precompute_detector_properties, inject_event, CrossSection, Earth,
-              null_params, init_proposal, proposal_propagate, is_proposal_available
+              precompute_detector_properties, inject_event, CrossSection,
+              null_params, init_proposal, proposal_propagate, is_proposal_available,
+              load_earth!
 
 """
-    isinair(particle, earth)
+    isinair(particle, prem, bvh)
 
 Returns true if the particle is above the Earth's topography (in air).
-Casts a ray straight up from the particle position; if it doesn't intersect
-any topography, the particle is in air.
 """
-function isinair(particle, earth)
+function isinair(particle, prem, bvh)
     d = Direction(
         normalize(convert(ecefcoordinates, particle.position)),
         ecefcoordinates
     )
     d = convert(particle.position.coordinate_system, d)
     ray = Ray(particle.position, d)
-    return length(intersect_all(earth, ray)) == 0
+    return length(intersect_all(prem, bvh, ray)) == 0
 end
 
-function run_injection(earth, xs, detector_props, as, gamma, n_events, seed)
+function run_injection(prem, bvh, cs, detector_region, xs, detector_props, as, gamma, n_events, seed)
     pl = UnitfulPowerLawSampler(gamma, 3e5u"GeV", 1e9u"GeV")
     Random.seed!(seed)
 
@@ -42,14 +41,14 @@ function run_injection(earth, xs, detector_props, as, gamma, n_events, seed)
 
     for i in 1:n_events
         tr_seed = rand(UInt32)
-        istate, cstate, fstate, wp = inject_event(16, earth, as, pl, xs, detector_props; tr_seed=tr_seed)
+        istate, cstate, fstate, wp = inject_event(16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed)
         e_val = ustrip(u"GeV", istate.energy)
         if !isnan(e_val)
             push!(initial_energies, e_val)
         end
         if !isnan(fstate.energy)
             n_successful += 1
-            if isinair(fstate, earth)
+            if isinair(fstate, prem, bvh)
                 n_in_air += 1
             end
         end
@@ -70,12 +69,21 @@ function run_injection(earth, xs, detector_props, as, gamma, n_events, seed)
 end
 
 function run_injection_regression_tests()
-    earth_path = get_tambosim_path() * "/resources/basic_geometry.h5:colca_valley_30000"
+    earth_path = get_tambosim_path() * "/resources/geometry/colca_valley.h5:colca_valley_30000"
     xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
-    earth = Earth(earth_path, "detector1")
+    gframe = Frame('G')
+    gframe["earth_path"]   = earth_path
+    gframe["detector_key"] = "detector1"
+    load_earth!(gframe)
+    prem            = gframe["prem"]
+    bvh             = gframe["bvh"]
+    cs              = gframe["cs"]
+    topography      = gframe["topography"]
+    detector_region = gframe["detector_region"]
+
     xs = CrossSection(xs_path)
-    detector_props = precompute_detector_properties(earth)
+    detector_props = precompute_detector_properties(topography, detector_region)
     as = UniformAngularSampler(deg2rad(0.0), deg2rad(117.0), deg2rad(90.0), deg2rad(290.0))
 
     # ---- Single seeded event: injection + propagation ----
@@ -87,7 +95,7 @@ function run_injection_regression_tests()
         tr_seed = UInt32(3723491101)
 
         istate, cstate, fstate, wp = inject_event(
-            16, earth, as, pl, xs, detector_props; tr_seed=tr_seed
+            16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed
         )
 
         # Injection must succeed
@@ -101,7 +109,7 @@ function run_injection_regression_tests()
         tables_path = get_tambosim_path() * "/resources/proposal_tables"
         init_proposal(Dict("tablespath" => tables_path))
         proposal_seed = Int32(12345)
-        losses, cont_e, secs, prop_final = proposal_propagate(fstate, earth, proposal_seed)
+        losses, cont_e, secs, prop_final = proposal_propagate(fstate, prem, bvh, proposal_seed)
 
         # Final state must have lower energy than injection final state
         @test prop_final.energy <= fstate.energy
@@ -124,12 +132,12 @@ function run_injection_regression_tests()
         # Reproducibility: same seeds must give identical results
         Random.seed!(3)
         istate2, cstate2, fstate2, wp2 = inject_event(
-            16, earth, as, pl, xs, detector_props; tr_seed=tr_seed
+            16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed
         )
         @test istate2.energy == istate.energy
         @test fstate2.energy == fstate.energy
 
-        losses2, cont_e2, secs2, prop_final2 = proposal_propagate(fstate2, earth, proposal_seed)
+        losses2, cont_e2, secs2, prop_final2 = proposal_propagate(fstate2, prem, bvh, proposal_seed)
         @test prop_final2.energy == prop_final.energy
         @test length(secs2) == length(secs)
         for (a, b) in zip(secs, secs2)
@@ -142,8 +150,8 @@ function run_injection_regression_tests()
     seed = 925
 
     # Run both gammas once, reuse results across testsets
-    r1 = run_injection(earth, xs, detector_props, as, 1.0, n_events, seed)
-    r2 = run_injection(earth, xs, detector_props, as, 2.0, n_events, seed)
+    r1 = run_injection(prem, bvh, cs, detector_region, xs, detector_props, as, 1.0, n_events, seed)
+    r2 = run_injection(prem, bvh, cs, detector_region, xs, detector_props, as, 2.0, n_events, seed)
 
     # ---- Gamma = 1.0 (flat spectrum) ----
     @testset "Injection gamma=1.0" begin
@@ -200,7 +208,7 @@ function run_injection_regression_tests()
         Random.seed!(prop_seed)
         for i in 1:n_prop_events
             tr_seed = rand(UInt32)
-            istate, cstate, fstate, wp = inject_event(16, earth, as, pl, xs, detector_props; tr_seed=tr_seed)
+            istate, cstate, fstate, wp = inject_event(16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed)
             if !isnan(fstate.energy)
                 push!(fstates, fstate)
             end
@@ -218,8 +226,8 @@ function run_injection_regression_tests()
         ]
             n_prop_air = 0
             for (j, fs) in enumerate(fstates)
-                losses, cont_e, secs, prop_final = proposal_propagate(fs, earth, j)
-                if isinair(prop_final, earth)
+                losses, cont_e, secs, prop_final = proposal_propagate(fs, prem, bvh, j)
+                if isinair(prop_final, prem, bvh)
                     n_prop_air += 1
                 end
             end
@@ -235,7 +243,7 @@ function run_injection_regression_tests()
         n_tested = 0
 
         for (j, fs) in enumerate(fstates_g1)
-            losses, cont_e, secs, prop_final = proposal_propagate(fs, earth, j)
+            losses, cont_e, secs, prop_final = proposal_propagate(fs, prem, bvh, j)
             n_tested += 1
 
             if !isempty(secs)

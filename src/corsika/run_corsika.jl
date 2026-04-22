@@ -1,7 +1,8 @@
 """
     corsika_run(
         particle::Particle{T},
-        earth::Earth,
+        topography,
+        detector_region,
         obs_mesh_path::String,
         terrain_mesh_path::String,
         ecuts,
@@ -15,13 +16,13 @@
 
 Run `tambo_shower` (CORSIKA 8 mesh-based) for a primary particle.
 
-Finds the intersection of the particle trajectory with the detector region of
-`earth`, then calls `tambo_shower` with `--inject-x/y/z` (particle position)
-and `--intercept-x/y/z` (intercept on detector region), both in ECEF metres.
+Finds the intersection of the particle trajectory with the detector region, then calls
+`tambo_shower` with `--inject-x/y/z` and `--intercept-x/y/z`, both in ECEF metres.
 
 # Arguments
 - `particle::Particle{T}`: Primary particle; `position` is the injection point.
-- `earth::Earth`: Detector geometry; `earth.detector_region` selects detection triangles.
+- `topography`: Full topography mesh (vector of triangles).
+- `detector_region`: Indices of detector-region triangles within `topography`.
 - `obs_mesh_path::String`: Path to the observation-region PLY file (ECEF metres).
 - `terrain_mesh_path::String`: Path to the terrain PLY file, or `""` to disable.
 - `ecuts`: Three energy cuts `(emcut, mucut, hadcut)` as `Quantity` values.
@@ -35,7 +36,8 @@ and `--intercept-x/y/z` (intercept on detector region), both in ECEF metres.
 """
 function corsika_run(
     particle::Particle{T},
-    earth::Earth,
+    topography,
+    detector_region,
     obs_mesh_path::String,
     terrain_mesh_path::String,
     ecuts,
@@ -49,7 +51,7 @@ function corsika_run(
 ) where {T}
 
     # Build a BVH from detector-region triangles only
-    detector_triangles = earth.topography[earth.detector_region]
+    detector_triangles = topography[detector_region]
     detector_bvh = BVHTree(detector_triangles)
 
     # Find where the particle trajectory intersects the detector region

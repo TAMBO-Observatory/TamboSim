@@ -9,31 +9,40 @@ Uses fixed random seeds for deterministic reproducibility.
 """
 
 import Tambo: UnitfulPowerLawSampler, UniformAngularSampler, CoordinateSystem,
-              precompute_detector_properties, inject_event, CrossSection, Earth,
-              init_proposal, proposal_propagate, is_proposal_available
+              precompute_detector_properties, inject_event, CrossSection,
+              init_proposal, proposal_propagate, is_proposal_available, load_earth!
 
 """
-    isinair(particle, earth)
+    isinair_prop(particle, prem, bvh)
 
 Returns true if the particle is above the Earth's topography (in air).
 """
-function isinair_prop(particle, earth)
+function isinair_prop(particle, prem, bvh)
     d = Direction(
         normalize(convert(ecefcoordinates, particle.position)),
         ecefcoordinates
     )
     d = convert(particle.position.coordinate_system, d)
     ray = Ray(particle.position, d)
-    return length(intersect_all(earth, ray)) == 0
+    return length(intersect_all(prem, bvh, ray)) == 0
 end
 
 function run_propagation_decay_fraction_tests()
-    earth_path = get_tambosim_path() * "/resources/basic_geometry.h5:colca_valley_30000"
+    earth_path = get_tambosim_path() * "/resources/geometry/colca_valley.h5:colca_valley_30000"
     xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
-    earth = Earth(earth_path, "detector1")
+    gframe = Frame('G')
+    gframe["earth_path"]   = earth_path
+    gframe["detector_key"] = "detector1"
+    load_earth!(gframe)
+    prem            = gframe["prem"]
+    bvh             = gframe["bvh"]
+    cs              = gframe["cs"]
+    topography      = gframe["topography"]
+    detector_region = gframe["detector_region"]
+
     xs = CrossSection(xs_path)
-    detector_props = precompute_detector_properties(earth)
+    detector_props = precompute_detector_properties(topography, detector_region)
     as = UniformAngularSampler(deg2rad(0.0), deg2rad(117.0), deg2rad(90.0), deg2rad(290.0))
 
     # Phase 1: inject events and collect successful final states
@@ -48,7 +57,7 @@ function run_propagation_decay_fraction_tests()
     for _ in 1:n_events
         tr_seed = rand(UInt32)
         istate, cstate, fstate, wp = inject_event(
-            16, earth, as, pl, xs, detector_props; tr_seed=tr_seed
+            16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed
         )
         n_injected += 1
         if !isnan(fstate.energy)
@@ -68,9 +77,9 @@ function run_propagation_decay_fraction_tests()
 
     @testset "Propagation and decay-in-mountain fractions" begin
         for (j, fs) in enumerate(fstates)
-            losses, cont_e, secs, prop_final = proposal_propagate(fs, earth, j)
+            losses, cont_e, secs, prop_final = proposal_propagate(fs, prem, bvh, j)
 
-            in_air = isinair_prop(prop_final, earth)
+            in_air = isinair_prop(prop_final, prem, bvh)
             has_decay = !isempty(secs)
 
             if in_air

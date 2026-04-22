@@ -95,8 +95,8 @@ A proton shower at 10^8 GeV injected from directly above the detector:
   --intercept-x 1234500.0 \
   --intercept-y -5678800.0 \
   --intercept-z 2345500.0 \
-  --obs-mesh    /path/to/injection_region_corsika.ply \
-  --terrain-mesh /path/to/terrain_corsika.ply \
+  --obs-mesh    /path/to/colca_valley_obs_surface.ply \
+  --terrain-mesh /path/to/colca_valley_terrain.ply \
   -f output_dir
 ```
 
@@ -104,7 +104,7 @@ In normal use the injection and intercept coordinates are computed by the Julia
 `corsika_run(particle, earth, ...)` wrapper, which traces the particle trajectory
 to the detector region of the `Earth` struct and converts both endpoints to ECEF.
 
-The PLY mesh files (`injection_region_corsika.ply`, `terrain_corsika.ply`) are
+The PLY mesh files (`colca_valley_obs_surface.ply`, `colca_valley_terrain.ply`) are
 in `resources/` in this repository.
 
 **Note:** the output directory must not already exist. Remove it before re-running:
@@ -162,7 +162,7 @@ Output is written to `<filename>/` in Parquet format:
 
 ## Notes on the terrain mesh
 
-`terrain_corsika.ply` (~90k vertices, ~180k triangles) is a large mesh. Building
+`colca_valley_terrain.ply` (~90k vertices, ~180k triangles) is a large mesh. Building
 its BVH takes a few seconds at startup. It is used as an absorbing
 `ObservationMesh` — particles that strike the terrain are recorded in
 `terrain/` and removed from the simulation. Omit `--terrain-mesh` to disable it

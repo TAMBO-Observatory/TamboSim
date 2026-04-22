@@ -85,9 +85,9 @@ of the `OBB`.
 # Returns
 - The enclosing `AABB`.
 """
-function AABB(obb::OBB)
-    min_corner = fill(Inf*u"m", 3)
-    max_corner = fill(-Inf*u"m", 3)
+function AABB(obb::OBB{T}) where T
+    min_corner = fill(T(Inf)*u"m", 3)
+    max_corner = fill(T(-Inf)*u"m", 3)
     
     for i in 1:8
         vertex = obb.vertices[i]
@@ -113,8 +113,8 @@ Creates an `AABB` that encloses a vector of `OBB`s (Oriented Bounding Boxes).
 function AABB(
     obbs::AbstractVector{OBB{T}}
 ) where {T<:Real}
-    min_corner = fill(Inf*u"m", 3)
-    max_corner = fill(-Inf*u"m", 3)
+    min_corner = fill(T(Inf)*u"m", 3)
+    max_corner = fill(T(-Inf)*u"m", 3)
     
     for obb in obbs
         for i in 1:8
@@ -318,7 +318,7 @@ function surface_area_fast(
     lx = max_vals[1] - min_vals[1]
     ly = max_vals[2] - min_vals[2] 
     lz = max_vals[3] - min_vals[3]
-    return 2.0 * (lx * ly + ly * lz + lz * lx)
+    return 2 * (lx * ly + ly * lz + lz * lx)
 end
 
 """
@@ -343,7 +343,7 @@ function surface_area_fast(
     lx = max_vals[1] - min_vals[1]
     ly = max_vals[2] - min_vals[2] 
     lz = max_vals[3] - min_vals[3]
-    return 2.0 * (lx * ly + ly * lz + lz * lx)
+    return 2 * (lx * ly + ly * lz + lz * lx)
 end
 
 """
@@ -379,7 +379,7 @@ Used for the Surface Area Heuristic (SAH) during BVH construction.
 """
 @inline function surface_area(bbox::AABB{T}) where {T<:Real}
     lengths = bbox.max - bbox.min
-    return 2.0 * (lengths[1] * lengths[2] + lengths[2] * lengths[3] + lengths[3] * lengths[1])
+    return 2 * (lengths[1] * lengths[2] + lengths[2] * lengths[3] + lengths[3] * lengths[1])
 end
 
 # AABB center
@@ -395,7 +395,7 @@ Calculates the geometric center of an `AABB`.
 - A `Coordinate` representing the center of the bounding box.
 """
 @inline function center(bbox::AABB{T})::Coordinate{T} where {T<:Real}
-    return (bbox.min + bbox.max) / 2.0
+    return (bbox.min + bbox.max) / 2
 end
 
 """

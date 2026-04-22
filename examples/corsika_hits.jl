@@ -1,7 +1,3 @@
-import Pkg
-Pkg.activate(".")
-Pkg.develop(path="../")
-
 using JLD2
 using LinearAlgebra
 using ProgressMeter
@@ -20,18 +16,18 @@ function intersect_module_signed(event, bvh)
     return nothing
 end
 
-earth = Tambo.Earth("../resources/basic_geometry.h5:colca_valley_30000", "detector1")
+earth = Tambo.get_earth(frames)
 cs = Tambo.CoordinateSystem(earth)
 bvh = Tambo.BVHTree(earth.topography[earth.detector_region])
 
-sim = jldopen("$(basedir)/simfile_corsika.jld2") do file
-    file["sim"]
-end
+frames = Tambo.load_frames("$(basedir)/simfile_corsika.jld2")
+cframe = Tambo.get_frame(frames, 'C')
+q_frames = filter(f -> f.stream == 'Q', frames)
 
 Δy = 125.0u"m"
-point = Tambo.Coordinate(sim.config["corsika"]["plane_coordinates"].*u"m", Tambo.ecefcoordinates)
+point = Tambo.Coordinate(cframe["corsika"]["plane_coordinates"].*u"m", Tambo.ecefcoordinates)
 point = convert(cs, point)
-direction = Tambo.Direction(sim.config["corsika"]["plane_orientation"], Tambo.ecefcoordinates)
+direction = Tambo.Direction(cframe["corsika"]["plane_orientation"], Tambo.ecefcoordinates)
 direction = convert(cs, direction)
 plane = Tambo.Plane(point, direction)
 up = Tambo.Direction([0.0, 0.0, 1.0], Tambo.CoordinateSystem(earth))
@@ -69,7 +65,7 @@ for p in ps
 end
 detection_unit_bvh = Tambo.BVHTree(detection_units)
 
-@showprogress for frame in sim.results
+@showprogress for frame in q_frames
     d = "$(basedir)/event_$(lpad(frame["event_id"], 6, "0"))/"
     q = NamedTuple{(:particle, :module_index, :weight), Tuple{Tambo.Particle{Float64}, Int, Float64}}[]
     events = nothing
@@ -91,6 +87,4 @@ detection_unit_bvh = Tambo.BVHTree(detection_units)
     frame["corsika_hits_corrected"] = q
 end
 
-jldopen("$(basedir)/simfile_corsika.jld2", "w") do file
-    file["sim"] = sim
-end
+Tambo.save_frames("$(basedir)/simfile_corsika.jld2", frames)

@@ -48,12 +48,13 @@ The rotation matrix is calculated based on the given longitude and latitude.
 function compute_rotation(longlat)
     # Rotation matrix components
     long, lat = longlat
+    T = typeof(long)
     sin_lat, cos_lat = sin(lat), cos(lat)
     sin_long, cos_long = sin(long), cos(long)
 
     # Rotation matrix from ECEF to local ENU (East, North, Up)
     R = SMatrix{3, 3}([
-        -sin_long           cos_long           0.0
+        -sin_long           cos_long           zero(T)
         -sin_lat * cos_long -sin_lat * sin_long cos_lat
          cos_lat * cos_long  cos_lat * sin_long sin_lat
     ])
@@ -227,7 +228,7 @@ function area(triangle::Triangle{T})::Quantity{T,ldim^2,typeof(u"m^2")} where {T
 
     cross_product = cross(a, b)
 
-    return 0.5 * norm(cross_product)
+    return norm(cross_product) / 2
 end
 
 """

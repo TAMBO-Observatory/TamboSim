@@ -16,13 +16,13 @@ function intersect_module_signed(event, bvh)
     return nothing
 end
 
-earth = Tambo.get_earth(frames)
-cs = Tambo.CoordinateSystem(earth)
-bvh = Tambo.BVHTree(earth.topography[earth.detector_region])
-
 frames = Tambo.load_frames("$(basedir)/simfile_corsika.jld2")
+gframe = Tambo.get_frame(frames, 'G')
 cframe = Tambo.get_frame(frames, 'C')
 q_frames = filter(f -> f.stream == 'Q', frames)
+
+cs  = gframe["cs"]
+bvh = Tambo.BVHTree(gframe["topography"][gframe["detector_region"]])
 
 Δy = 125.0u"m"
 point = Tambo.Coordinate(cframe["corsika"]["plane_coordinates"].*u"m", Tambo.ecefcoordinates)

@@ -20,9 +20,10 @@ using Statistics
 using Tambo
 using Unitful: ustrip, @u_str
 
+gc_path  = joinpath(@__DIR__, "output", "gc_frames.jld2")
 sim_path = joinpath(@__DIR__, "output", "simulation_proposal.jld2")
 
-frames = load_frames(sim_path)
+frames = load_frames([gc_path, sim_path])
 q_frames = filter(f -> f.stream == 'Q', frames)
 println("Loaded $(length(q_frames)) event frames from $sim_path")
 
@@ -79,7 +80,7 @@ isempty(oneweights) || println("  median one-weight          : $(round(median(on
 # =============================================================================
 # 4. Rock vs air decay
 # =============================================================================
-earth = get_earth(frames)
+gframe = get_frame(frames, 'G')
 
 function outward_ray(position)
     ecef_dir = Direction(normalize(convert(ecefcoordinates, position).point),
@@ -90,7 +91,7 @@ end
 
 function decayed_in_air(frame)
     haskey(frame, "proposal_final_state") || return false
-    return isempty(intersect_all(earth, outward_ray(frame["proposal_final_state"].position)))
+    return isempty(intersect_all(gframe["bvh"], outward_ray(frame["proposal_final_state"].position)))
 end
 
 n_air  = count(decayed_in_air, q_frames)

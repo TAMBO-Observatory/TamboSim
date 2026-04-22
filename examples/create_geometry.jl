@@ -250,8 +250,14 @@ vertices, faces, detector_indices = write_geometry_h5(
 
 # Verify it loads correctly
 println("\nVerifying HDF5 with Earth...")
-earth = Earth("$h5_path:$groupname", "detector1")
-println("  PREM layers: $(length(earth.prem))  triangles: $(length(earth.topography))  detector faces: $(length(earth.detector_region))")
+gframe_verify = Frame('G')
+gframe_verify["earth_path"]   = "$h5_path:$groupname"
+gframe_verify["detector_key"] = "detector1"
+load_earth!(gframe_verify)
+n_prem   = length(gframe_verify["prem"])
+n_tris   = length(gframe_verify["topography"])
+n_det    = length(gframe_verify["detector_region"])
+println("  PREM layers: $n_prem  triangles: $n_tris  detector faces: $n_det")
 
 # --- 2. ASCII PLY (for earth_from_ply) ---
 write_geometry_ply(ply_path, vertices, faces, detector_indices, PREM_RADII_KM .* 1_000.0)

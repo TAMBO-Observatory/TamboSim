@@ -9,7 +9,7 @@ Topics covered:
   2. Key lookup and inheritance
   3. GC-split workflow: save geometry/config once, event files separately
   4. Loading multiple files with load_frames
-  5. Earth caching via get_earth
+  5. Earth access via G frame keys
   6. Filtering and cutting event frames
 """
 
@@ -98,22 +98,22 @@ frames_combined = load_frames([gc_file, sim_file, sim_file2])
 println("Combined load: $(count(f -> f.stream == 'Q', frames_combined)) Q frames")
 
 # =============================================================================
-# 5. Earth caching
+# 5. Earth access
 # =============================================================================
-# get_earth builds Earth from gframe["earth_path"] + gframe["detector_key"]
-# on first call and stores it back in the G frame. Subsequent calls return
-# the same object with no file I/O.
+# load_config and load_frames populate the G frame with earth geometry
+# automatically via load_earth!. Keys: prem, topography, bvh, detector_region, cs.
+# They are stripped before saving (to keep files small) and rebuilt on reload.
 
-earth1 = get_earth(frames2)
-earth2 = get_earth(frames2)
-println("\nEarth type:        ", typeof(earth1))
-println("Cached (===):      ", earth1 === earth2)
+gframe2 = get_frame(frames2, 'G')
+bvh = gframe2["bvh"]
+println("\nBVH type:          ", typeof(bvh))
+println("Triangles in BVH:  ", length(bvh.triangles))
 
-# Earth is stripped from G frame data on save, so output files stay small
+# Earth keys are stripped on save and rebuilt by load_frames
 save_frames("$(output_dir)/after_earth.jld2", frames2; streams=('G', 'C'))
 frames4 = load_frames(["$(output_dir)/after_earth.jld2"])
 gframe4 = get_frame(frames4, 'G')
-println("Earth in saved GC: ", haskey(gframe4.data, "earth"))  # false — stripped on save
+println("BVH after reload:  ", haskey(gframe4.data, "bvh"))  # true — rebuilt on load
 
 # =============================================================================
 # 6. Filtering and cutting event frames

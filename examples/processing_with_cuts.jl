@@ -44,7 +44,7 @@ frames = load_frames([gc_file, injection_outfile])
 
 proposal_propagation!(frames)
 
-earth = get_earth(frames)
+gframe = get_frame(frames, 'G')
 
 function upray(particle)
     d = Direction(
@@ -55,7 +55,7 @@ function upray(particle)
     return Ray(particle.position, d)
 end
 
-isinair(particle) = isempty(intersect_all(earth, upray(particle)))
+isinair(particle) = isempty(intersect_all(gframe["bvh"], upray(particle)))
 cut_frames!(frames, frame -> isinair(frame["proposal_final_state"]))
 println("After in-air cut: $(count(f -> f.stream == 'Q', frames)) events remaining")
 

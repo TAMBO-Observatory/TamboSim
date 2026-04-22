@@ -57,7 +57,7 @@ proposal_propagation!(frames)
 @show count(f -> f.stream == 'Q', frames)
 
 if cut_inmountain
-    earth = get_earth(frames)
+    gframe = get_frame(frames, 'G')
 
     function upray(particle)
         d = Direction(
@@ -68,7 +68,7 @@ if cut_inmountain
         return Ray(particle.position, d)
     end
 
-    isinair(particle) = isempty(intersect_all(earth, upray(particle)))
+    isinair(particle) = isempty(intersect_all(gframe["bvh"], upray(particle)))
     cut_frames!(frames, frame -> isinair(frame["proposal_final_state"]))
 end
 

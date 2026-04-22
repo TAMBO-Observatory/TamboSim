@@ -329,10 +329,10 @@ Displays a Frame with its stream type and key count.
 function Base.show(io::IO, f::Frame)
     n_keys = length(f.data)
     if isempty(f.parents)
-        print(io, "Frame('$(f.stream)', $(n_keys) keys)")
+        print(io, "Frame (stream='$(f.stream)', no parents, $(n_keys) keys)")
     else
         parent_streams = join(sort(collect(keys(f.parents))), ", ")
-        print(io, "Frame('$(f.stream)', $(n_keys) keys, parents=[$(parent_streams)])")
+        print(io, "Frame (stream='$(f.stream)', parents: $(parent_streams), $(n_keys) keys)")
     end
 end
 
@@ -343,21 +343,15 @@ Multi-line display for Frame listing stream, parents, and all keys.
 """
 function Base.show(io::IO, ::MIME"text/plain", f::Frame)
     n_keys = length(f.data)
-    println(io, "Frame:")
-    println(io, "  stream: '$(f.stream)'")
-    if !isempty(f.parents)
-        parent_streams = join(sort(collect(keys(f.parents))), ", ")
-        println(io, "  parents: [$(parent_streams)]")
+    parent_info = if isempty(f.parents)
+        "no parents"
+    else
+        "parents: " * join(sort(collect(keys(f.parents))), ", ")
     end
-    println(io, "  keys ($(n_keys)):")
-    for (i, k) in enumerate(sort(collect(String, keys(f.data))))
-        v = f.data[k]
-        vtype = typeof(v)
-        if i < n_keys
-            println(io, "    $k => $vtype")
-        else
-            print(io, "    $k => $vtype")
-        end
+    println(io, "Frame (stream='$(f.stream)', $parent_info)")
+    print(io, "  keys ($n_keys):")
+    for k in sort(collect(String, keys(f.data)))
+        print(io, "\n    $k")
     end
 end
 

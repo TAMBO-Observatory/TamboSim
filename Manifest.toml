@@ -2,7 +2,7 @@
 
 julia_version = "1.11.8"
 manifest_format = "2.0"
-project_hash = "e5c8e35cd20dfccd8f6edc303100b33ec2b5e4ef"
+project_hash = "14f08bdb0eaf155c2b6b713a0883c44c1c48b671"
 
 [[deps.ADTypes]]
 git-tree-sha1 = "f7304359109c768cf32dc5fa2d371565bb63b68a"
@@ -190,9 +190,9 @@ version = "0.3.7"
 
 [[deps.ChainRulesCore]]
 deps = ["Compat", "LinearAlgebra"]
-git-tree-sha1 = "e4c6a16e77171a5f5e25e9646617ab1c276c5607"
+git-tree-sha1 = "12177ad6b3cad7fd50c8b3825ce24a99ad61c18f"
 uuid = "d360d2e6-b24c-11e9-a2a3-2a2ae2dbcce4"
-version = "1.26.0"
+version = "1.26.1"
 weakdeps = ["SparseArrays"]
 
     [deps.ChainRulesCore.extensions]
@@ -1193,9 +1193,9 @@ version = "0.5.1+0"
 
 [[deps.Roots]]
 deps = ["Accessors", "CommonSolve", "Printf"]
-git-tree-sha1 = "8a433b1ede5e9be9a7ba5b1cc6698daa8d718f1d"
+git-tree-sha1 = "3eff988b9bd09543783e2e051b0a1eef11f65c2d"
 uuid = "f2b01f46-fcfa-551c-844a-d8ac1e96c665"
-version = "2.2.10"
+version = "2.3.0"
 
     [deps.Roots.extensions]
     RootsChainRulesCoreExt = "ChainRulesCore"
@@ -1518,10 +1518,11 @@ version = "1.10.0"
 
 [[deps.TauRunner]]
 deps = ["ArgParse", "Dierckx", "Interpolations", "JLD2", "JSON3", "LRUCache", "LinearAlgebra", "NPZ", "PROPOSAL", "QuadGK", "Random", "Roots", "StaticArrays"]
-git-tree-sha1 = "f92f785610c5f571b5846988ea8f0dc7b4f0eed1"
+git-tree-sha1 = "8f982392fb8945897331b27e7ab47afee7860ca5"
+repo-rev = "master"
 repo-subdir = "TauRunner.jl"
 repo-url = "https://github.com/icecube/TauRunner.git"
-uuid = "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+uuid = "4fc0fe0c-91a9-4fbc-93bb-1977969e636e"
 version = "0.1.0"
 
 [[deps.Test]]

@@ -4,7 +4,7 @@ analyze_simulation.jl
 Demonstrates how to work with Tambo simulation output stored in JLD2 files.
 Covers the common analysis patterns:
 
-  1. Loading a simulation and iterating frames
+  1. Loading frames and iterating events
   2. Accessing particle states and weight parameters
   3. Cutting events that failed injection
   4. Computing one-weights for physical flux estimates
@@ -12,10 +12,9 @@ Covers the common analysis patterns:
   6. Inspecting decay products
 
 Expected input: a JLD2 file produced by inject! + proposal_propagation!,
-saved as file["sim"] = sim.
+saved with save_frames.
 """
 
-using JLD2
 using LinearAlgebra
 using Statistics
 using Tambo
@@ -23,29 +22,20 @@ using Unitful: ustrip, @u_str
 
 sim_path = joinpath(@__DIR__, "output", "simulation_proposal.jld2")
 
-sim = jldopen(sim_path) do f
-    f["sim"]
-end
-println("Loaded $(length(sim.results)) frames from $sim_path")
+frames = load_frames(sim_path)
+q_frames = filter(f -> f.stream == 'Q', frames)
+println("Loaded $(length(q_frames)) event frames from $sim_path")
 
 # =============================================================================
 # 1. Accessing frame variables
 # =============================================================================
-# Each frame is a hierarchical dict. Keys are written by inject! and
+# Each Q frame is a hierarchical dict. Keys are written by inject! and
 # proposal_propagation! using their outprefix arguments (default: "injection"
 # and "proposal"). Every frame has an event_id set at creation time.
 
-frame = first(sim.results)
+frame = first(q_frames)
 println("\n--- Frame keys ---")
 println(collect(keys(frame)))
-
-# Particle states written by inject!:
-#   injection_initial_state  — neutrino at the interaction vertex
-#   injection_final_state    — tau lepton produced (absent if injection failed)
-#   injection_close_state    — tau closest approach to detector (if computed)
-#
-# Weight parameters (always present after inject!):
-#   weight_params            — sampling ranges, generated energy, cross-sections
 
 println("\n--- Event $(frame["event_id"]) ---")
 println("  initial neutrino energy : ", frame["injection_initial_state"].energy)
@@ -59,35 +49,21 @@ end
 # =============================================================================
 # 2. Cutting events that did not pass injection
 # =============================================================================
-# inject! only writes injection_final_state when the neutrino successfully
-# interacted and produced a tau inside the Earth. Events without this key
-# are failed injection attempts and carry no physics information.
-
-n_before = length(sim.results)
-cut_frames!(sim.results, frame -> haskey(frame, "injection_final_state"))
-println("\nAfter injection cut: $(length(sim.results)) / $n_before events pass")
-
-# Also require that propagation ran (proposal_final_state present)
-cut_frames!(sim.results, frame -> haskey(frame, "proposal_final_state"))
-println("After propagation cut: $(length(sim.results)) events with propagated tau")
+n_before = length(q_frames)
+cut_frames!(frames, frame -> haskey(frame, "injection_final_state"))
+cut_frames!(frames, frame -> haskey(frame, "proposal_final_state"))
+q_frames = filter(f -> f.stream == 'Q', frames)
+println("\nAfter cuts: $(length(q_frames)) / $n_before events pass")
 
 # =============================================================================
 # 3. Computing one-weights
 # =============================================================================
-# p_mc(wp) gives the Monte Carlo phase space density for the generated event.
-# The one-weight 1/p_mc is proportional to the physical flux per generated
-# event. Sum one-weights to get an effective area; divide by a physical flux
-# model to get an event rate.
-#
-# Units: p_mc has units of GeV^-1 m^-3 sr^-1, so 1/p_mc has units of
-# GeV m^3 sr. Multiply by n_gen to get m^2 sr (effective area in GeV bin).
-
 n_gen = n_before
 
 oneweights = Float64[]
 energies   = Float64[]
 
-for frame in sim.results
+for frame in q_frames
     wp = frame["weight_params"]
     pmc = Tambo.p_mc(wp)
     ustrip_pmc = ustrip(u"GeV^-1 * m^-3 * sr^-1", pmc)
@@ -103,16 +79,7 @@ isempty(oneweights) || println("  median one-weight          : $(round(median(on
 # =============================================================================
 # 4. Rock vs air decay
 # =============================================================================
-# After proposal_propagation!, the tau either decayed underground (rock) or
-# after emerging into the atmosphere (air). Cast a ray from the final state
-# position pointing radially outward. If that ray has no terrain intersections,
-# the position is above the surface — an air decay. Otherwise it is still
-# underground — a rock decay.
-
-earth = Earth(
-    sim.config["geometry"]["earth_path"],
-    sim.config["geometry"]["detector_key"],
-)
+earth = get_earth(frames)
 
 function outward_ray(position)
     ecef_dir = Direction(normalize(convert(ecefcoordinates, position).point),
@@ -123,12 +90,11 @@ end
 
 function decayed_in_air(frame)
     haskey(frame, "proposal_final_state") || return false
-    ray = outward_ray(frame["proposal_final_state"].position)
-    return isempty(intersect_all(earth, ray))
+    return isempty(intersect_all(earth, outward_ray(frame["proposal_final_state"].position)))
 end
 
-n_air  = count(decayed_in_air, sim.results)
-n_rock = length(sim.results) - n_air
+n_air  = count(decayed_in_air, q_frames)
+n_rock = length(q_frames) - n_air
 println("\nDecay location:")
 println("  air decays  : $n_air")
 println("  rock decays : $n_rock")
@@ -136,12 +102,8 @@ println("  rock decays : $n_rock")
 # =============================================================================
 # 5. Inspecting decay products
 # =============================================================================
-# proposal_propagation! stores the tau's decay products under
-# proposal_decay_products. Each product is a Particle with pdg, energy,
-# position, and direction.
-
-const EM_PDGS   = Set([11, -11, 22])           # e±, γ
-const SKIP_PDGS = Set([12, 14, 16, -12, -14, -16, 13, -13])  # ν, μ
+const EM_PDGS   = Set([11, -11, 22])
+const SKIP_PDGS = Set([12, 14, 16, -12, -14, -16, 13, -13])
 
 function classify_decay(frame)
     haskey(frame, "proposal_decay_products") || return :no_decay
@@ -162,16 +124,15 @@ function classify_decay(frame)
     return em_e / total > 0.8 ? :em : :hadronic
 end
 
-decay_types = classify_decay.(sim.results)
+decay_types = classify_decay.(q_frames)
 println("\nDecay type classification:")
 for t in (:em, :hadronic, :muonic, :no_decay)
     println("  $t : $(count(==(t), decay_types))")
 end
 
-# Example: print a summary of the first air-decay event's products
-air_idx = findfirst(decayed_in_air, sim.results)
+air_idx = findfirst(decayed_in_air, q_frames)
 if !isnothing(air_idx)
-    frame = sim.results[air_idx]
+    frame = q_frames[air_idx]
     println("\nFirst air-decay event (event_id=$(frame["event_id"])):")
     println("  tau final energy : ", frame["proposal_final_state"].energy)
     for (i, p) in enumerate(frame["proposal_decay_products"])

@@ -324,75 +324,39 @@ end
 """
     Base.show(io::IO, f::Frame)
 
-Displays a Frame with its number of keys.
+Displays a Frame with its stream type and key count.
 """
 function Base.show(io::IO, f::Frame)
     n_keys = length(f.data)
-    has_parent = !isnothing(f.parent)
-    if has_parent
-        print(io, "Frame($(n_keys) keys, has parent)")
+    if isempty(f.parents)
+        print(io, "Frame('$(f.stream)', $(n_keys) keys)")
     else
-        print(io, "Frame($(n_keys) keys)")
+        parent_streams = join(sort(collect(keys(f.parents))), ", ")
+        print(io, "Frame('$(f.stream)', $(n_keys) keys, parents=[$(parent_streams)])")
     end
 end
 
 """
     Base.show(io::IO, ::MIME"text/plain", f::Frame)
 
-Multi-line display for Frame listing all keys.
+Multi-line display for Frame listing stream, parents, and all keys.
 """
 function Base.show(io::IO, ::MIME"text/plain", f::Frame)
     n_keys = length(f.data)
-    has_parent = !isnothing(f.parent)
-
     println(io, "Frame:")
-    println(io, "  type: '$(f.type)'")
+    println(io, "  stream: '$(f.stream)'")
+    if !isempty(f.parents)
+        parent_streams = join(sort(collect(keys(f.parents))), ", ")
+        println(io, "  parents: [$(parent_streams)]")
+    end
     println(io, "  keys ($(n_keys)):")
-    for (i, k) in enumerate(sort(collect(Base.keys(f.data))))
+    for (i, k) in enumerate(sort(collect(String, keys(f.data))))
         v = f.data[k]
         vtype = typeof(v)
         if i < n_keys
             println(io, "    $k => $vtype")
         else
             print(io, "    $k => $vtype")
-        end
-    end
-    if has_parent
-        print(io, "\n  (has parent frame)")
-    end
-end
-
-# ============================================================================
-# Simulation Type
-# ============================================================================
-
-"""
-    Base.show(io::IO, sim::Simulation)
-
-Displays a Simulation with event count and configuration summary.
-"""
-function Base.show(io::IO, sim::Simulation)
-    n_events = length(sim.results)
-    n_config_keys = length(sim.config)
-    print(io, "Simulation($(n_events) events, $(n_config_keys) config sections)")
-end
-
-"""
-    Base.show(io::IO, ::MIME"text/plain", sim::Simulation)
-
-Multi-line display for Simulation with configuration overview.
-"""
-function Base.show(io::IO, ::MIME"text/plain", sim::Simulation)
-    n_events = length(sim.results)
-
-    println(io, "Simulation:")
-    println(io, "  events: $(n_events)")
-    println(io, "  configuration sections:")
-    for (k, v) in sim.config
-        if isa(v, Dict)
-            println(io, "    $k ($(length(v)) params)")
-        else
-            println(io, "    $k => $v")
         end
     end
 end

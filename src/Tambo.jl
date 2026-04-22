@@ -3,13 +3,17 @@ module Tambo
 export Ray,
        Coordinate,
        Direction,
-       Earth,
        intersect_all,
+       Frame,
        inject!,
        inject_protons!,
        proposal_propagation!,
        cut_frames!,
-       Simulation,
+       load_config,
+       load_earth!,
+       save_frames,
+       load_frames,
+       get_frame,
        ecefcoordinates,
        get_tambosim_path,
        # Llama progress utilities
@@ -113,57 +117,19 @@ end
     get_git_commit_hash() -> String
 
 Retrieves the Git commit hash of the Tambo repository.
-
-This function reads the `TAMBOSIM_PATH` environment variable to find the repository path,
-opens the Git repository, and returns the hash of the current HEAD commit.
-
-# Returns
-- A string containing the Git commit hash.
 """
 function get_git_commit_hash()
     git_repo_path = get_tambosim_path()
-
-    # # Open the Git repository located at the module's directory
     repo = LibGit2.GitRepo(git_repo_path)
-            
-    # Get the OID (object ID) of the current HEAD reference
     oid = LibGit2.head_oid(repo)
-        
-    # Convert the OID to a hex string representing the commit hash
-    commit_hash = LibGit2.string(oid)
-    
-    return commit_hash
-end
-
-
-"""
-    Simulation
-
-A mutable struct that holds the configuration and results of a Tambo simulation.
-
-# Fields
-- `config::Dict{String, Any}`: A dictionary containing the simulation configuration.
-- `results::Vector{Frame}`: A vector of `Frame` objects, where each frame represents an event.
-"""
-mutable struct Simulation
-    config::Dict{String, Any}
-    results::Vector{Frame}
-    function Simulation(config, results)
-        @assert "geometry" in keys(config) "Geometry information must be provided"
-        return new(config, results)
-    end
+    return LibGit2.string(oid)
 end
 
 """
     relativize!(d::Dict)
 
-Recursively replaces the placeholder `_TAMBOSIM_PATH_` in a dictionary with the value
-of the `TAMBOSIM_PATH` environment variable.
-
-This function modifies the dictionary in-place.
-
-# Arguments
-- `d::Dict`: The dictionary to modify.
+Recursively replaces the placeholder `_TAMBOSIM_PATH_` in a dictionary with the
+actual repository root path.
 """
 function relativize!(d::Dict)
     tambosim_path = get_tambosim_path()
@@ -180,81 +146,151 @@ end
     validate_config_file(config::Dict{String, Any})
 
 Placeholder for configuration validation.
-
-This function is intended to ensure that the configuration contains only expected parameters
-and that their values are sensible. Currently not implemented.
-
-# Arguments
-- `config::Dict{String, Any}`: The configuration dictionary to validate.
 """
 function validate_config_file(config::Dict{String, Any})
     # TODO: Implement configuration validation
 end
 
 """
-    Simulation(config_file::String) -> Simulation
+    load_earth!(gframe::Frame)
 
-Constructs a `Simulation` object from a TOML configuration file.
+Reads geometry from `gframe["earth_path"]` and `gframe["detector_key"]` and
+populates the G frame with the following keys:
 
-This constructor parses the specified TOML file, validates its contents,
-and initializes an empty `Simulation` object with the loaded configuration.
-It also calls `relativize!` to make paths in the configuration absolute.
+- `"prem"`: `Vector{Sphere}` — concentric PREM layers for ray tracing
+- `"topography"`: `Vector{Triangle}` — surface mesh
+- `"bvh"`: `BVHTree` — acceleration structure over the full topography
+- `"detector_region"`: `Vector{Int}` — indices of detector-region triangles
+- `"cs"`: `CoordinateSystem` — local ENU coordinate system at the site
 
-# Arguments
-- `config_file::String`: The path to the TOML configuration file.
-
-# Returns
-- A new `Simulation` object.
+Dispatches to HDF5 or PLY loading based on the file extension of `earth_path`.
 """
-function Simulation(config_file::String)
+function load_earth!(gframe::Frame)
+    location     = gframe["earth_path"]
+    detectorname = gframe["detector_key"]
+    prem, topography, bvh, detector_region, cs = if endswith(location, ".ply")
+        _load_earth_ply(location)
+    else
+        _load_earth_h5(location, detectorname)
+    end
+    gframe["prem"]            = prem
+    gframe["topography"]      = topography
+    gframe["bvh"]             = bvh
+    gframe["detector_region"] = detector_region
+    gframe["cs"]              = cs
+    return gframe
+end
+
+CoordinateSystem(gframe::Frame) = gframe["cs"]
+
+"""
+    _find_frame(frames::Vector{Frame}, stream::Char) -> Frame
+
+Returns the last frame in `frames` with the given stream type. Errors if none
+is found.
+"""
+function _find_frame(frames::Vector{Frame}, stream::Char)
+    idx = findlast(f -> f.stream == stream, frames)
+    isnothing(idx) && error("No '$stream' frame found in frame vector")
+    return frames[idx]
+end
+
+"""
+    get_frame(frames::Vector{Frame}, stream::Char) -> Frame
+
+Returns the last frame in `frames` with the given stream type.
+"""
+get_frame(frames::Vector{Frame}, stream::Char) = _find_frame(frames, stream)
+
+"""
+    load_config(config_file::String) -> Vector{Frame}
+
+Parses a TOML configuration file and returns `[G frame, C frame]`.
+
+The G frame holds geometry paths. The C frame holds one key per config section
+(e.g. `"injection"`, `"proposal"`, `"corsika"`), with the G frame as its parent.
+Paths containing `_TAMBOSIM_PATH_` are resolved to absolute paths.
+
+    load_config(config::Dict) -> Vector{Frame}
+
+Same as above but accepts an already-parsed config dict (useful in tests).
+"""
+function load_config(config_file::String)
     config = TOML.parsefile(config_file)
     validate_config_file(config)
     relativize!(config)
-    results = Frame[]
-    return Simulation(config, results)
+    return _config_to_frames(config)
+end
+
+function load_config(config::Dict)
+    config = deepcopy(config)
+    relativize!(config)
+    return _config_to_frames(config)
+end
+
+function _config_to_frames(config::Dict)
+    gframe = Frame('G')
+    gframe["earth_path"]   = config["geometry"]["earth_path"]
+    gframe["detector_key"] = config["geometry"]["detector_key"]
+    load_earth!(gframe)
+
+    cframe = Frame('C')
+    cframe.parents['G'] = gframe
+    for (section, params) in config
+        section == "geometry" && continue
+        cframe[section] = params
+    end
+
+    _check_parent_conflicts(cframe)
+
+    return Frame[gframe, cframe]
+end
+
+"""
+    _ensure_earth_loaded!(frames::Vector{Frame})
+
+Ensures the G frame has earth geometry loaded. Calls `load_earth!` if prem is missing.
+"""
+function _ensure_earth_loaded!(frames::Vector{Frame})
+    gframe = _find_frame(frames, 'G')
+    if !haskey(gframe.data, "prem")
+        load_earth!(gframe)
+    end
 end
 
 """
     inject!(
-        sim::Simulation;
-        outprefix::String="injection",
-        earth::Union{Earth, Nothing}=nothing
+        frames::Vector{Frame};
+        outprefix::String="injection"
     )
 
-Injects particles into the simulation based on the configuration.
-
-This function generates initial neutrino events according to the specified energy and angular distributions.
-For each event, it determines the initial, close, and final states of the particle as it interacts
-with the provided `Earth` model. The results are stored in the `sim.results` frames.
-
-# Arguments
-- `sim::Simulation`: The `Simulation` object to modify.
-- `outprefix::String`: A prefix for the keys under which the injection results are stored in the frames. Defaults to "injection".
-- `earth::Union{Earth, Nothing}`: An optional `Earth` object. If not provided, it's created from the simulation configuration.
+Injects neutrino events into the simulation. Reads configuration from the C frame,
+appends one Q frame per event to `frames`, and populates injection states.
 """
 function inject!(
-    sim::Simulation;
-    outprefix::String="injection",
-    earth::Union{Earth, Nothing}=nothing
+    frames::Vector{Frame};
+    outprefix::String="injection"
 )
-    if !isempty(sim.results)
-        error("sim.results is not empty. Each Simulation must contain only one particle type. " *
-              "Create a new Simulation() before calling inject!().")
-    end
+    _ensure_earth_loaded!(frames)
+    cframe = _find_frame(frames, 'C')
+    gframe = _find_frame(frames, 'G')
+    cfg = cframe[outprefix]
 
-    cfg = sim.config[outprefix]
+    prem            = gframe["prem"]
+    bvh             = gframe["bvh"]
+    cs              = gframe["cs"]
+    topography      = gframe["topography"]
+    detector_region = gframe["detector_region"]
 
-    relativize!(cfg)
+    q_frames = Frame[]
     for idx in 1:cfg["nevent"]
-        push!(sim.results, Frame(Dict("event_id"=>idx)))
+        qframe = Frame('Q')
+        qframe.parents['G'] = gframe
+        qframe.parents['C'] = cframe
+        qframe["event_id"] = idx
+        push!(q_frames, qframe)
     end
-
-    if isnothing(earth)
-        earth = Earth(
-            sim.config["geometry"]["earth_path"],
-            sim.config["geometry"]["detector_key"],
-        )
-    end
+    append!(frames, q_frames)
 
     pl = UnitfulPowerLawSampler(
         cfg["gamma"],
@@ -268,19 +304,18 @@ function inject!(
         deg2rad(cfg["phimax"]),
     )
     cross_section = CrossSection(cfg["xs_location"])
-    detector_bvh = BVHTree(earth.topography[earth.detector_region])
-    detector_areas = area.(earth.topography[earth.detector_region])
-    detector_normals = normal.(earth.topography[earth.detector_region])
+    detector_triangles = topography[detector_region]
+    detector_bvh   = BVHTree(detector_triangles)
+    detector_areas  = area.(detector_triangles)
+    detector_normals = normal.(detector_triangles)
     Random.seed!(cfg["pinecone"])
 
-    @llama_showprogress "Injecting" for frame in sim.results
+    @llama_showprogress "Injecting" for frame in q_frames
         tr_seed = rand(UInt32)
         istate, cstate, fstate, wp = inject_event(
             cfg["pdg"],
-            earth,
-            as,
-            pl,
-            cross_section;
+            prem, bvh, cs, detector_region, topography,
+            as, pl, cross_section;
             detector_areas=detector_areas,
             detector_normals=detector_normals,
             detector_bvh=detector_bvh,
@@ -298,65 +333,37 @@ function inject!(
 end
 
 """
-    inject_ν!(
-        sim::Simulation;
-        outprefix::String="injection",
-        earth::Union{Earth, Nothing}=nothing
-    )
-
-**DEPRECATED**. Use `inject!` instead.
-
-Injects neutrinos into the simulation. This function is an alias for `inject!`.
-"""
-function inject_ν!(
-    sim::Simulation;
-    outprefix::String="injection",
-    earth::Union{Earth, Nothing}=nothing
-)
-    @warn("`inject_ν!` is deprecated. Please use `inject!`.")
-    inject!(sim; outprefix=outprefix, earth=earth)
-end
-
-"""
     inject_protons!(
-        sim::Simulation;
-        outprefix::String="injection",
-        earth::Union{Earth, Nothing}=nothing
+        frames::Vector{Frame};
+        outprefix::String="injection"
     )
 
-Injects downgoing cosmic ray protons into the simulation.
-
-Unlike `inject!`, this function skips TauRunner and PROPOSAL propagation.
-Each proton starts at a configurable altitude (default 50 km) and travels
-downward toward the detector, ready for direct CORSIKA shower simulation.
-
-# Arguments
-- `sim::Simulation`: The `Simulation` object to modify.
-- `outprefix::String`: Prefix for frame keys. Defaults to "injection".
-- `earth::Union{Earth, Nothing}`: Optional `Earth` object. Created from config if not provided.
+Injects downgoing cosmic ray protons. Reads configuration from the C frame and
+appends one Q frame per event to `frames`.
 """
 function inject_protons!(
-    sim::Simulation;
-    outprefix::String="injection",
-    earth::Union{Earth, Nothing}=nothing
+    frames::Vector{Frame};
+    outprefix::String="injection"
 )
-    if !isempty(sim.results)
-        error("sim.results is not empty. Each Simulation must contain only one particle type. " *
-              "Create a new Simulation() before calling inject_protons!().")
-    end
+    _ensure_earth_loaded!(frames)
+    cframe = _find_frame(frames, 'C')
+    gframe = _find_frame(frames, 'G')
+    cfg = cframe[outprefix]
 
-    cfg = sim.config[outprefix]
-    relativize!(cfg)
+    bvh             = gframe["bvh"]
+    cs              = gframe["cs"]
+    topography      = gframe["topography"]
+    detector_region = gframe["detector_region"]
+
+    q_frames = Frame[]
     for idx in 1:cfg["nevent"]
-        push!(sim.results, Frame(Dict("event_id"=>idx)))
+        qframe = Frame('Q')
+        qframe.parents['G'] = gframe
+        qframe.parents['C'] = cframe
+        qframe["event_id"] = idx
+        push!(q_frames, qframe)
     end
-
-    if isnothing(earth)
-        earth = Earth(
-            sim.config["geometry"]["earth_path"],
-            sim.config["geometry"]["detector_key"],
-        )
-    end
+    append!(frames, q_frames)
 
     pl = UnitfulPowerLawSampler(
         cfg["gamma"],
@@ -370,11 +377,11 @@ function inject_protons!(
         deg2rad(cfg["phimax"]),
     )
     altitude = get(cfg, "altitude", 50.0) * u"km"
-    detector_props = precompute_detector_properties(earth)
+    detector_props = precompute_detector_properties(topography, detector_region)
     Random.seed!(cfg["pinecone"])
 
-    @llama_showprogress "Injecting protons" for frame in sim.results
-        initial_proton, final_proton, visible_areas, passes_through_rock = inject_proton_event(earth, as, pl, detector_props; altitude=altitude)
+    @llama_showprogress "Injecting protons" for frame in q_frames
+        initial_proton, final_proton, visible_areas, passes_through_rock = inject_proton_event(bvh, cs, detector_region, as, pl, detector_props; altitude=altitude)
         if !isnan(initial_proton.energy)
             frame["$(outprefix)_initial_state"] = initial_proton
             frame["$(outprefix)_final_state"] = final_proton
@@ -401,61 +408,45 @@ end
 
 """
     proposal_propagation!(
-        sim::Simulation;
+        frames::Vector{Frame};
         inkey::String="injection_final_state",
-        outprefix::String="proposal",
-        earth::Union{Earth, Nothing}=nothing
+        outprefix::String="proposal"
     )
 
-Propagates particles through the Earth model using the PROPOSAL library.
-
-This function takes the final state of particles from a previous simulation step (e.g., injection)
-and propagates them through the `Earth` model. It calculates and stores stochastic losses,
-continuous energy losses, decay products, and the final state of the particle in the `sim.results` frames.
-
-# Arguments
-- `sim::Simulation`: The `Simulation` object to modify.
-- `inkey::String`: The key for accessing the input particle state in each frame. Defaults to "injection_final_state".
-- `outprefix::String`: A prefix for the keys under which the propagation results are stored. Defaults to "proposal".
-- `earth::Union{Earth, Nothing}`: An optional `Earth` object. If not provided, it's created from the simulation configuration.
+Propagates particles through the Earth model using PROPOSAL. Operates on all
+Q frames in `frames` that contain `inkey`.
 """
 function proposal_propagation!(
-    sim::Simulation;
+    frames::Vector{Frame};
     inkey::String="injection_final_state",
-    outprefix::String="proposal",
-    earth::Union{Earth, Nothing}=nothing
+    outprefix::String="proposal"
 )
-    cfg = sim.config[outprefix]
-    relativize!(cfg)
+    _ensure_earth_loaded!(frames)
+    cframe = _find_frame(frames, 'C')
+    gframe = _find_frame(frames, 'G')
+    cfg = cframe[outprefix]
     init_proposal(cfg)
+
+    prem = gframe["prem"]
+    bvh  = gframe["bvh"]
 
     if haskey(cfg, "pinecone")
         Random.seed!(cfg["pinecone"])
     else
-        @warn("Deciding seed via RNG and adding to configuration")
-        pinecone = rand(UInt32)
-        sim.config[outprefix]["pinecone"] = pinecone
-    end
-    
-    if isnothing(earth)
-        earth = Earth(
-            sim.config["geometry"]["earth_path"],
-            sim.config["geometry"]["detector_key"],
-        )
+        @warn "Deciding seed via RNG and adding to configuration"
+        cfg["pinecone"] = rand(UInt32)
+        Random.seed!(cfg["pinecone"])
     end
 
+    q_frames = filter(f -> f.stream == 'Q', frames)
 
-    @llama_showprogress "Propagating" for frame in sim.results
-        if !haskey(frame, inkey)
-            continue
-        end
+    @llama_showprogress "Propagating" for frame in q_frames
+        haskey(frame, inkey) || continue
         final_state = frame[inkey]
-        if final_state.energy < 106u"MeV"
-            continue
-        end
+        final_state.energy < 106u"MeV" && continue
         ls, contls, decay_products, propped_state = proposal_propagate(
             final_state,
-            earth,
+            prem, bvh,
             rand(Int32)
         )
         frame["$(outprefix)_stochastic_losses"] = ls
@@ -466,69 +457,31 @@ function proposal_propagation!(
 end
 
 """
-    propagate_τ!(
-        sim::Simulation;
-        inkey::String="injection_final_state",
-        outprefix::String="proposal",
-        earth::Union{Earth, Nothing}=nothing
-    )
-
-**DEPRECATED**. Use `proposal_propagation!` instead.
-
-Propagates tau leptons through the Earth. This function is an alias for `proposal_propagation!`.
-"""
-function propagate_τ!(
-    sim::Simulation;
-    inkey::String="injection_final_state",
-    outprefix::String="proposal",
-    earth::Union{Earth, Nothing}=nothing
-)
-    @warn("`propagate_τ!` is deprecated. Please use `proposal_propagation!`.")
-    proposal_propagation!(sim; inkey=inkey, outprefix=outprefix, earth=earth)
-end
-
-"""
     corsika_run(
-        sim::Simulation,
+        frames::Vector{Frame},
         base_outdir;
         inkey::String="proposal_decay_products",
-        earth::Union{Earth, Nothing}=nothing,
         parallelize=false,
         store_paths=true
     )
 
-Runs CORSIKA for the decay products of particles in the simulation.
-
-For each event in the simulation that has decay products, this function initiates
-a CORSIKA run for each decay product (that is not a neutrino). It sets up the
-CORSIKA environment, defines the observation plane, and then executes the run,
-potentially in parallel using a sbatch command.
-
-# Arguments
-- `sim::Simulation`: The `Simulation` object.
-- `base_outdir`: The base directory where CORSIKA output will be stored.
-- `inkey::String`: The key for accessing the decay products in each frame. Defaults to "proposal_decay_products".
-- `earth::Union{Earth, Nothing}`: An optional `Earth` object. If not provided, it's created from the simulation configuration.
-- `parallelize`: If `true`, submits CORSIKA jobs using the sbatch command specified in the configuration. Defaults to `false`.
-- `store_paths`: If `true`, stores the paths to the CORSIKA output directories in the frames. Defaults to `true`.
+Runs CORSIKA for the decay products of events in `frames`. Operates on all
+Q frames that contain `inkey`.
 """
 function corsika_run(
-    sim::Simulation,
+    frames::Vector{Frame},
     base_outdir;
     inkey::String="proposal_decay_products",
-    earth::Union{Earth, Nothing}=nothing,
     parallelize=false,
     store_paths=true
 )
-    cfg = sim.config["corsika"]
-    relativize!(cfg)
+    _ensure_earth_loaded!(frames)
+    cframe = _find_frame(frames, 'C')
+    gframe = _find_frame(frames, 'G')
+    cfg = cframe["corsika"]
 
-    if isnothing(earth)
-        earth = Earth(
-            sim.config["geometry"]["earth_path"],
-            sim.config["geometry"]["detector_key"],
-        )
-    end
+    topography      = gframe["topography"]
+    detector_region = gframe["detector_region"]
 
     obs_mesh_path     = cfg["obs_mesh_path"]
     terrain_mesh_path = get(cfg, "terrain_mesh_path", "")
@@ -538,33 +491,29 @@ function corsika_run(
     if haskey(cfg, "pinecone")
         Random.seed!(cfg["pinecone"])
     else
-        @warn("Deciding seed via RNG and adding to configuration")
-        pinecone = rand(UInt32)
-        sim.config["corsika"]["pinecone"] = pinecone
+        @warn "Deciding seed via RNG and adding to configuration"
+        cfg["pinecone"] = rand(UInt32)
+        Random.seed!(cfg["pinecone"])
     end
+
     sbatch_command = parallelize ? cfg["sbatch_command"] : ""
     ecuts = SVector{3, Float64}([cfg["em_ecut"], cfg["mu_ecut"], cfg["hadron_ecut"]]) * u"GeV"
-    for frame in sim.results
-        if !(haskey(frame, inkey))
-            continue
-        end
+
+    for frame in filter(f -> f.stream == 'Q', frames)
+        haskey(frame, inkey) || continue
         paths = String[]
         decay_products = frame[inkey]
         for (idx, particle) in enumerate(decay_products)
-            # Don't run CORSIKA on neutrinos
-            if abs(Int(particle.pdg)) in [12,14,16]
-                continue
-            end
+            abs(Int(particle.pdg)) in [12, 14, 16] && continue
             output_dir = "$(base_outdir)/event_$(lpad(frame["event_id"], 6, '0'))/shower_$(idx)/"
             push!(paths, output_dir)
-            if isdir(output_dir)
-                continue
-            end
+            isdir(output_dir) && continue
             seed = Int(rand(UInt32))
             try
                 corsika_run(
                     particle,
-                    earth,
+                    topography,
+                    detector_region,
                     obs_mesh_path,
                     terrain_mesh_path,
                     ecuts,
@@ -576,13 +525,10 @@ function corsika_run(
                     sbatch_command=sbatch_command
                 )
             catch e
-                event_id = frame["event_id"]
-                @warn "CORSIKA failed for event $(event_id) shower $(idx)" exception=e
+                @warn "CORSIKA failed for event $(frame["event_id"]) shower $(idx)" exception=e
             end
         end
-        if store_paths
-            frame["corsika_directories"] = paths
-        end
+        store_paths && (frame["corsika_directories"] = paths)
     end
 end
 

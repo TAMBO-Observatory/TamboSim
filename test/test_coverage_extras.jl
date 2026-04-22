@@ -99,7 +99,7 @@ function run_coverage_extras_tests()
         p = Particle(TauMinus, 1e5u"GeV", c1, dir_up)
         show(io, MIME"text/plain"(), p)
         s = String(take!(io))
-        @test occursin("type:", s)
+        @test occursin("pdg:", s)
         @test occursin("status:", s)
 
         # WeightParameters single-line and multi-line
@@ -121,7 +121,7 @@ function run_coverage_extras_tests()
         @test occursin("Sampling", String(take!(io)))
 
         # Frame single-line and multi-line
-        f = Frame(Dict("key1" => 1, "key2" => "val"))
+        f = Frame('Q', Dict{String,Any}("key1" => 1, "key2" => "val"))
         show(io, f)
         @test occursin("2 keys", String(take!(io)))
         show(io, MIME"text/plain"(), f)
@@ -129,19 +129,13 @@ function run_coverage_extras_tests()
         @test occursin("key1", s)
 
         # Frame with parent
-        parent_f = Frame(Dict("parent_key" => 42))
-        child_f = Frame(Dict("child_key" => 7), parent_f, 'T')
+        gframe = Frame('G', Dict{String,Any}("parent_key" => 42))
+        child_f = Frame('Q', Dict{String,Any}("child_key" => 7))
+        child_f.parents['G'] = gframe
         show(io, child_f)
-        @test occursin("has parent", String(take!(io)))
+        @test occursin("parents", String(take!(io)))
         show(io, MIME"text/plain"(), child_f)
-        @test occursin("has parent", String(take!(io)))
-
-        # Simulation
-        sim = Simulation(Dict{String,Any}("geometry" => Dict()), Frame[])
-        show(io, sim)
-        @test occursin("Simulation", String(take!(io)))
-        show(io, MIME"text/plain"(), sim)
-        @test occursin("events:", String(take!(io)))
+        @test occursin("parents", String(take!(io)))
 
         # UnitfulPowerLawSampler
         pl = UnitfulPowerLawSampler(-2.0, 1e3u"GeV", 1e6u"GeV")
@@ -346,18 +340,8 @@ function run_coverage_extras_tests()
         @test CoordinateSystem(sphere) == cs
     end
 
-    # ---- Simulation / relativize! ----
-    @testset "Simulation and relativize!" begin
-        # Simulation constructor
-        cfg = Dict{String,Any}("geometry" => Dict("key" => "value"))
-        sim = Simulation(cfg, Frame[])
-        @test sim isa Simulation
-        @test length(sim.results) == 0
-
-        # Simulation requires geometry key
-        @test_throws AssertionError Simulation(Dict{String,Any}("other" => 1), Frame[])
-
-        # relativize!
+    # ---- relativize! ----
+    @testset "relativize!" begin
         rd = Dict{String,Any}("path" => "_TAMBOSIM_PATH_/data", "nested" => Dict{String,Any}("p" => "_TAMBOSIM_PATH_/x"))
         Tambo.relativize!(rd)
         if haskey(ENV, "TAMBOSIM_PATH")

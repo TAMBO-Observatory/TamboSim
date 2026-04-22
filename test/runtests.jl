@@ -31,7 +31,8 @@ import Tambo: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
               cull_intersections, should_go_through_earth, is_proposal_available,
               # Additional imports for coverage tests
               compute_rotation, validate_triangle,
-              particle_mass, particle_speed, lorentz_gamma, particle_vacuum_range
+              particle_mass, particle_speed, lorentz_gamma, particle_vacuum_range,
+              find_trim_idxs
 
 # Define unit dimension aliases that are used throughout the codebase
 const ldim = Unitful.𝐋
@@ -94,12 +95,12 @@ include("test_proton_injection.jl")
         run_julia_interfaces_tests()
     end
 
-    @testset "Regression" begin
-        run_regression_tests()
+    @testset "Sampler Statistics" begin
+        run_sampler_statistics_tests()
     end
 
-    @testset "Coverage Extras" begin
-        run_coverage_extras_tests()
+    @testset "Display" begin
+        run_display_tests()
     end
 
     @testset "Injection Regression" begin

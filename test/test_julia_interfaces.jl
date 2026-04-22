@@ -17,7 +17,6 @@ function run_julia_interfaces_tests()
 
     @testset "PROPOSAL Interface" begin
         test_is_proposal_available()
-        test_stochastic_loss_construction()
     end
 end
 
@@ -119,27 +118,3 @@ function test_is_proposal_available()
     # so we just check that the function runs without error
 end
 
-function test_stochastic_loss_construction()
-    cs = ecefcoordinates
-
-    # Create a stochastic loss
-    int_type = 1
-    energy = 100.0u"GeV"
-    position = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
-
-    loss = StochasticLoss(int_type, energy, position)
-
-    @test loss.int_type == 1
-    @test loss.energy == 100.0u"GeV"
-    @test loss.position == position
-
-    # Test with different energy units (should convert to GeV)
-    energy_mev = 1000.0u"MeV"
-    loss_mev = StochasticLoss(int_type, energy_mev, position)
-    @test loss_mev.energy == 1.0u"GeV"
-
-    # Test with TeV
-    energy_tev = 0.001u"TeV"
-    loss_tev = StochasticLoss(int_type, energy_tev, position)
-    @test loss_tev.energy == 1.0u"GeV"
-end

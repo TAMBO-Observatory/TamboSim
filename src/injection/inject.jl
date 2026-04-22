@@ -27,33 +27,22 @@ struct DetectorProperties{T<:Real}
 end
 
 """
-    precompute_detector_properties(earth::Earth{T}) where {T<:Real}
+    precompute_detector_properties(topography, detector_region) -> DetectorProperties
 
-Pre-computes detector properties from an Earth model for efficient injection.
-
-This function should be called once before running multiple injection events.
-The returned `DetectorProperties` can then be passed to `inject_event` to avoid
-redundant computation of normals, BVH, and areas for each event.
+Pre-computes detector properties for efficient injection.
 
 # Arguments
-- `earth::Earth{T}`: The Earth model containing the detector region.
+- `topography`: Full topography mesh (vector of triangles).
+- `detector_region`: Integer indices of detector triangles within `topography`.
 
 # Returns
-- `DetectorProperties{T}`: A struct containing pre-computed triangles, normals, BVH, and areas.
-
-# Example
-```julia
-earth = Earth(...)
-detector_props = precompute_detector_properties(earth)
-
-# Now use in injection loop with the cleaner API
-for i in 1:n_events
-    result = inject_event(pdg, earth, as, pl, xs, detector_props)
-end
-```
+- `DetectorProperties{T}`: Pre-computed triangles, normals, BVH, and areas.
 """
-function precompute_detector_properties(earth::Earth{T}) where {T<:Real}
-    triangles = earth.topography[earth.detector_region]
+function precompute_detector_properties(
+    topography::Vector{Triangle{T}},
+    detector_region
+) where {T<:Real}
+    triangles = topography[detector_region]
     normals = normal.(triangles)
     bvh = BVHTree(triangles)
     areas = area.(triangles)
@@ -135,11 +124,7 @@ function sample_detector_point(
 end
 
 """
-    validate_trajectory(
-        earth::Earth,
-        p::Coordinate{T},
-        revd::Direction{T}
-    ) where {T<:Real}
+    validate_trajectory(prem, bvh, detector_region, p, revd) -> (intersections, error_code)
 
 Validates a particle trajectory through the Earth model.
 
@@ -147,18 +132,20 @@ Validates a particle trajectory through the Earth model.
 - `(intersections, 0)` if valid, `(nothing, error_code)` if invalid.
 """
 function validate_trajectory(
-    earth::Earth,
+    prem,
+    bvh::BVHTree{T},
+    detector_region,
     p::Coordinate{T},
     revd::Direction{T}
 ) where {T<:Real}
     ray = Ray(p, revd)
-    intersections = intersect_all(earth, ray)
+    intersections = intersect_all(prem, bvh, ray)
 
     if isempty(intersections)
         return nothing, INJECTION_ERROR_NO_INTERSECTIONS
     end
 
-    mask = mask_helper(intersections, earth, revd)
+    mask = mask_helper(intersections, detector_region, revd)
     filtered = @views intersections[mask]
 
     if sum(mask) == 0
@@ -217,7 +204,10 @@ Internal implementation of inject_event containing the core logic.
 """
 function _inject_event_impl(
     pdg::Int,
-    earth::Earth,
+    prem,
+    bvh::BVHTree{T},
+    cs::CoordinateSystem{T},
+    detector_region,
     as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
     xs::CrossSection,
@@ -228,7 +218,6 @@ function _inject_event_impl(
     epsilon,
     tr_seed
 ) where {T<:Real}
-    cs = CoordinateSystem(earth)
 
     # Sample direction for neutrino trajectory
     d = rand(as, cs)
@@ -245,7 +234,7 @@ function _inject_event_impl(
 
     # Validate trajectory through Earth
     revd = reverse(d)
-    intersections, error_code = validate_trajectory(earth, p, revd)
+    intersections, error_code = validate_trajectory(prem, bvh, detector_region, p, revd)
 
     if isnothing(intersections)
         return create_null_result(pdg, error_code, d, cs, T)
@@ -354,7 +343,11 @@ This function performs several steps:
 """
 function inject_event(
     pdg::Int,
-    earth::Earth,
+    prem,
+    bvh::BVHTree{T},
+    cs::CoordinateSystem{T},
+    detector_region,
+    topography::Vector{Triangle{T}},
     as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
     xs::CrossSection;
@@ -367,7 +360,7 @@ function inject_event(
 ) where {T<:Real}
     # Compute detector properties if not provided (inefficient for repeated calls)
     if isnothing(detector_triangles)
-        detector_triangles = earth.topography[earth.detector_region]
+        detector_triangles = topography[detector_region]
     end
     if isnothing(detector_normals)
         @warn "Computing normals on-the-fly. Use precompute_detector_properties() for better performance." maxlog=1
@@ -383,7 +376,7 @@ function inject_event(
     end
 
     return _inject_event_impl(
-        pdg, earth, as, pl, xs,
+        pdg, prem, bvh, cs, detector_region, as, pl, xs,
         detector_triangles, detector_normals, detector_bvh, detector_areas,
         epsilon, tr_seed
     )
@@ -418,7 +411,10 @@ end
 """
 function inject_event(
     pdg::Int,
-    earth::Earth,
+    prem,
+    bvh::BVHTree{T},
+    cs::CoordinateSystem{T},
+    detector_region,
     as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
     xs::CrossSection,
@@ -427,7 +423,7 @@ function inject_event(
     tr_seed=nothing
 ) where {T<:Real}
     return _inject_event_impl(
-        pdg, earth, as, pl, xs,
+        pdg, prem, bvh, cs, detector_region, as, pl, xs,
         detector_props.triangles, detector_props.normals,
         detector_props.bvh, detector_props.areas,
         epsilon, tr_seed
@@ -472,14 +468,15 @@ direction.
   If no visible triangles exist, both particles have `NaN` energy and `visible_areas` is `nothing`.
 """
 function inject_proton_event(
-    earth::Earth,
+    bvh::BVHTree{T},
+    cs::CoordinateSystem{T},
+    detector_region,
     as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
     detector_props::DetectorProperties{T};
     altitude::Quantity=50.0u"km",
     epsilon=1e-6*u"m"
 ) where {T<:Real}
-    cs = CoordinateSystem(earth)
     d = rand(as, cs)
 
     # Same detector point sampling as neutrino
@@ -527,8 +524,8 @@ function inject_proton_event(
 
     # Check if the proton path passes through rock (mountains between injection and detector)
     forward_ray = Ray(proton_position, d)
-    topo_hits = intersect_all(earth.bvh, forward_ray)
-    detector_indices = Set(earth.detector_region)
+    topo_hits = intersect_all(bvh, forward_ray)
+    detector_indices = Set(detector_region)
     diff = proton_position.point - p.point
     path_len = sqrt(diff[1]^2 + diff[2]^2 + diff[3]^2)
     # Check if any non-detector topography triangle (i.e. a mountain) is hit

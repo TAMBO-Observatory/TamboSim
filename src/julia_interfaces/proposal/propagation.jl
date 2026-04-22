@@ -1,27 +1,21 @@
 """
-    proposal_propagate(particle::Particle, earth::Earth, seed=nothing) -> Tuple
+    proposal_propagate(particle::Particle, prem, bvh::BVHTree, seed=nothing) -> Tuple
 
 Propagates a particle through the Earth using the PROPOSAL.jl library.
 
-The function calculates the particle's path and the densities it encounters. It then propagates
-the particle through these segments, collecting information about stochastic losses, continuous
-energy loss, and decay products.
-
 # Arguments
 - `particle::Particle`: The initial particle state.
-- `earth::Earth`: The Earth model.
+- `prem`: PREM sphere layers for ray tracing.
+- `bvh`: BVH acceleration structure over the topography mesh.
 - `seed`: An optional seed for the random number generator.
 
 # Returns
-- A tuple containing:
-    - `losses`: A vector of `Particle` objects representing stochastic losses.
-    - `continuous_e`: The total continuous energy loss.
-    - `secondaries`: A vector of `Particle` objects representing decay products.
-    - `final_state`: The final `Particle` state after propagation.
+- A tuple: `(losses, continuous_e, secondaries, final_state)`.
 """
 function proposal_propagate(
     particle::Particle{T},
-    earth::Earth{T},
+    prem,
+    bvh::BVHTree{T},
     seed=nothing
 ) where {T<:Real}
 
@@ -29,9 +23,9 @@ function proposal_propagate(
         error("PROPOSAL not available. Call init_proposal(config) first.")
     end
 
-    cs = CoordinateSystem(earth)
+    cs = particle.position.coordinate_system
     ray = Ray(particle)
-    ixs = intersect_all(earth, ray)
+    ixs = intersect_all(prem, bvh, ray)
 
     # Set random seed if provided
     seed = isnothing(seed) ? rand(Int32) : Int32(mod(seed, typemax(Int32)))

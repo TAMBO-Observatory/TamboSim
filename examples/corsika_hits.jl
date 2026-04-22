@@ -30,7 +30,7 @@ point = convert(cs, point)
 direction = Tambo.Direction(cframe["corsika"]["plane_orientation"], Tambo.ecefcoordinates)
 direction = convert(cs, direction)
 plane = Tambo.Plane(point, direction)
-up = Tambo.Direction([0.0, 0.0, 1.0], Tambo.CoordinateSystem(earth))
+up = Tambo.Direction([0.0, 0.0, 1.0], cs)
 Δx = dot(up, plane.normal) * Δy * sqrt(3) / 2
 
 ps = Tambo.Coordinate[]

@@ -79,16 +79,18 @@ function corsika_run(
         rm(outdir, recursive=true)
     end
 
+    # Use --flag=value format for numeric args that may be negative (e.g. PDG codes,
+    # ECEF coordinates). Argument parsers treat bare -N as a flag name, not a value.
     cmd_parts = [
         corsika_path,
-        "--pdg",         string(Int(particle.pdg)),
-        "--energy",      string(ustrip(particle.energy |> u"GeV")),
-        "--inject-x",    string(injectX),
-        "--inject-y",    string(injectY),
-        "--inject-z",    string(injectZ),
-        "--intercept-x", string(interceptX),
-        "--intercept-y", string(interceptY),
-        "--intercept-z", string(interceptZ),
+        "--pdg=$(Int(particle.pdg))",
+        "--energy=$(ustrip(particle.energy |> u"GeV"))",
+        "--inject-x=$(injectX)",
+        "--inject-y=$(injectY)",
+        "--inject-z=$(injectZ)",
+        "--intercept-x=$(interceptX)",
+        "--intercept-y=$(interceptY)",
+        "--intercept-z=$(interceptZ)",
         "--obs-mesh",    obs_mesh_path,
         "--emcut",       string(emcut),
         "--hadcut",      string(hadcut),

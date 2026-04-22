@@ -76,22 +76,24 @@ function CrossSection(location::String, epsilon::Float64=1e-6)
             domain = (minimum(zs[lidx:ridx]), z)
             prob = IntegralProblem(f, domain)
             sol = solve(prob, HCubatureJL(); reltol = 1e-10, abstol = 1e-10)
-            push!(cdfs, minimum([epsilon, sol.u]))
+            push!(cdfs, max(epsilon, sol.u))
         end
-        nan_mask = .~isnan.(cdfs)
+        nan_mask = .!isnan.(cdfs)
         cdfs ./= cdfs[nan_mask][end]
     
         ## Subroutine 2 ##
         inverter = Spline1D(cdfs[nan_mask], int_zs[nan_mask]; s=0.0)
         t = Float64[]
     
+        zmin_valid = minimum(int_zs[nan_mask])
+        zmax_valid = maximum(int_zs[nan_mask])
         for u in u_targets
             if u==0
-                push!(t, 0.0)
+                push!(t, zmin_valid)
                 continue
             end
             if u==1
-                push!(t, 1.0)
+                push!(t, zmax_valid)
                 continue
             end
             push!(t, inverter(u))

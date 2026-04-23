@@ -4,15 +4,14 @@ const TRANSIENT_EARTH_KEYS = ("prem", "topography", "bvh", "detector_region", "c
     save_frames(path::String, frames::Vector{Frame}; streams=('Q',))
 
 Writes frames whose stream type is in `streams` to a JLD2 file. Defaults to
-Q frames only, matching the recommended GC-split workflow where geometry and
-config are saved once to a separate file. Use `streams=('G','C','Q')` for a
-self-contained file.
+C and Q frames so that simulation config rides along with the event frames.
+Use `streams=('G','C','Q')` to also include the geometry frame.
 
 Parent references are not stored; they are reconstructed from stream order on
 load. Transient earth geometry keys (prem, topography, bvh, detector_region, cs)
 are stripped before write and rebuilt via `load_earth!` on reload.
 """
-function save_frames(path::String, frames::Vector{Frame}; streams::Tuple{Vararg{Char}}=('Q',))
+function save_frames(path::String, frames::Vector{Frame}; streams::Tuple{Vararg{Char}}=('C', 'Q'))
     to_save = filter(f -> f.stream in streams, frames)
     jldopen(path, "w") do file
         file["nframes"] = length(to_save)

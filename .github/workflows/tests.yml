@@ -9,7 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 90
 
     steps:
       - uses: actions/checkout@v4
@@ -24,7 +24,8 @@ jobs:
         uses: actions/cache@v4
         with:
           path: resources/proposal_tables
-          key: proposal-tables-${{ hashFiles('Project.toml') }}
+          key: proposal-tables-${{ hashFiles('src/julia_interfaces/proposal/**') }}
+          restore-keys: proposal-tables-
 
       - name: Install dependencies
         run: julia --project=. -e 'import Pkg; Pkg.instantiate()'

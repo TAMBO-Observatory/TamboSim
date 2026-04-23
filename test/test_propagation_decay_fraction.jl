@@ -69,7 +69,7 @@ function run_propagation_decay_fraction_tests()
 
     # Phase 2: propagate with PROPOSAL
     tables_path = get_tambosim_path() * "/resources/proposal_tables"
-    init_proposal(Dict("tablespath" => tables_path))
+    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
 
     n_emerged_air = 0
     n_decayed_in_mountain = 0

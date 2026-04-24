@@ -31,7 +31,7 @@ inject!(frames)
 cut_frames!(frames, frame -> haskey(frame, "injection_final_state"))
 println("After injection cut: $(count(f -> f.stream == 'Q', frames)) events remaining")
 
-save_frames(injection_outfile, frames)  # Q frames only (default)
+save_frames(injection_outfile, frames)  # saves C+Q frames (default)
 println("Q frames → $injection_outfile")
 
 # =============================================================================
@@ -59,7 +59,7 @@ isinair(particle) = isempty(intersect_all(gframe["bvh"], upray(particle)))
 cut_frames!(frames, frame -> isinair(frame["proposal_final_state"]))
 println("After in-air cut: $(count(f -> f.stream == 'Q', frames)) events remaining")
 
-save_frames(propagation_outfile, frames)  # Q frames only (default)
+save_frames(propagation_outfile, frames)  # saves C+Q frames (default)
 println("Q frames → $propagation_outfile")
 
 # =============================================================================

@@ -307,10 +307,9 @@ function inject!(
     detector_region = gframe["detector_region"]
 
     q_frames = Frame[]
+    q_parents = Dict{Char,Frame}('G' => gframe, 'C' => cframe)
     for idx in 1:cfg["nevent"]
-        qframe = Frame('Q')
-        qframe.parents['G'] = gframe
-        qframe.parents['C'] = cframe
+        qframe = Frame('Q', Dict{String,Any}(), q_parents)
         qframe["event_id"] = idx
         push!(q_frames, qframe)
     end
@@ -380,10 +379,9 @@ function inject_protons!(
     detector_region = gframe["detector_region"]
 
     q_frames = Frame[]
+    q_parents = Dict{Char,Frame}('G' => gframe, 'C' => cframe)
     for idx in 1:cfg["nevent"]
-        qframe = Frame('Q')
-        qframe.parents['G'] = gframe
-        qframe.parents['C'] = cframe
+        qframe = Frame('Q', Dict{String,Any}(), q_parents)
         qframe["event_id"] = idx
         push!(q_frames, qframe)
     end

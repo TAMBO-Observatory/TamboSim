@@ -7,6 +7,7 @@ function run_frame_tests()
         test_frame_construction()
         test_frame_with_data()
         test_frame_with_parents()
+        test_q_frame_requires_parents()
     end
 
     @testset "Frame Access" begin
@@ -21,6 +22,7 @@ function run_frame_tests()
         test_frame_parent_lookup()
         test_frame_override_parent()
         test_frame_hierarchy_order()
+        test_frame_getproperty()
     end
 
     @testset "Frame Utilities" begin
@@ -29,16 +31,22 @@ function run_frame_tests()
     end
 end
 
+function _make_q_frame(data=Dict{String,Any}())
+    gframe = Frame('G', Dict{String,Any}())
+    cframe = Frame('C', Dict{String,Any}())
+    Frame('Q', data, Dict{Char,Frame}('G' => gframe, 'C' => cframe))
+end
+
 function test_frame_construction()
-    f = Frame('Q')
+    f = Frame('G')
     @test isempty(f.data)
     @test isempty(f.parents)
-    @test f.stream == 'Q'
+    @test f.stream == 'G'
 end
 
 function test_frame_with_data()
     data = Dict{String,Any}("key1" => 1, "key2" => "value")
-    f = Frame('Q', data)
+    f = Frame('C', data)
     @test f.data == data
     @test f["key1"] == 1
     @test f["key2"] == "value"
@@ -55,14 +63,21 @@ function test_frame_with_parents()
     @test length(cframe.parents) == 1
 end
 
+function test_q_frame_requires_parents()
+    @test_throws ErrorException Frame('Q')
+    @test_throws ErrorException Frame('Q', Dict{String,Any}())
+    gframe = Frame('G')
+    @test_throws ErrorException Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe))
+end
+
 function test_frame_getindex()
-    f = Frame('Q', Dict{String,Any}("key" => 42))
+    f = Frame('G', Dict{String,Any}("key" => 42))
     @test f["key"] == 42
     @test_throws KeyError f["nonexistent"]
 end
 
 function test_frame_setindex()
-    f = Frame('Q')
+    f = Frame('G')
     f["new_key"] = "new_value"
     @test f["new_key"] == "new_value"
     @test haskey(f, "new_key")
@@ -70,8 +85,8 @@ end
 
 function test_frame_haskey()
     gframe = Frame('G', Dict{String,Any}("parent_key" => 1))
-    child = Frame('Q', Dict{String,Any}("child_key" => 2))
-    child.parents['G'] = gframe
+    cframe = Frame('C', Dict{String,Any}())
+    child = Frame('Q', Dict{String,Any}("child_key" => 2), Dict{Char,Frame}('G' => gframe, 'C' => cframe))
 
     @test haskey(child, "child_key")
     @test haskey(child, "parent_key")
@@ -80,8 +95,8 @@ end
 
 function test_frame_keys()
     gframe = Frame('G', Dict{String,Any}("a" => 1, "b" => 2))
-    child = Frame('Q', Dict{String,Any}("c" => 3, "d" => 4))
-    child.parents['G'] = gframe
+    cframe = Frame('C', Dict{String,Any}())
+    child = Frame('Q', Dict{String,Any}("c" => 3, "d" => 4), Dict{Char,Frame}('G' => gframe, 'C' => cframe))
 
     all_keys = keys(child)
     @test "a" in all_keys
@@ -91,7 +106,7 @@ function test_frame_keys()
 end
 
 function test_frame_getkey_default()
-    f = Frame('Q', Dict{String,Any}("exists" => 10))
+    f = Frame('G', Dict{String,Any}("exists" => 10))
     @test getkey(f, "exists", 0) == 10
     @test getkey(f, "nonexistent", 0) == 0
 end
@@ -100,9 +115,7 @@ function test_frame_parent_lookup()
     gframe = Frame('G', Dict{String,Any}("gp_key" => 100))
     cframe = Frame('C', Dict{String,Any}("p_key" => 200))
     cframe.parents['G'] = gframe
-    qframe = Frame('Q', Dict{String,Any}("c_key" => 300))
-    qframe.parents['G'] = gframe
-    qframe.parents['C'] = cframe
+    qframe = Frame('Q', Dict{String,Any}("c_key" => 300), Dict{Char,Frame}('G' => gframe, 'C' => cframe))
 
     @test qframe["gp_key"] == 100
     @test qframe["p_key"] == 200
@@ -111,32 +124,38 @@ end
 
 function test_frame_override_parent()
     gframe = Frame('G', Dict{String,Any}("key" => "g_value"))
-    qframe = Frame('Q', Dict{String,Any}("key" => "q_value"))
-    qframe.parents['G'] = gframe
+    cframe = Frame('C', Dict{String,Any}())
+    qframe = Frame('Q', Dict{String,Any}("key" => "q_value"), Dict{Char,Frame}('G' => gframe, 'C' => cframe))
 
-    # Own data takes priority over parent
     @test qframe["key"] == "q_value"
     @test gframe["key"] == "g_value"
 end
 
 function test_frame_hierarchy_order()
-    # G takes precedence over C when both define the same key
     gframe = Frame('G', Dict{String,Any}("shared" => "from_g"))
     cframe = Frame('C', Dict{String,Any}("shared" => "from_c"))
-    qframe = Frame('Q')
-    qframe.parents['G'] = gframe
-    qframe.parents['C'] = cframe
+    qframe = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe, 'C' => cframe))
 
     @test qframe["shared"] == "from_g"
 end
 
+function test_frame_getproperty()
+    gframe = Frame('G', Dict{String,Any}("geo" => true))
+    cframe = Frame('C', Dict{String,Any}("cfg" => true))
+    qframe = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe, 'C' => cframe))
+
+    @test qframe.gframe === gframe
+    @test qframe.cframe === cframe
+    @test_throws ErrorException Frame('G').gframe
+end
+
 function test_cut_frames_q_only()
-    frames = Frame[
-        Frame('G', Dict{String,Any}("geo" => true)),
-        Frame('C', Dict{String,Any}("cfg" => true)),
-    ]
+    gframe = Frame('G', Dict{String,Any}("geo" => true))
+    cframe = Frame('C', Dict{String,Any}("cfg" => true))
+    q_parents = Dict{Char,Frame}('G' => gframe, 'C' => cframe)
+    frames = Frame[gframe, cframe]
     for v in [10, 20, 30, 40, 50]
-        push!(frames, Frame('Q', Dict{String,Any}("value" => v)))
+        push!(frames, Frame('Q', Dict{String,Any}("value" => v), q_parents))
     end
 
     cut_frames!(frames, f -> f["value"] > 25)
@@ -147,11 +166,14 @@ function test_cut_frames_q_only()
 end
 
 function test_cut_frames_preserves_gc()
+    gframe = Frame('G', Dict{String,Any}("geo" => true))
+    cframe = Frame('C', Dict{String,Any}("cfg" => true))
+    q_parents = Dict{Char,Frame}('G' => gframe, 'C' => cframe)
     frames = Frame[
-        Frame('G', Dict{String,Any}("geo" => true)),
-        Frame('C', Dict{String,Any}("cfg" => true)),
-        Frame('Q', Dict{String,Any}("value" => 5)),   # will be cut
-        Frame('Q', Dict{String,Any}("value" => 50)),  # kept
+        gframe,
+        cframe,
+        Frame('Q', Dict{String,Any}("value" => 5),  q_parents),
+        Frame('Q', Dict{String,Any}("value" => 50), q_parents),
     ]
 
     cut_frames!(frames, f -> f["value"] > 25)

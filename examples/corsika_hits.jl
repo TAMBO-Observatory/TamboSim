@@ -6,6 +6,7 @@ using Tambo
 using Unitful
 
 basedir = ARGS[1]
+gc_file = length(ARGS) >= 2 ? ARGS[2] : joinpath(basedir, "gc_frames.jld2")
 
 function intersect_module_signed(event, bvh)
     ray = Tambo.Ray(event.particle)
@@ -16,7 +17,7 @@ function intersect_module_signed(event, bvh)
     return nothing
 end
 
-frames = Tambo.load_frames("$(basedir)/simfile_corsika.jld2")
+frames = Tambo.load_frames([gc_file, "$(basedir)/simfile_corsika.jld2"])
 gframe = Tambo.get_frame(frames, 'G')
 q_frames = filter(f -> f.stream == 'Q', frames)
 

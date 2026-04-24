@@ -27,11 +27,12 @@ function _reconstruct_frames(raw::Vector{Tuple{Char,Dict{String,Any}}})
     parent_cache = Dict{Char,Frame}()
     frames = Frame[]
     for (stream, data) in raw
-        frame = Frame(stream, data)
+        parents = Dict{Char,Frame}()
         for s in STREAM_HIERARCHY
             s == stream && break
-            haskey(parent_cache, s) && (frame.parents[s] = parent_cache[s])
+            haskey(parent_cache, s) && (parents[s] = parent_cache[s])
         end
+        frame = Frame(stream, data, parents)
         if stream == 'G' && haskey(data, "earth_path")
             load_earth!(frame)
         end

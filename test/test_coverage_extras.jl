@@ -109,15 +109,18 @@ function run_display_tests()
         @test occursin("Sampling", String(take!(io)))
 
         # Frame single-line and multi-line
-        f = Frame('Q', Dict{String,Any}("key1" => 1, "key2" => "val"))
+        _gf = Frame('G', Dict{String,Any}())
+        _cf = Frame('C', Dict{String,Any}())
+        _qp = Dict{Char,Frame}('G' => _gf, 'C' => _cf)
+        f = Frame('Q', Dict{String,Any}("key1" => 1, "key2" => "val"), _qp)
         show(io, f)
         @test occursin("2 keys", String(take!(io)))
         show(io, MIME"text/plain"(), f)
         @test occursin("key1", String(take!(io)))
 
         gframe = Frame('G', Dict{String,Any}("parent_key" => 42))
-        child_f = Frame('Q', Dict{String,Any}("child_key" => 7))
-        child_f.parents['G'] = gframe
+        cframe_inner = Frame('C', Dict{String,Any}())
+        child_f = Frame('Q', Dict{String,Any}("child_key" => 7), Dict{Char,Frame}('G' => gframe, 'C' => cframe_inner))
         show(io, child_f)
         @test occursin("parents", String(take!(io)))
         show(io, MIME"text/plain"(), child_f)

@@ -68,6 +68,6 @@ if cut_failed
     cut_frames!(frames, frame -> haskey(frame, "injection_final_state"))
 end
 
-save_frames(outfile, frames)  # Q frames only (default)
+save_frames(outfile, frames)  # saves C+Q frames (default)
 println("GC frames → $gc_file")
 println("Q frames  → $outfile  ($(count(f -> f.stream == 'Q', frames)) events)")

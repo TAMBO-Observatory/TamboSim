@@ -24,9 +24,26 @@ mutable struct Frame
     stream::Char
     data::Dict{String, Any}
     parents::Dict{Char, Frame}
-    Frame(stream::Char) = new(stream, Dict{String,Any}(), Dict{Char,Frame}())
-    Frame(stream::Char, data::Dict) = new(stream, data, Dict{Char,Frame}())
-    Frame(stream::Char, data::Dict, parents::Dict{Char,Frame}) = new(stream, data, parents)
+    Frame(stream::Char) = Frame(stream, Dict{String,Any}(), Dict{Char,Frame}())
+    Frame(stream::Char, data::Dict) = Frame(stream, data, Dict{Char,Frame}())
+    function Frame(stream::Char, data::Dict, parents::Dict{Char,Frame})
+        if stream == 'Q'
+            haskey(parents, 'G') || error("Q frame requires a G parent")
+            haskey(parents, 'C') || error("Q frame requires a C parent")
+        end
+        new(stream, data, parents)
+    end
+end
+
+function Base.getproperty(f::Frame, sym::Symbol)
+    if sym === :gframe
+        haskey(f.parents, 'G') || error("Frame (stream='$(f.stream)') has no G parent")
+        return f.parents['G']
+    elseif sym === :cframe
+        haskey(f.parents, 'C') || error("Frame (stream='$(f.stream)') has no C parent")
+        return f.parents['C']
+    end
+    return getfield(f, sym)
 end
 
 function Base.getindex(frame::Frame, key::String)

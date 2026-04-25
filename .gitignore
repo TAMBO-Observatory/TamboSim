@@ -4,7 +4,6 @@
 *.ipynb_checkpoints
 *Untitled*.ipynb
 notebooks/output/*
-**/.snakemake
 
 **/Manifest.toml
 fort*

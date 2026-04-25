@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Default to the local corsika_upstream build tree.
 # Override with -Dcorsika_DIR=/path/to/corsikaConfig.cmake dir.
 # Dependencies (CLI11, Boost, etc.) are managed by Conan; pass the toolchain:
-#   cmake -S . -B build \
+#   cmake -S . -B ../build \
 #     -DCMAKE_TOOLCHAIN_FILE=$HOME/research/corsika/build/conan_toolchain.cmake
 if(NOT DEFINED corsika_DIR)
   set(corsika_DIR "$ENV{HOME}/research/corsika_upstream/build"

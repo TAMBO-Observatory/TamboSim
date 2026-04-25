@@ -23,9 +23,8 @@ initializes the CSMS cross-sections for neutrino interactions.
 The SphericalBodyPropagator is created once and cached for reuse.
 """
 function tr_init()
-    # Redirect TauRunner's internal PROPOSAL tables into resources/ so they
-    # are co-located with the rest of the project's PROPOSAL tables.
-    tables_path = joinpath(get_tambosim_path(), "resources", "proposal_tables")
+    tables_path = joinpath(get(ENV, "TAMBO_DATA_PATH", tempdir()), "proposal_tables")
+    mkpath(tables_path)
     ENV["PROPOSAL_TABLES_PATH"] = tables_path
 
     # Create Earth with PREM density model

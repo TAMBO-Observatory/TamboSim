@@ -110,3 +110,83 @@ function corsika_run(
         run(`sbatch $sbatch_command $(join(cmd_parts, " "))`)
     end
 end
+
+"""
+    corsika_run(
+        frames::Vector{Frame},
+        config::Dict,
+        base_outdir;
+        prefix::String="corsika",
+        inkey::String="proposal_decay_products",
+        parallelize=false,
+        store_paths=true
+    )
+
+Runs CORSIKA for the decay products of events in `frames`. Stores `config` in
+the existing C frame under `prefix`, then operates on all Q frames that contain
+`inkey`.
+"""
+function corsika_run(
+    frames::Vector{Frame},
+    config::Dict,
+    base_outdir;
+    prefix::String="corsika",
+    inkey::String="proposal_decay_products",
+    parallelize=false,
+    store_paths=true
+)
+    _ensure_earth_loaded!(frames)
+    cframe = get_frame(frames, 'C')
+    gframe = get_frame(frames, 'G')
+
+    cframe[prefix] = config
+
+    topography      = gframe["topography"]
+    detector_region = gframe["detector_region"]
+
+    obs_mesh_path     = config["obs_mesh_path"]
+    terrain_mesh_path = get(config, "terrain_mesh_path", "")
+    hadron_model      = get(config, "hadron_model", "SIBYLL-2.3d")
+    thinning          = get(config, "thinning", 1e-6)
+
+    if !haskey(config, "pinecone")
+        @warn "Deciding seed via RNG and adding to configuration"
+        config["pinecone"] = rand(UInt32)
+    end
+    Random.seed!(config["pinecone"])
+
+    sbatch_command = parallelize ? config["sbatch_command"] : ""
+    ecuts = SVector{3, Float64}([config["em_ecut"], config["mu_ecut"], config["hadron_ecut"]]) * u"GeV"
+
+    for frame in filter(f -> f.stream == 'Q', frames)
+        haskey(frame, inkey) || continue
+        paths = String[]
+        decay_products = frame[inkey]
+        for (idx, particle) in enumerate(decay_products)
+            abs(Int(particle.pdg)) in [12, 14, 16] && continue
+            output_dir = "$(base_outdir)/event_$(lpad(frame["event_id"], 6, '0'))/shower_$(idx)/"
+            push!(paths, output_dir)
+            isdir(output_dir) && continue
+            seed = Int(rand(UInt32))
+            try
+                corsika_run(
+                    particle,
+                    topography,
+                    detector_region,
+                    obs_mesh_path,
+                    terrain_mesh_path,
+                    ecuts,
+                    config["corsika_path"],
+                    output_dir,
+                    seed;
+                    thinning=thinning,
+                    hadron_model=hadron_model,
+                    sbatch_command=sbatch_command
+                )
+            catch e
+                @warn "CORSIKA failed for event $(frame["event_id"]) shower $(idx)" exception=e
+            end
+        end
+        store_paths && (frame["corsika_directories"] = paths)
+    end
+end

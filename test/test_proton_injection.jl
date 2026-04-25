@@ -7,18 +7,14 @@ Covers:
 """
 
 import Tambo: CoordinateSystem, precompute_detector_properties,
-              inject_proton_event, PPlus, load_earth!
+              inject_proton_event, PPlus
 
 using Unitful
 
 function make_test_gframe()
     tambosim_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
-    earth_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley.h5") * ":colca_valley_30000"
-    gframe = Frame('G')
-    gframe["earth_path"]   = earth_path
-    gframe["detector_key"] = "detector1"
-    load_earth!(gframe)
-    return gframe
+    geometry_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley_3000.jld2")
+    return get_frame(load_frames(geometry_path), 'G')
 end
 
 function run_proton_injection_tests()
@@ -138,7 +134,7 @@ end
 function test_inject_protons_produces_frames()
     tambosim_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
 
-    earth_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley.h5") * ":colca_valley_30000"
+    geometry_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley_3000.jld2")
     injection_config = Dict{String,Any}(
         "pinecone"  => 42,
         "nevent"    => 20,
@@ -151,7 +147,7 @@ function test_inject_protons_produces_frames()
         "phimax"    => 360.0,
         "altitude"  => 50.0
     )
-    frames = load_geometry(earth_path, "detector1")
+    frames = load_frames(geometry_path)
 
     inject_protons!(frames, injection_config)
 

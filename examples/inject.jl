@@ -14,6 +14,10 @@ function parse_commandline()
             help = "Path to configuration TOML file"
             arg_type = String
             default = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
+        "--geometry", "-g"
+            help = "Path to geometry JLD2 file (produced by create_geometry.jl)"
+            arg_type = String
+            default = "$(tambo_path)/resources/geometry/colca_valley_3000.jld2"
         "--outfile", "-o"
             help = "Output JLD2 file path for simulation frames"
             arg_type = String
@@ -57,7 +61,7 @@ end
 @show injection_config["pdg"]
 @show cut_failed
 
-frames = load_geometry(args["config"])
+frames = load_frames(args["geometry"])
 inject!(frames, injection_config)
 
 if cut_failed

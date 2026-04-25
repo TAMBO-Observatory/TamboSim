@@ -1,19 +1,24 @@
 """
 create_geometry.jl
 
-Build a Tambo geometry HDF5 file for an arbitrary site and export it to the
-two PLY formats used downstream:
+Build a Tambo geometry HDF5 file for an arbitrary site, export it to the
+PLY formats used downstream, and save a self-contained G frame JLD2.
 
-  1. HDF5 — primary format loaded by Earth(); contains terrain mesh, PREM
-             radii, site coordinates, and detector region face indices.
+  1. HDF5 — primary source format; contains terrain mesh, PREM radii, site
+             coordinates, and detector region face indices.
 
   2. ASCII PLY — general-purpose mesh with per-face is_in_injection flag and
-                 a custom radii element.  Loaded by earth_from_ply().
+                 a custom radii element.
 
   3. Binary PLY (CORSIKA) — binary_little_endian mesh required by the CORSIKA 8
                              tambo_shower module.  Two files are written:
-                               colca_valley_terrain.ply     — full terrain mesh
-                               colca_valley_obs_surface.ply — detector region only
+                               custom_terrain.ply     — full terrain mesh
+                               custom_obs_surface.ply — detector region only
+
+  4. JLD2 G frame — self-contained geometry frame (mesh + BVH + coordinate
+                    system).  Downstream simulation runs can load this directly
+                    with load_frames("geometry.jld2") without needing the HDF5
+                    file.
 
 HDF5 schema written under the group key:
   location   - [lon, lat] in degrees
@@ -248,16 +253,39 @@ vertices, faces, detector_indices = write_geometry_h5(
     half_width_km=50.0, n_cells=30
 )
 
-# Verify it loads correctly
-println("\nVerifying HDF5 with Earth...")
-gframe_verify = Frame('G')
-gframe_verify["earth_path"]   = "$h5_path:$groupname"
-gframe_verify["detector_key"] = "detector1"
-load_earth!(gframe_verify)
-n_prem   = length(gframe_verify["prem"])
-n_tris   = length(gframe_verify["topography"])
-n_det    = length(gframe_verify["detector_region"])
-println("  PREM layers: $n_prem  triangles: $n_tris  detector faces: $n_det")
+"""
+    build_geometry_frame(earth_path, detector_key) -> Vector{Frame}
+
+Reads geometry from an HDF5 or PLY source file and returns a one-element
+vector containing a fully-loaded G frame (mesh, BVH, coordinate system).
+This is a one-time step: save the result with `save_frames(..., streams=('G',))`
+to produce a self-contained JLD2 that never requires the source file again.
+"""
+function build_geometry_frame(earth_path::String, detector_key::String)
+    gframe = Frame('G')
+    gframe["earth_path"]   = earth_path
+    gframe["detector_key"] = detector_key
+    Tambo.load_earth!(gframe)
+    return Frame[gframe]
+end
+
+# --- Build and save G frame ---
+# build_geometry_frame reads the HDF5 and builds the full G frame (including
+# BVH). Saving with streams=('G',) produces a self-contained JLD2 — downstream
+# simulation runs use load_frames("geometry.jld2") and never touch the HDF5.
+println("\nBuilding G frame and saving to JLD2...")
+g_path = joinpath(outdir, "geometry.jld2")
+frames = build_geometry_frame("$h5_path:$groupname", "detector1")
+save_frames(g_path, frames, streams=('G',))
+println("  Saved → $g_path ($(round(filesize(g_path)/1024^2, digits=1)) MB)")
+
+# Verify round-trip: reload from JLD2 (no HDF5 file needed).
+frames2 = load_frames(g_path)
+gframe2 = get_frame(frames2, 'G')
+n_prem   = length(gframe2["prem"])
+n_tris   = length(gframe2["topography"])
+n_det    = length(gframe2["detector_region"])
+println("  Reloaded — PREM layers: $n_prem  triangles: $n_tris  detector faces: $n_det")
 
 # --- 2. ASCII PLY (for earth_from_ply) ---
 write_geometry_ply(ply_path, vertices, faces, detector_indices, PREM_RADII_KM .* 1_000.0)

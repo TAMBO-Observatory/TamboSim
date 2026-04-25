@@ -150,3 +150,47 @@ function parse_triangles(
     end
     return triangles
 end
+
+"""
+    load_earth!(gframe::Frame)
+
+Reads geometry from `gframe["earth_path"]` and `gframe["detector_key"]` and
+populates the G frame with the following keys:
+
+- `"prem"`: `Vector{Sphere}` — concentric PREM layers for ray tracing
+- `"topography"`: `Vector{Triangle}` — surface mesh
+- `"bvh"`: `BVHTree` — acceleration structure over the full topography
+- `"detector_region"`: `Vector{Int}` — indices of detector-region triangles
+- `"cs"`: `CoordinateSystem` — local ENU coordinate system at the site
+
+Dispatches to HDF5 or PLY loading based on the file extension of `earth_path`.
+"""
+function load_earth!(gframe::Frame)
+    location     = gframe["earth_path"]
+    detectorname = gframe["detector_key"]
+    prem, topography, bvh, detector_region, cs = if endswith(location, ".ply")
+        _load_earth_ply(location)
+    else
+        _load_earth_h5(location, detectorname)
+    end
+    gframe["prem"]            = prem
+    gframe["topography"]      = topography
+    gframe["bvh"]             = bvh
+    gframe["detector_region"] = detector_region
+    gframe["cs"]              = cs
+    return gframe
+end
+
+CoordinateSystem(gframe::Frame) = gframe["cs"]
+
+"""
+    _ensure_earth_loaded!(frames::Vector{Frame})
+
+Ensures the G frame has earth geometry loaded. Calls `load_earth!` if prem is missing.
+"""
+function _ensure_earth_loaded!(frames::Vector{Frame})
+    gframe = get_frame(frames, 'G')
+    if !haskey(gframe.data, "prem")
+        load_earth!(gframe)
+    end
+end

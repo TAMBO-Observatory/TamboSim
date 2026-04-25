@@ -25,7 +25,8 @@ println("\n=== Stage 1: Neutrino Injection ===")
 injection_config = config["injection"]
 injection_config["nevent"] = 500  # override for quick example run
 
-frames = load_geometry(config_file)
+geometry_file = "$(tambo_path)/resources/geometry/colca_valley_3000.jld2"
+frames = load_frames(geometry_file)
 inject!(frames, injection_config)
 cut_frames!(frames, frame -> haskey(frame, "injection_final_state"))
 println("After injection cut: $(count(f -> f.stream == 'Q', frames)) events remaining")

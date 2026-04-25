@@ -52,6 +52,7 @@ include("test_weighting.jl")
 include("test_detector_culling.jl")
 include("test_julia_interfaces.jl")
 include("test_regression.jl")
+include("test_simulation_api.jl")
 include("test_coverage_extras.jl")
 include("test_injection_regression.jl")
 include("test_propagation_decay_fraction.jl")
@@ -117,5 +118,9 @@ include("test_proton_injection.jl")
 
     @testset "Proton Injection" begin
         run_proton_injection_tests()
+    end
+
+    @testset "Simulation API" begin
+        run_simulation_api_tests()
     end
 end

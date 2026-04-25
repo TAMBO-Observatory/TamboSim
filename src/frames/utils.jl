@@ -1,21 +1,13 @@
 """
-    _check_parent_conflicts(frame::Frame)
+    get_frame(frames::Vector{Frame}, stream::Char) -> Frame
 
-Warns if any key is defined in more than one parent frame. The first parent
-in stream hierarchy order wins silently; this function makes that visible.
+Returns the last frame in `frames` with the given stream type. Errors if none
+is found.
 """
-function _check_parent_conflicts(frame::Frame)
-    seen = Dict{String,Char}()
-    for s in STREAM_HIERARCHY
-        haskey(frame.parents, s) || continue
-        for k in keys(frame.parents[s].data)
-            if haskey(seen, k)
-                @warn "Key \"$k\" defined in both '$(seen[k])' and '$s' parent frames; '$(seen[k])' takes precedence"
-            else
-                seen[k] = s
-            end
-        end
-    end
+function get_frame(frames::Vector{Frame}, stream::Char)
+    idx = findlast(f -> f.stream == stream, frames)
+    isnothing(idx) && error("No '$stream' frame found in frame vector")
+    return frames[idx]
 end
 
 """

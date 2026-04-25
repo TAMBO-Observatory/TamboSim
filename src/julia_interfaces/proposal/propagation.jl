@@ -134,3 +134,53 @@ function proposal_propagate(
 
     return losses, continuous_e, secondaries, final_state
 end
+
+"""
+    proposal_propagation!(
+        frames::Vector{Frame},
+        config::Dict;
+        prefix::String="proposal",
+        inkey::String="injection_final_state"
+    )
+
+Propagates particles through the Earth model using PROPOSAL. Stores `config`
+in the existing C frame under `prefix`, then operates on all Q frames in
+`frames` that contain `inkey`.
+"""
+function proposal_propagation!(
+    frames::Vector{Frame},
+    config::Dict;
+    prefix::String="proposal",
+    inkey::String="injection_final_state"
+)
+    _ensure_earth_loaded!(frames)
+    cframe = get_frame(frames, 'C')
+    gframe = get_frame(frames, 'G')
+
+    cframe[prefix] = config
+    init_proposal(config)
+
+    prem = gframe["prem"]
+    bvh  = gframe["bvh"]
+
+    if !haskey(config, "pinecone")
+        @warn "Deciding seed via RNG and adding to configuration"
+        config["pinecone"] = rand(UInt32)
+    end
+    Random.seed!(config["pinecone"])
+
+    q_frames = filter(f -> f.stream == 'Q', frames)
+
+    @llama_showprogress "Propagating" for frame in q_frames
+        haskey(frame, inkey) || continue
+        final_state = frame[inkey]
+        final_state.energy < 106u"MeV" && continue
+        ls, contls, decay_products, propped_state = proposal_propagate(
+            final_state, prem, bvh, rand(Int32)
+        )
+        frame["$(prefix)_stochastic_losses"] = ls
+        frame["$(prefix)_continuous_losses"] = contls
+        frame["$(prefix)_decay_products"] = decay_products
+        frame["$(prefix)_final_state"] = propped_state
+    end
+end

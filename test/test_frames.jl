@@ -29,6 +29,10 @@ function run_frame_tests()
         test_cut_frames_q_only()
         test_cut_frames_preserves_gc()
     end
+
+    @testset "Multi-geometry reconstruction" begin
+        test_multi_geometry_parent_reset()
+    end
 end
 
 function _make_q_frame(data=Dict{String,Any}())
@@ -68,6 +72,9 @@ function test_q_frame_requires_parents()
     @test_throws ErrorException Frame('Q', Dict{String,Any}())
     gframe = Frame('G')
     @test_throws ErrorException Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe))
+    # G parent is optional — Q frame without G parent is valid for analysis workflows
+    cframe = Frame('C')
+    @test Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('C' => cframe)) isa Frame
 end
 
 function test_frame_getindex()
@@ -183,4 +190,32 @@ function test_cut_frames_preserves_gc()
     @test frames[2].stream == 'C'
     @test frames[3].stream == 'Q'
     @test frames[3]["value"] == 50
+end
+
+function test_multi_geometry_parent_reset()
+    # Simulate loading ["geo1.jld2", "run1.jld2", "geo2.jld2", "run2.jld2"].
+    # Q frames from run2 must have geo2 as G parent and run2's C as C parent,
+    # not geo1 or run1's C.
+    raw = Tuple{Char,Dict{String,Any}}[
+        ('G', Dict{String,Any}("site" => "geo1")),
+        ('C', Dict{String,Any}("run" => "run1")),
+        ('Q', Dict{String,Any}("event" => 1)),
+        ('Q', Dict{String,Any}("event" => 2)),
+        ('G', Dict{String,Any}("site" => "geo2")),
+        ('C', Dict{String,Any}("run" => "run2")),
+        ('Q', Dict{String,Any}("event" => 3)),
+    ]
+    frames = Tambo._reconstruct_frames(raw)
+
+    q_frames = filter(f -> f.stream == 'Q', frames)
+    run1_qs = filter(f -> f["event"] <= 2, q_frames)
+    run2_qs = filter(f -> f["event"] == 3, q_frames)
+
+    # run1 Q frames should have geo1 and run1's C
+    @test all(f -> f.gframe["site"] == "geo1", run1_qs)
+    @test all(f -> f.cframe["run"] == "run1", run1_qs)
+
+    # run2 Q frames should have geo2 and run2's C — not geo1 or run1's C
+    @test run2_qs[1].gframe["site"] == "geo2"
+    @test run2_qs[1].cframe["run"] == "run2"
 end

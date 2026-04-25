@@ -10,6 +10,11 @@ from higher-level streams. When a key is accessed, the current frame's data is
 checked first; if the key is absent, parent frames are searched in stream
 hierarchy order (G → C → Q → P).
 
+Q frames require a C parent (config always travels with events) but not a G
+parent — analysis workflows that do not need earth geometry can load C+Q frames
+without a geometry file. Accessing `.gframe` on a Q frame without a G parent
+raises an error at that point.
+
 # Fields
 - `stream::Char`: Stream type ('G' geometry, 'C' config, 'Q' event, 'P' physics).
 - `data::Dict{String, Any}`: Data stored in this frame.
@@ -28,7 +33,6 @@ mutable struct Frame
     Frame(stream::Char, data::Dict) = Frame(stream, data, Dict{Char,Frame}())
     function Frame(stream::Char, data::Dict, parents::Dict{Char,Frame})
         if stream == 'Q'
-            haskey(parents, 'G') || error("Q frame requires a G parent")
             haskey(parents, 'C') || error("Q frame requires a C parent")
         end
         new(stream, data, parents)

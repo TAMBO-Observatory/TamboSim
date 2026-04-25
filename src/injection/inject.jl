@@ -536,3 +536,140 @@ function inject_proton_event(
 
     return initial_proton, final_proton, visible_areas, passes_through_rock
 end
+
+function _setup_injection(frames::Vector{Frame}, config::Dict, prefix::String, fname::String)
+    haskey(config, "nevent") || error("$fname config must contain \"nevent\"")
+    _ensure_earth_loaded!(frames)
+    gframe = get_frame(frames, 'G')
+    cframe = Frame('C', Dict{String,Any}(prefix => config), Dict{Char,Frame}('G' => gframe))
+    push!(frames, cframe)
+    q_parents = Dict{Char,Frame}('G' => gframe, 'C' => cframe)
+    q_frames = Frame[]
+    for idx in 1:config["nevent"]
+        qframe = Frame('Q', Dict{String,Any}(), q_parents)
+        qframe["event_id"] = idx
+        push!(q_frames, qframe)
+    end
+    append!(frames, q_frames)
+    return gframe, cframe, q_frames
+end
+
+"""
+    inject!(frames::Vector{Frame}, config::Dict; prefix::String="injection")
+
+Injects neutrino events into the simulation. Creates a C frame from `config`,
+appends it and `config["nevent"]` Q frames to `frames`, then populates each Q
+frame with injection states. `config` must contain `"nevent"`.
+
+The config is stored in the C frame under `prefix` for provenance.
+"""
+function inject!(
+    frames::Vector{Frame},
+    config::Dict;
+    prefix::String="injection"
+)
+    gframe, _, q_frames = _setup_injection(frames, config, prefix, "inject!")
+
+    prem            = gframe["prem"]
+    bvh             = gframe["bvh"]
+    cs              = gframe["cs"]
+    topography      = gframe["topography"]
+    detector_region = gframe["detector_region"]
+
+    pl = UnitfulPowerLawSampler(
+        config["gamma"],
+        config["emin"] * u"GeV",
+        config["emax"] * u"GeV"
+    )
+    as = UniformAngularSampler(
+        deg2rad(config["thetamin"]),
+        deg2rad(config["thetamax"]),
+        deg2rad(config["phimin"]),
+        deg2rad(config["phimax"]),
+    )
+    cross_section = CrossSection(config["xs_location"])
+    detector_triangles = topography[detector_region]
+    detector_bvh    = BVHTree(detector_triangles)
+    detector_areas  = area.(detector_triangles)
+    detector_normals = normal.(detector_triangles)
+    Random.seed!(config["pinecone"])
+
+    @llama_showprogress "Injecting" for frame in q_frames
+        tr_seed = rand(UInt32)
+        istate, cstate, fstate, wp = inject_event(
+            config["pdg"],
+            prem, bvh, cs, detector_region, topography,
+            as, pl, cross_section;
+            detector_areas=detector_areas,
+            detector_normals=detector_normals,
+            detector_bvh=detector_bvh,
+            tr_seed=tr_seed
+        )
+        frame["$(prefix)_initial_state"] = istate
+        if !isnan(cstate.energy)
+            frame["$(prefix)_close_state"] = cstate
+        end
+        if !isnan(fstate.energy)
+            frame["$(prefix)_final_state"] = fstate
+        end
+        frame["weight_params"] = wp
+    end
+end
+
+"""
+    inject_protons!(frames::Vector{Frame}, config::Dict; prefix::String="injection")
+
+Injects downgoing cosmic ray protons. Creates a C frame from `config`, appends
+it and `config["nevent"]` Q frames to `frames`, then runs proton injection.
+`config` must contain `"nevent"`.
+
+The config is stored in the C frame under `prefix` for provenance.
+"""
+function inject_protons!(
+    frames::Vector{Frame},
+    config::Dict;
+    prefix::String="injection"
+)
+    gframe, _, q_frames = _setup_injection(frames, config, prefix, "inject_protons!")
+
+    bvh             = gframe["bvh"]
+    cs              = gframe["cs"]
+    topography      = gframe["topography"]
+    detector_region = gframe["detector_region"]
+
+    pl = UnitfulPowerLawSampler(
+        config["gamma"],
+        config["emin"] * u"GeV",
+        config["emax"] * u"GeV"
+    )
+    as = UniformAngularSampler(
+        deg2rad(config["thetamin"]),
+        deg2rad(config["thetamax"]),
+        deg2rad(config["phimin"]),
+        deg2rad(config["phimax"]),
+    )
+    altitude = get(config, "altitude", 50.0) * u"km"
+    detector_props = precompute_detector_properties(topography, detector_region)
+    Random.seed!(config["pinecone"])
+
+    @llama_showprogress "Injecting protons" for frame in q_frames
+        initial_proton, final_proton, visible_areas, passes_through_rock = inject_proton_event(bvh, cs, detector_region, as, pl, detector_props; altitude=altitude)
+        if !isnan(initial_proton.energy)
+            frame["$(prefix)_initial_state"] = initial_proton
+            frame["$(prefix)_final_state"] = final_proton
+            frame["particle_passes_through_rock"] = passes_through_rock
+            frame["weight_params"] = WeightParameters(
+                sum(visible_areas),
+                pl.emin, pl.emax, pl.γ,
+                as.θmin, as.θmax,
+                as.ϕmin, as.ϕmax,
+                initial_proton.energy,
+                NaN * u"GeV",
+                NaN * u"g/cm^2",
+                NaN * u"g/cm^3",
+                NaN * u"cm^2",
+                NaN * u"cm^2",
+            )
+        end
+    end
+end

@@ -28,13 +28,14 @@ relativize!(config)
 # =============================================================================
 # 1. Stream types and the hierarchy
 # =============================================================================
-# load_geometry returns [G frame]. inject! creates a C frame and nevent Q
-# frames, all linked by parent references (G → C → Q).
+# load_frames on a geometry JLD2 returns [G frame]. inject! creates a C frame
+# and nevent Q frames, all linked by parent references (G → C → Q).
 
 injection_config = config["injection"]
 injection_config["nevent"] = 20
 
-frames = load_geometry(config_file)
+geometry_file = "$(tambo_path)/resources/geometry/colca_valley_3000.jld2"
+frames = load_frames(geometry_file)
 inject!(frames, injection_config)
 
 gframe = get_frame(frames, 'G')
@@ -61,12 +62,13 @@ println("has nonexistent:         ", haskey(qframe, "nonexistent_key"))
 # 3. Saving and loading frames
 # =============================================================================
 # save_frames writes the requested streams to JLD2. Parent references are not
-# stored — they are reconstructed from stream order on load. Transient earth
-# keys (topography, bvh, etc.) are stripped and rebuilt on reload.
+# stored — they are reconstructed from stream order on load. G frames are
+# written as-is (including bvh and topography) when explicitly included in
+# streams; see create_geometry.jl for the one-time geometry file workflow.
 
 sim_file = "$(output_dir)/frame_usage_sim.jld2"
 
-save_frames(sim_file, frames)  # saves G, C, and Q frames (all present streams)
+save_frames(sim_file, frames)  # saves C and Q frames (default)
 println("\nSaved frames → $sim_file  ($(count(f -> f.stream == 'Q', frames)) Q frames)")
 
 # =============================================================================
@@ -83,7 +85,7 @@ println("\nLoaded $(length(q_frames)) Q frames from $sim_file")
 # first file's G frame becomes the parent of Q frames in subsequent files.
 sim_file2 = "$(output_dir)/frame_usage_sim2.jld2"
 
-frames3 = load_geometry(config_file)
+frames3 = load_frames(geometry_file)
 inject!(frames3, merge(config["injection"], Dict("nevent" => 10)))
 save_frames(sim_file2, frames3)
 
@@ -93,9 +95,10 @@ println("Combined load: $(count(f -> f.stream == 'Q', frames_combined)) Q frames
 # =============================================================================
 # 5. Earth access
 # =============================================================================
-# load_geometry and load_frames populate the G frame with earth geometry
-# automatically via load_earth!. Keys: prem, topography, bvh, detector_region, cs.
-# They are stripped before saving (to keep files small) and rebuilt on reload.
+# The geometry JLD2 is produced once by create_geometry.jl and is
+# self-contained — bvh, topography, and coordinate system are stored
+# directly. load_frames reconstructs the G frame without needing any
+# original HDF5 or PLY files.
 
 gframe2 = get_frame(frames2, 'G')
 bvh = gframe2["bvh"]

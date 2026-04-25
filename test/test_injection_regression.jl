@@ -13,8 +13,7 @@ Requires HDF5 geometry and cross-section data files.
 
 import Tambo: UnitfulPowerLawSampler, UniformAngularSampler, CoordinateSystem,
               precompute_detector_properties, inject_event, CrossSection,
-              null_params, init_proposal, proposal_propagate, is_proposal_available,
-              load_earth!
+              null_params, init_proposal, proposal_propagate, is_proposal_available
 
 """
     isinair(particle, prem, bvh)
@@ -69,13 +68,10 @@ function run_injection(prem, bvh, cs, detector_region, xs, detector_props, as, g
 end
 
 function run_injection_regression_tests()
-    earth_path = get_tambosim_path() * "/resources/geometry/colca_valley.h5:colca_valley_30000"
+    geometry_path = get_tambosim_path() * "/resources/geometry/colca_valley_3000.jld2"
     xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
-    gframe = Frame('G')
-    gframe["earth_path"]   = earth_path
-    gframe["detector_key"] = "detector1"
-    load_earth!(gframe)
+    gframe = get_frame(load_frames(geometry_path), 'G')
     prem            = gframe["prem"]
     bvh             = gframe["bvh"]
     cs              = gframe["cs"]
@@ -155,28 +151,17 @@ function run_injection_regression_tests()
 
     # ---- Gamma = 1.0 (flat spectrum) ----
     @testset "Injection gamma=1.0" begin
-        # Mean log10(E/GeV) ~ 7.26 for gamma=1 (updated after injection region change in 08f9e8d)
-        @test isapprox(r1.mean_log_e, 7.262, atol=0.02)
-
-        # Fraction of successful injections ~ 51.6%
-        @test isapprox(r1.frac_successful, 0.5164, atol=0.02)
-
-        # Fraction of successful events with final state in air ~ 0.2%
-        # Higher energy taus can travel far enough to exit the rock
-        @test isapprox(r1.frac_in_air, 0.00213, atol=0.005)
+        @test isapprox(r1.mean_log_e, 7.228, atol=0.02)
+        @test isapprox(r1.frac_successful, 0.418, atol=0.02)
+        # Decimated mesh has gaps so more taus exit in air than with the full mesh
+        @test isapprox(r1.frac_in_air, 0.086, atol=0.01)
     end
 
     # ---- Gamma = 2.0 (steeper spectrum) ----
     @testset "Injection gamma=2.0" begin
-        # Mean log10(E/GeV) ~ 5.91 for gamma=2 (weighted toward lower energies)
         @test isapprox(r2.mean_log_e, 5.910, atol=0.02)
-
-        # Fraction of successful injections ~ 50.2%
-        @test isapprox(r2.frac_successful, 0.502, atol=0.02)
-
-        # Fraction in air ~ 0% for steeper spectrum (lower energy taus
-        # don't travel far enough to exit the rock)
-        @test r2.frac_in_air < 0.005
+        @test isapprox(r2.frac_successful, 0.419, atol=0.02)
+        @test isapprox(r2.frac_in_air, 0.058, atol=0.01)
     end
 
     # ---- Cross-gamma consistency ----
@@ -221,8 +206,8 @@ function run_injection_regression_tests()
 
     @testset "Post-propagation in-air fraction" begin
         for (gamma, fstates, expected_frac) in [
-            (1.0, fstates_g1, 0.171),
-            (2.0, fstates_g2, 0.147)
+            (1.0, fstates_g1, 0.200),
+            (2.0, fstates_g2, 0.197)
         ]
             n_prop_air = 0
             for (j, fs) in enumerate(fstates)

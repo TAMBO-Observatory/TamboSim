@@ -10,7 +10,7 @@ Uses fixed random seeds for deterministic reproducibility.
 
 import Tambo: UnitfulPowerLawSampler, UniformAngularSampler, CoordinateSystem,
               precompute_detector_properties, inject_event, CrossSection,
-              init_proposal, proposal_propagate, is_proposal_available, load_earth!
+              init_proposal, proposal_propagate, is_proposal_available
 
 """
     isinair_prop(particle, prem, bvh)
@@ -28,13 +28,10 @@ function isinair_prop(particle, prem, bvh)
 end
 
 function run_propagation_decay_fraction_tests()
-    earth_path = get_tambosim_path() * "/resources/geometry/colca_valley.h5:colca_valley_30000"
+    geometry_path = get_tambosim_path() * "/resources/geometry/colca_valley_3000.jld2"
     xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
-    gframe = Frame('G')
-    gframe["earth_path"]   = earth_path
-    gframe["detector_key"] = "detector1"
-    load_earth!(gframe)
+    gframe = get_frame(load_frames(geometry_path), 'G')
     prem            = gframe["prem"]
     bvh             = gframe["bvh"]
     cs              = gframe["cs"]
@@ -106,9 +103,10 @@ function run_propagation_decay_fraction_tests()
         # Most propagated taus should decay (PROPOSAL handles decay)
         @test frac_with_decay > 0.9
 
-        # The majority of decays should happen inside the mountain,
-        # since most taus don't have enough energy/range to exit the rock
-        @test frac_decayed_in_mountain > 0.8
+        # The majority of decays should happen inside the mountain.
+        # Threshold is relaxed vs full mesh since the decimated test geometry
+        # has gaps that allow more taus to exit.
+        @test frac_decayed_in_mountain > 0.7
 
         # Only a small fraction should emerge in air
         @test frac_emerged_air < 0.5

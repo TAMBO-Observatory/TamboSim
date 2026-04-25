@@ -3,6 +3,7 @@ tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(@__DIR__))
 using ArgParse
 using LinearAlgebra
 using Tambo
+using TOML
 
 function parse_commandline()
     s = ArgParseSettings(
@@ -10,16 +11,16 @@ function parse_commandline()
     )
 
     @add_arg_table! s begin
+        "--config", "-c"
+            help = "Path to configuration TOML file (for proposal settings)"
+            arg_type = String
+            default = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
         "--infile", "-i"
-            help = "Input JLD2 file with injected Q frames"
+            help = "Input JLD2 file with injected frames"
             arg_type = String
             default = "$(tambo_path)/examples/output/injected_events.jld2"
-        "--gc-file"
-            help = "GC frames JLD2 file (defaults to gc_frames.jld2 in same directory as infile)"
-            arg_type = String
-            default = nothing
         "--outfile", "-o"
-            help = "Output JLD2 file path for Q frames"
+            help = "Output JLD2 file path"
             arg_type = String
             default = "$(tambo_path)/examples/output/propagated_events.jld2"
         "--cut-inmountain"
@@ -36,23 +37,24 @@ end
 
 args = parse_commandline()
 
-infile        = args["infile"]
-gc_file       = something(args["gc-file"], joinpath(dirname(infile), "gc_frames.jld2"))
-outfile       = args["outfile"]
+infile         = args["infile"]
+outfile        = args["outfile"]
 cut_inmountain = args["cut-inmountain"]
 
 @show infile
-@show gc_file
 @show outfile
 @show cut_inmountain
 
-frames = load_frames([gc_file, infile])
+config = TOML.parsefile(args["config"])
+relativize!(config)
 
+proposal_config = config["proposal"]
 if !isnothing(args["seed"])
-    get_frame(frames, 'C')["proposal"]["pinecone"] = args["seed"]
+    proposal_config["pinecone"] = args["seed"]
 end
 
-proposal_propagation!(frames)
+frames = load_frames(infile)
+proposal_propagation!(frames, proposal_config)
 
 @show count(f -> f.stream == 'Q', frames)
 
@@ -75,5 +77,5 @@ end
 @show count(f -> f.stream == 'Q', frames)
 
 mkpath(dirname(outfile))
-save_frames(outfile, frames)  # Q frames only (default)
-println("Q frames → $outfile")
+save_frames(outfile, frames)
+println("Saved → $outfile")

@@ -138,27 +138,22 @@ end
 function test_inject_protons_produces_frames()
     tambosim_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
 
-    config = Dict{String,Any}(
-        "geometry" => Dict{String,Any}(
-            "earth_path" => joinpath(tambosim_path, "resources", "geometry", "colca_valley.h5") * ":colca_valley_30000",
-            "detector_key" => "detector1"
-        ),
-        "injection" => Dict{String,Any}(
-            "pinecone"  => 42,
-            "nevent"    => 20,
-            "gamma"     => 2.7,
-            "emin"      => 1e3,
-            "emax"      => 1e7,
-            "thetamin"  => 91.0,
-            "thetamax"  => 130.0,
-            "phimin"    => 0.0,
-            "phimax"    => 360.0,
-            "altitude"  => 50.0
-        )
+    earth_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley.h5") * ":colca_valley_30000"
+    injection_config = Dict{String,Any}(
+        "pinecone"  => 42,
+        "nevent"    => 20,
+        "gamma"     => 2.7,
+        "emin"      => 1e3,
+        "emax"      => 1e7,
+        "thetamin"  => 91.0,
+        "thetamax"  => 130.0,
+        "phimin"    => 0.0,
+        "phimax"    => 360.0,
+        "altitude"  => 50.0
     )
-    frames = Tambo.load_config(config)
+    frames = load_geometry(earth_path, "detector1")
 
-    inject_protons!(frames)
+    inject_protons!(frames, injection_config)
 
     q_frames = filter(f -> f.stream == 'Q', frames)
     @test length(q_frames) == 20

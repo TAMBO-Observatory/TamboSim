@@ -1,13 +1,13 @@
 """
 frame_usage.jl
 
-Demonstrates the Frame hierarchy, the GC-split I/O pattern, and common
-frame operations. Intended as a quick reference for the core data model.
+Demonstrates the Frame hierarchy, the I/O patterns, and common frame
+operations. Intended as a quick reference for the core data model.
 
 Topics covered:
   1. Stream types and the hierarchy (G → C → Q)
   2. Key lookup and inheritance
-  3. GC-split workflow: save geometry/config once, event files separately
+  3. Saving and loading frames
   4. Loading multiple files with load_frames
   5. Earth access via G frame keys
   6. Filtering and cutting event frames
@@ -18,17 +18,24 @@ output_dir = "$(tambo_path)/examples/output"
 mkpath(output_dir)
 
 using Tambo
+using TOML
 
 config_file = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
+
+config = TOML.parsefile(config_file)
+relativize!(config)
 
 # =============================================================================
 # 1. Stream types and the hierarchy
 # =============================================================================
-# load_config returns [G frame, C frame].
-# G holds geometry paths; C holds configuration sections; both are referenced
-# as parents by every Q (event) frame that inject! creates.
+# load_geometry returns [G frame]. inject! creates a C frame and nevent Q
+# frames, all linked by parent references (G → C → Q).
 
-frames = load_config(config_file)
+injection_config = config["injection"]
+injection_config["nevent"] = 20
+
+frames = load_geometry(config_file)
+inject!(frames, injection_config)
 
 gframe = get_frame(frames, 'G')
 cframe = get_frame(frames, 'C')
@@ -41,66 +48,52 @@ println("C frame keys: ", sort(collect(String, keys(cframe.data))))
 # =============================================================================
 # Keys are resolved by checking own data first, then parents in G → C order.
 
-# C inherits earth_path from its G parent
-println("\nearth_path via C frame:  ", cframe["earth_path"])
-
-# Override injection event count before running
-cframe["injection"]["nevent"] = 20
-
-# After inject!, each Q frame inherits all G and C keys
-inject!(frames)
-
 qframe = first(filter(f -> f.stream == 'Q', frames))
-println("earth_path via Q frame:  ", qframe["earth_path"])         # from G parent
-println("injection nevent via Q:  ", qframe["injection"]["nevent"]) # from C parent
-println("event_id (own data):     ", qframe["event_id"])            # own Q data
+println("\nearth_path via Q frame:  ", qframe["earth_path"])          # from G parent
+println("injection nevent via Q:  ", qframe["injection"]["nevent"])  # from C parent
+println("event_id (own data):     ", qframe["event_id"])             # own Q data
 
-# haskey and keys work across the full hierarchy
 println("has earth_path:          ", haskey(qframe, "earth_path"))
 println("has event_id:            ", haskey(qframe, "event_id"))
 println("has nonexistent:         ", haskey(qframe, "nonexistent_key"))
 
 # =============================================================================
-# 3. GC-split workflow
+# 3. Saving and loading frames
 # =============================================================================
-# Save geometry and config once; save only event frames per run.
-# This avoids duplicating large objects across output files.
+# save_frames writes the requested streams to JLD2. Parent references are not
+# stored — they are reconstructed from stream order on load. Transient earth
+# keys (topography, bvh, etc.) are stripped and rebuilt on reload.
 
-gc_file  = "$(output_dir)/gc_frames.jld2"
 sim_file = "$(output_dir)/frame_usage_sim.jld2"
 
-save_frames(gc_file, frames; streams=('G', 'C'))  # GC file: written once per geometry/config
-save_frames(sim_file, frames)                      # event file: Q frames only (default)
-
-println("\nSaved GC frames → $gc_file")
-println("Saved Q frames  → $sim_file  ($(count(f -> f.stream == 'Q', frames)) events)")
+save_frames(sim_file, frames)  # saves G, C, and Q frames (all present streams)
+println("\nSaved frames → $sim_file  ($(count(f -> f.stream == 'Q', frames)) Q frames)")
 
 # =============================================================================
-# 4. Loading multiple files
+# 4. Loading frames
 # =============================================================================
 # load_frames reconstructs parent references from stream order.
-# GC file must come first so G/C are in the parent cache when Q frames are read.
 
-frames2 = load_frames([gc_file, sim_file])
+frames2 = load_frames(sim_file)
 q_frames = filter(f -> f.stream == 'Q', frames2)
+println("\nLoaded $(length(q_frames)) Q frames from $sim_file")
 
-println("\nLoaded $(length(q_frames)) Q frames from [gc_file, sim_file]")
-
-# Multiple event files can be combined the same way
+# Multiple event files can be combined by passing a list of paths.
+# The parent cache (G/C frames) carries over across file boundaries so the
+# first file's G frame becomes the parent of Q frames in subsequent files.
 sim_file2 = "$(output_dir)/frame_usage_sim2.jld2"
 
-frames3 = load_config(config_file)
-get_frame(frames3, 'C')["injection"]["nevent"] = 10
-inject!(frames3)
+frames3 = load_geometry(config_file)
+inject!(frames3, merge(config["injection"], Dict("nevent" => 10)))
 save_frames(sim_file2, frames3)
 
-frames_combined = load_frames([gc_file, sim_file, sim_file2])
+frames_combined = load_frames([sim_file, sim_file2])
 println("Combined load: $(count(f -> f.stream == 'Q', frames_combined)) Q frames")
 
 # =============================================================================
 # 5. Earth access
 # =============================================================================
-# load_config and load_frames populate the G frame with earth geometry
+# load_geometry and load_frames populate the G frame with earth geometry
 # automatically via load_earth!. Keys: prem, topography, bvh, detector_region, cs.
 # They are stripped before saving (to keep files small) and rebuilt on reload.
 
@@ -108,12 +101,6 @@ gframe2 = get_frame(frames2, 'G')
 bvh = gframe2["bvh"]
 println("\nBVH type:          ", typeof(bvh))
 println("Triangles in BVH:  ", length(bvh.triangles))
-
-# Earth keys are stripped on save and rebuilt by load_frames
-save_frames("$(output_dir)/after_earth.jld2", frames2; streams=('G', 'C'))
-frames4 = load_frames(["$(output_dir)/after_earth.jld2"])
-gframe4 = get_frame(frames4, 'G')
-println("BVH after reload:  ", haskey(gframe4.data, "bvh"))  # true — rebuilt on load
 
 # =============================================================================
 # 6. Filtering and cutting event frames

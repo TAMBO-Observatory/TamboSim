@@ -9,7 +9,7 @@ export Ray,
        inject_protons!,
        proposal_propagation!,
        cut_frames!,
-       load_config,
+       load_geometry,
        load_earth!,
        save_frames,
        load_frames,
@@ -18,6 +18,7 @@ export Ray,
        get_tambosim_path,
        get_git_commit_hash,
        get_version_string,
+       relativize!,
        # Llama progress utilities
        print_llama,
        llama_progress,
@@ -227,47 +228,26 @@ Returns the last frame in `frames` with the given stream type.
 get_frame(frames::Vector{Frame}, stream::Char) = _find_frame(frames, stream)
 
 """
-    load_config(config_file::String) -> Vector{Frame}
+    load_geometry(earth_path::String, detector_key::String) -> Vector{Frame}
+    load_geometry(config_file::String) -> Vector{Frame}
 
-Parses a TOML configuration file and returns `[G frame, C frame]`.
-
-The G frame holds geometry paths. The C frame holds one key per config section
-(e.g. `"injection"`, `"proposal"`, `"corsika"`), with the G frame as its parent.
-Paths containing `_TAMBOSIM_PATH_` are resolved to absolute paths.
-
-    load_config(config::Dict) -> Vector{Frame}
-
-Same as above but accepts an already-parsed config dict (useful in tests).
+Creates a G frame with the specified geometry and returns it in a one-element
+vector. The second method reads `earth_path` and `detector_key` from the
+`[geometry]` section of a TOML configuration file; paths containing
+`_TAMBOSIM_PATH_` are resolved to absolute paths.
 """
-function load_config(config_file::String)
-    config = TOML.parsefile(config_file)
-    validate_config_file(config)
-    relativize!(config)
-    return _config_to_frames(config)
-end
-
-function load_config(config::Dict)
-    config = deepcopy(config)
-    relativize!(config)
-    return _config_to_frames(config)
-end
-
-function _config_to_frames(config::Dict)
+function load_geometry(earth_path::String, detector_key::String)
     gframe = Frame('G')
-    gframe["earth_path"]   = config["geometry"]["earth_path"]
-    gframe["detector_key"] = config["geometry"]["detector_key"]
+    gframe["earth_path"]   = earth_path
+    gframe["detector_key"] = detector_key
     load_earth!(gframe)
+    return Frame[gframe]
+end
 
-    cframe = Frame('C')
-    cframe.parents['G'] = gframe
-    for (section, params) in config
-        section == "geometry" && continue
-        cframe[section] = params
-    end
-
-    _check_parent_conflicts(cframe)
-
-    return Frame[gframe, cframe]
+function load_geometry(config_file::String)
+    config = TOML.parsefile(config_file)
+    relativize!(config)
+    return load_geometry(config["geometry"]["earth_path"], config["geometry"]["detector_key"])
 end
 
 """
@@ -283,22 +263,25 @@ function _ensure_earth_loaded!(frames::Vector{Frame})
 end
 
 """
-    inject!(
-        frames::Vector{Frame};
-        outprefix::String="injection"
-    )
+    inject!(frames::Vector{Frame}, config::Dict; prefix::String="injection")
 
-Injects neutrino events into the simulation. Reads configuration from the C frame,
-appends one Q frame per event to `frames`, and populates injection states.
+Injects neutrino events into the simulation. Creates a C frame from `config`,
+appends it and `config["nevent"]` Q frames to `frames`, then populates each Q
+frame with injection states. `config` must contain `"nevent"`.
+
+The config is stored in the C frame under `prefix` for provenance.
 """
 function inject!(
-    frames::Vector{Frame};
-    outprefix::String="injection"
+    frames::Vector{Frame},
+    config::Dict;
+    prefix::String="injection"
 )
+    haskey(config, "nevent") || error("inject! config must contain \"nevent\"")
     _ensure_earth_loaded!(frames)
-    cframe = _find_frame(frames, 'C')
     gframe = _find_frame(frames, 'G')
-    cfg = cframe[outprefix]
+
+    cframe = Frame('C', Dict{String,Any}(prefix => config), Dict{Char,Frame}('G' => gframe))
+    push!(frames, cframe)
 
     prem            = gframe["prem"]
     bvh             = gframe["bvh"]
@@ -308,7 +291,7 @@ function inject!(
 
     q_frames = Frame[]
     q_parents = Dict{Char,Frame}('G' => gframe, 'C' => cframe)
-    for idx in 1:cfg["nevent"]
+    for idx in 1:config["nevent"]
         qframe = Frame('Q', Dict{String,Any}(), q_parents)
         qframe["event_id"] = idx
         push!(q_frames, qframe)
@@ -316,27 +299,27 @@ function inject!(
     append!(frames, q_frames)
 
     pl = UnitfulPowerLawSampler(
-        cfg["gamma"],
-        cfg["emin"] * u"GeV",
-        cfg["emax"] * u"GeV"
+        config["gamma"],
+        config["emin"] * u"GeV",
+        config["emax"] * u"GeV"
     )
     as = UniformAngularSampler(
-        deg2rad(cfg["thetamin"]),
-        deg2rad(cfg["thetamax"]),
-        deg2rad(cfg["phimin"]),
-        deg2rad(cfg["phimax"]),
+        deg2rad(config["thetamin"]),
+        deg2rad(config["thetamax"]),
+        deg2rad(config["phimin"]),
+        deg2rad(config["phimax"]),
     )
-    cross_section = CrossSection(cfg["xs_location"])
+    cross_section = CrossSection(config["xs_location"])
     detector_triangles = topography[detector_region]
-    detector_bvh   = BVHTree(detector_triangles)
+    detector_bvh    = BVHTree(detector_triangles)
     detector_areas  = area.(detector_triangles)
     detector_normals = normal.(detector_triangles)
-    Random.seed!(cfg["pinecone"])
+    Random.seed!(config["pinecone"])
 
     @llama_showprogress "Injecting" for frame in q_frames
         tr_seed = rand(UInt32)
         istate, cstate, fstate, wp = inject_event(
-            cfg["pdg"],
+            config["pdg"],
             prem, bvh, cs, detector_region, topography,
             as, pl, cross_section;
             detector_areas=detector_areas,
@@ -344,34 +327,37 @@ function inject!(
             detector_bvh=detector_bvh,
             tr_seed=tr_seed
         )
-        frame["$(outprefix)_initial_state"] = istate
+        frame["$(prefix)_initial_state"] = istate
         if !isnan(cstate.energy)
-            frame["$(outprefix)_close_state"] = cstate
+            frame["$(prefix)_close_state"] = cstate
         end
         if !isnan(fstate.energy)
-            frame["$(outprefix)_final_state"] = fstate
+            frame["$(prefix)_final_state"] = fstate
         end
         frame["weight_params"] = wp
     end
 end
 
 """
-    inject_protons!(
-        frames::Vector{Frame};
-        outprefix::String="injection"
-    )
+    inject_protons!(frames::Vector{Frame}, config::Dict; prefix::String="injection")
 
-Injects downgoing cosmic ray protons. Reads configuration from the C frame and
-appends one Q frame per event to `frames`.
+Injects downgoing cosmic ray protons. Creates a C frame from `config`, appends
+it and `config["nevent"]` Q frames to `frames`, then runs proton injection.
+`config` must contain `"nevent"`.
+
+The config is stored in the C frame under `prefix` for provenance.
 """
 function inject_protons!(
-    frames::Vector{Frame};
-    outprefix::String="injection"
+    frames::Vector{Frame},
+    config::Dict;
+    prefix::String="injection"
 )
+    haskey(config, "nevent") || error("inject_protons! config must contain \"nevent\"")
     _ensure_earth_loaded!(frames)
-    cframe = _find_frame(frames, 'C')
     gframe = _find_frame(frames, 'G')
-    cfg = cframe[outprefix]
+
+    cframe = Frame('C', Dict{String,Any}(prefix => config), Dict{Char,Frame}('G' => gframe))
+    push!(frames, cframe)
 
     bvh             = gframe["bvh"]
     cs              = gframe["cs"]
@@ -380,7 +366,7 @@ function inject_protons!(
 
     q_frames = Frame[]
     q_parents = Dict{Char,Frame}('G' => gframe, 'C' => cframe)
-    for idx in 1:cfg["nevent"]
+    for idx in 1:config["nevent"]
         qframe = Frame('Q', Dict{String,Any}(), q_parents)
         qframe["event_id"] = idx
         push!(q_frames, qframe)
@@ -388,35 +374,31 @@ function inject_protons!(
     append!(frames, q_frames)
 
     pl = UnitfulPowerLawSampler(
-        cfg["gamma"],
-        cfg["emin"] * u"GeV",
-        cfg["emax"] * u"GeV"
+        config["gamma"],
+        config["emin"] * u"GeV",
+        config["emax"] * u"GeV"
     )
     as = UniformAngularSampler(
-        deg2rad(cfg["thetamin"]),
-        deg2rad(cfg["thetamax"]),
-        deg2rad(cfg["phimin"]),
-        deg2rad(cfg["phimax"]),
+        deg2rad(config["thetamin"]),
+        deg2rad(config["thetamax"]),
+        deg2rad(config["phimin"]),
+        deg2rad(config["phimax"]),
     )
-    altitude = get(cfg, "altitude", 50.0) * u"km"
+    altitude = get(config, "altitude", 50.0) * u"km"
     detector_props = precompute_detector_properties(topography, detector_region)
-    Random.seed!(cfg["pinecone"])
+    Random.seed!(config["pinecone"])
 
     @llama_showprogress "Injecting protons" for frame in q_frames
         initial_proton, final_proton, visible_areas, passes_through_rock = inject_proton_event(bvh, cs, detector_region, as, pl, detector_props; altitude=altitude)
         if !isnan(initial_proton.energy)
-            frame["$(outprefix)_initial_state"] = initial_proton
-            frame["$(outprefix)_final_state"] = final_proton
+            frame["$(prefix)_initial_state"] = initial_proton
+            frame["$(prefix)_final_state"] = final_proton
             frame["particle_passes_through_rock"] = passes_through_rock
             frame["weight_params"] = WeightParameters(
                 sum(visible_areas),
-                pl.emin,
-                pl.emax,
-                pl.γ,
-                as.θmin,
-                as.θmax,
-                as.ϕmin,
-                as.ϕmax,
+                pl.emin, pl.emax, pl.γ,
+                as.θmin, as.θmax,
+                as.ϕmin, as.ϕmax,
                 initial_proton.energy,
                 NaN * u"GeV",
                 NaN * u"g/cm^2",
@@ -430,34 +412,39 @@ end
 
 """
     proposal_propagation!(
-        frames::Vector{Frame};
-        inkey::String="injection_final_state",
-        outprefix::String="proposal"
+        frames::Vector{Frame},
+        config::Dict;
+        prefix::String="proposal",
+        inkey::String="injection_final_state"
     )
 
-Propagates particles through the Earth model using PROPOSAL. Operates on all
-Q frames in `frames` that contain `inkey`.
+Propagates particles through the Earth model using PROPOSAL. Stores `config`
+in the existing C frame under `prefix`, then operates on all Q frames in
+`frames` that contain `inkey`.
 """
 function proposal_propagation!(
-    frames::Vector{Frame};
-    inkey::String="injection_final_state",
-    outprefix::String="proposal"
+    frames::Vector{Frame},
+    config::Dict;
+    prefix::String="proposal",
+    inkey::String="injection_final_state"
 )
     _ensure_earth_loaded!(frames)
     cframe = _find_frame(frames, 'C')
     gframe = _find_frame(frames, 'G')
-    cfg = cframe[outprefix]
-    init_proposal(cfg)
+
+    cframe[prefix] = config
+    init_proposal(config)
 
     prem = gframe["prem"]
     bvh  = gframe["bvh"]
 
-    if haskey(cfg, "pinecone")
-        Random.seed!(cfg["pinecone"])
+    if haskey(config, "pinecone")
+        Random.seed!(config["pinecone"])
     else
         @warn "Deciding seed via RNG and adding to configuration"
-        cfg["pinecone"] = rand(UInt32)
-        Random.seed!(cfg["pinecone"])
+        config["pinecone"] = rand(UInt32)
+        cframe[prefix] = config
+        Random.seed!(config["pinecone"])
     end
 
     q_frames = filter(f -> f.stream == 'Q', frames)
@@ -467,32 +454,35 @@ function proposal_propagation!(
         final_state = frame[inkey]
         final_state.energy < 106u"MeV" && continue
         ls, contls, decay_products, propped_state = proposal_propagate(
-            final_state,
-            prem, bvh,
-            rand(Int32)
+            final_state, prem, bvh, rand(Int32)
         )
-        frame["$(outprefix)_stochastic_losses"] = ls
-        frame["$(outprefix)_continuous_losses"] = contls
-        frame["$(outprefix)_decay_products"] = decay_products
-        frame["$(outprefix)_final_state"] = propped_state
+        frame["$(prefix)_stochastic_losses"] = ls
+        frame["$(prefix)_continuous_losses"] = contls
+        frame["$(prefix)_decay_products"] = decay_products
+        frame["$(prefix)_final_state"] = propped_state
     end
 end
 
 """
     corsika_run(
         frames::Vector{Frame},
+        config::Dict,
         base_outdir;
+        prefix::String="corsika",
         inkey::String="proposal_decay_products",
         parallelize=false,
         store_paths=true
     )
 
-Runs CORSIKA for the decay products of events in `frames`. Operates on all
-Q frames that contain `inkey`.
+Runs CORSIKA for the decay products of events in `frames`. Stores `config` in
+the existing C frame under `prefix`, then operates on all Q frames that contain
+`inkey`.
 """
 function corsika_run(
     frames::Vector{Frame},
+    config::Dict,
     base_outdir;
+    prefix::String="corsika",
     inkey::String="proposal_decay_products",
     parallelize=false,
     store_paths=true
@@ -500,7 +490,9 @@ function corsika_run(
     _ensure_earth_loaded!(frames)
     cframe = _find_frame(frames, 'C')
     gframe = _find_frame(frames, 'G')
-    cfg = cframe["corsika"]
+
+    cframe[prefix] = config
+    cfg = config
 
     topography      = gframe["topography"]
     detector_region = gframe["detector_region"]
@@ -515,6 +507,7 @@ function corsika_run(
     else
         @warn "Deciding seed via RNG and adding to configuration"
         cfg["pinecone"] = rand(UInt32)
+        cframe[prefix] = cfg
         Random.seed!(cfg["pinecone"])
     end
 

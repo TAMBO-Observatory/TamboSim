@@ -99,7 +99,7 @@ function run_coverage_extras_tests()
         p = Particle(TauMinus, 1e5u"GeV", c1, dir_up)
         show(io, MIME"text/plain"(), p)
         s = String(take!(io))
-        @test occursin("type:", s)
+        @test occursin("pdg:", s)
         @test occursin("status:", s)
 
         # WeightParameters single-line and multi-line

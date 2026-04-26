@@ -48,6 +48,16 @@ function run_frame_tests()
         test_stream_filters_on_plain_vector()
         test_stream_filters_empty()
     end
+
+    @testset "Hierarchy Validation" begin
+        test_hierarchy_validation_simple_valid_cases()
+        test_hierarchy_validation_well_formed_multi_subtree()
+        test_hierarchy_validation_unknown_stream()
+        test_hierarchy_validation_parent_key_mismatch()
+        test_hierarchy_validation_parent_rank()
+        test_hierarchy_validation_parent_not_in_container()
+        test_hierarchy_validation_parent_appears_later()
+    end
 end
 
 function _make_q_frame(data=Dict{String,Any}())
@@ -423,5 +433,88 @@ function test_stream_filters_empty()
         @test isempty(q_frames(tf))
         @test isempty(r_frames(tf))
         @test isempty(frames_of_stream(tf, 'X'))  # arbitrary unknown letter
+    end
+end
+
+function test_hierarchy_validation_simple_valid_cases()
+    @testset "Empty / single-frame containers are valid" begin
+        @test is_valid_hierarchy(TamboFrames())
+        @test isempty(hierarchy_violations(TamboFrames()))
+
+        @test is_valid_hierarchy(TamboFrames([Frame('G')]))
+
+        # Defined on AbstractVector{Frame} — works on plain Vector too.
+        @test is_valid_hierarchy(Frame[Frame('G')])
+    end
+end
+
+function test_hierarchy_validation_well_formed_multi_subtree()
+    @testset "Well-formed multi-subtree (ensemble) is valid" begin
+        g1 = Frame('G')
+        c1 = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g1))
+        q1 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g1, 'C' => c1))
+        g2 = Frame('G')
+        c2 = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g2))
+        q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g2, 'C' => c2))
+        tf = TamboFrames([g1, c1, q1, g2, c2, q2])
+
+        @test isempty(hierarchy_violations(tf))
+        @test is_valid_hierarchy(tf)
+    end
+end
+
+function test_hierarchy_validation_unknown_stream()
+    @testset ":unknown_stream" begin
+        tf = TamboFrames([Frame('X')])
+        vs = hierarchy_violations(tf)
+        @test length(vs) == 1
+        @test vs[1].kind == :unknown_stream
+        @test vs[1].idx == 1
+        @test !is_valid_hierarchy(tf)
+    end
+end
+
+function test_hierarchy_validation_parent_key_mismatch()
+    @testset ":parent_key_mismatch" begin
+        c = Frame('C')
+        # 'G' key with a C-stream value (paired with proper 'C' so Q invariant passes).
+        q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => c, 'C' => c))
+        tf = TamboFrames([c, q])
+        vs = hierarchy_violations(tf)
+        @test any(v -> v.kind == :parent_key_mismatch, vs)
+    end
+end
+
+function test_hierarchy_validation_parent_rank()
+    @testset ":parent_rank" begin
+        c = Frame('C')
+        q1 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('C' => c))
+        # q2 has q1 (a Q frame) as a 'Q' parent — equal rank.
+        q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('C' => c, 'Q' => q1))
+        tf = TamboFrames([c, q1, q2])
+        vs = hierarchy_violations(tf)
+        @test any(v -> v.kind == :parent_rank, vs)
+    end
+end
+
+function test_hierarchy_validation_parent_not_in_container()
+    @testset ":parent_not_in_container" begin
+        external_c = Frame('C')
+        q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('C' => external_c))
+        tf = TamboFrames([q])  # external_c not included
+        vs = hierarchy_violations(tf)
+        @test any(v -> v.kind == :parent_not_in_container, vs)
+    end
+end
+
+function test_hierarchy_validation_parent_appears_later()
+    @testset ":parent_appears_later" begin
+        g = Frame('G')
+        c = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g))
+        q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g, 'C' => c))
+        # Wrong order: child first, parents after.
+        tf = TamboFrames([q, c, g])
+        vs = hierarchy_violations(tf)
+        @test any(v -> v.kind == :parent_appears_later, vs)
     end
 end

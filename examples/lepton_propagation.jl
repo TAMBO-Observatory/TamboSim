@@ -15,10 +15,14 @@ function parse_commandline()
             help = "Path to configuration TOML file (for proposal settings)"
             arg_type = String
             default = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
+        "--geometry", "-g"
+            help = "Path to geometry JLD2 file (provides G frame)"
+            arg_type = String
+            default = "$(tambo_path)/resources/geometry/colca_valley_3000.jld2"
         "--infile", "-i"
             help = "Input JLD2 file with injected frames"
             arg_type = String
-            default = "$(tambo_path)/examples/output/injected_events.jld2"
+            default = "$(tambo_path)/examples/output/simulation_injection.jld2"
         "--outfile", "-o"
             help = "Output JLD2 file path"
             arg_type = String
@@ -37,6 +41,7 @@ end
 
 args = parse_commandline()
 
+geometry_file  = args["geometry"]
 infile         = args["infile"]
 outfile        = args["outfile"]
 cut_inmountain = args["cut-inmountain"]
@@ -53,7 +58,7 @@ if !isnothing(args["seed"])
     proposal_config["pinecone"] = args["seed"]
 end
 
-frames = load_frames(infile)
+frames = load_frames([geometry_file, infile])
 proposal_propagation!(frames, proposal_config)
 
 @show count(f -> f.stream == 'Q', frames)

@@ -58,6 +58,14 @@ function run_frame_tests()
         test_hierarchy_validation_parent_not_in_container()
         test_hierarchy_validation_parent_appears_later()
     end
+
+    @testset "deleteat! with remove_children" begin
+        test_deleteat_default_unchanged()
+        test_deleteat_remove_children_cascades()
+        test_deleteat_remove_children_preserves_siblings()
+        test_deleteat_remove_children_no_descendants()
+        test_deleteat_remove_children_multiple_indices()
+    end
 end
 
 function _make_q_frame(data=Dict{String,Any}())
@@ -516,5 +524,69 @@ function test_hierarchy_validation_parent_appears_later()
         tf = TamboFrames([q, c, g])
         vs = hierarchy_violations(tf)
         @test any(v -> v.kind == :parent_appears_later, vs)
+    end
+end
+
+function _make_two_subtree_ensemble()
+    g1 = Frame('G')
+    c1 = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g1))
+    q1a = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g1, 'C' => c1))
+    q1b = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g1, 'C' => c1))
+    g2 = Frame('G')
+    c2 = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g2))
+    q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g2, 'C' => c2))
+    (g1=g1, c1=c1, q1a=q1a, q1b=q1b, g2=g2, c2=c2, q2=q2)
+end
+
+function test_deleteat_default_unchanged()
+    @testset "default behavior unchanged" begin
+        e = _make_two_subtree_ensemble()
+        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b, e.g2, e.c2, e.q2])
+        deleteat!(tf, 3)  # remove q1a only
+        @test length(tf) == 6
+        @test tf[3] === e.q1b
+    end
+end
+
+function test_deleteat_remove_children_cascades()
+    @testset "cascade through full hierarchy" begin
+        e = _make_two_subtree_ensemble()
+        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b])
+        deleteat!(tf, 1; remove_children=true)
+        @test isempty(tf)
+    end
+end
+
+function test_deleteat_remove_children_preserves_siblings()
+    @testset "siblings of target subtree remain" begin
+        e = _make_two_subtree_ensemble()
+        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b, e.g2, e.c2, e.q2])
+        deleteat!(tf, 1; remove_children=true)  # nuke first subtree
+        @test length(tf) == 3
+        @test tf[1] === e.g2
+        @test tf[2] === e.c2
+        @test tf[3] === e.q2
+    end
+end
+
+function test_deleteat_remove_children_no_descendants()
+    @testset "no descendants → just removes target" begin
+        e = _make_two_subtree_ensemble()
+        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b])
+        deleteat!(tf, 3; remove_children=true)  # remove q1a (a leaf)
+        @test length(tf) == 3
+        @test e.q1a ∉ tf
+        @test e.q1b ∈ tf  # sibling Q frame untouched
+    end
+end
+
+function test_deleteat_remove_children_multiple_indices()
+    @testset "multiple indices, including downstream targets" begin
+        e = _make_two_subtree_ensemble()
+        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b, e.g2, e.c2, e.q2])
+        # Remove c1 and g2: c1 takes its Q's with it; g2 takes c2 and q2.
+        deleteat!(tf, [2, 5]; remove_children=true)
+        @test length(tf) == 1
+        @test tf[1] === e.g1
     end
 end

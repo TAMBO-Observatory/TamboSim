@@ -37,7 +37,77 @@ Base.IndexStyle(::Type{TamboFrames}) = IndexLinear()
 # Mutation
 Base.push!(tf::TamboFrames, f::Frame) = (push!(tf.frames, f); tf)
 Base.append!(tf::TamboFrames, fs) = (append!(tf.frames, fs); tf)
-Base.deleteat!(tf::TamboFrames, inds) = (deleteat!(tf.frames, inds); tf)
+"""
+    _descendants_closure(frames, targets) -> IdDict{Frame, Nothing}
+
+Return the downward closure of `targets` under the parent-child relation: an
+identity-keyed set containing every target plus every frame in `frames` whose
+`parents` map (transitively) references any target.
+
+Internal helper. Currently used by `deleteat!` with `remove_children=true`.
+Can be promoted to public API if a second consumer appears.
+"""
+function _descendants_closure(frames::AbstractVector{Frame}, targets)
+    # Inverse parents map: frame → its children in the container.
+    children_of = IdDict{Frame, Vector{Frame}}()
+    for f in frames
+        for p in values(f.parents)
+            push!(get!(children_of, p, Frame[]), f)
+        end
+    end
+
+    # BFS from targets, including the targets themselves.
+    closure = IdDict{Frame, Nothing}()
+    queue = Frame[]
+    for t in targets
+        if !haskey(closure, t)
+            closure[t] = nothing
+            push!(queue, t)
+        end
+    end
+    while !isempty(queue)
+        f = popfirst!(queue)
+        for child in get(children_of, f, Frame[])
+            if !haskey(closure, child)
+                closure[child] = nothing
+                push!(queue, child)
+            end
+        end
+    end
+    closure
+end
+
+"""
+    deleteat!(tf::TamboFrames, inds; remove_children=false)
+
+Delete frames at the given indices. If `remove_children=true`, also remove all
+frames whose `parents` map (transitively) references any deleted frame —
+useful for cleanly excising a whole subtree from an ensemble.
+"""
+function Base.deleteat!(tf::TamboFrames, inds; remove_children::Bool=false)
+    if !remove_children
+        deleteat!(tf.frames, inds)
+        return tf
+    end
+
+    initial_indices = if inds isa Integer
+        Int[inds]
+    elseif inds isa AbstractVector{Bool}
+        findall(inds)
+    else
+        collect(Int, inds)
+    end
+
+    targets = (tf.frames[i] for i in initial_indices)
+    to_remove = _descendants_closure(tf.frames, targets)
+
+    indices_to_remove = Int[]
+    for (i, f) in enumerate(tf.frames)
+        haskey(to_remove, f) && push!(indices_to_remove, i)
+    end
+    deleteat!(tf.frames, indices_to_remove)
+    return tf
+end
 Base.empty!(tf::TamboFrames) = (empty!(tf.frames); tf)
 Base.vcat(a::TamboFrames, b::TamboFrames) = TamboFrames(vcat(a.frames, b.frames))
 Base.copy(tf::TamboFrames) = TamboFrames(copy(tf.frames))

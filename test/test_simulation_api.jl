@@ -128,7 +128,7 @@ function test_proposal_config_stored()
     proposal_config = Dict{String,Any}(
         "pinecone"        => 7,
         "ecut"            => -1,
-        "vcut"            => 0.5,
+        "vcut"            => 0.05,
         "do_interpolate"  => true,
         "do_continuous"   => true,
         "tablespath"      => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
@@ -138,7 +138,7 @@ function test_proposal_config_stored()
 
     cframe = get_frame(frames, 'C')
     @test haskey(cframe.data, "proposal")
-    @test cframe.data["proposal"]["vcut"] == 0.5
+    @test cframe.data["proposal"]["vcut"] == 0.05
 end
 
 function test_proposal_output_keys()
@@ -152,7 +152,7 @@ function test_proposal_output_keys()
     proposal_config = Dict{String,Any}(
         "pinecone"        => 7,
         "ecut"            => -1,
-        "vcut"            => 0.5,
+        "vcut"            => 0.05,
         "do_interpolate"  => true,
         "do_continuous"   => true,
         "tablespath"      => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),

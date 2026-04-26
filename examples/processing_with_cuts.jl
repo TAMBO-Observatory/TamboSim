@@ -39,8 +39,8 @@ println("Frames → $injection_outfile")
 # =============================================================================
 println("\n=== Stage 2: Lepton Propagation ===")
 
-# Reload from the injection file to demonstrate the multi-file workflow
-frames = load_frames(injection_outfile)
+# Reload geometry + injection file to reconstruct the full frame vector
+frames = load_frames([geometry_file, injection_outfile])
 
 proposal_propagation!(frames, config["proposal"])
 

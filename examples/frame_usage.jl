@@ -95,12 +95,11 @@ println("Combined load: $(count(f -> f.stream == 'Q', frames_combined)) Q frames
 # =============================================================================
 # 5. Earth access
 # =============================================================================
-# The geometry JLD2 is produced once by create_geometry.jl and is
-# self-contained — bvh, topography, and coordinate system are stored
-# directly. load_frames reconstructs the G frame without needing any
-# original HDF5 or PLY files.
+# G frames are not saved by default (save_frames writes C+Q only). To access
+# geometry, load the geometry JLD2 directly. The G frame is self-contained —
+# bvh, topography, and coordinate system are all stored inside it.
 
-gframe2 = get_frame(frames2, 'G')
+gframe2 = get_frame(load_frames(geometry_file), 'G')
 bvh = gframe2["bvh"]
 println("\nBVH type:          ", typeof(bvh))
 println("Triangles in BVH:  ", length(bvh.triangles))

@@ -42,6 +42,12 @@ function run_frame_tests()
         test_tambo_frames_vcat_copy()
         test_tambo_frames_abstractvector_drop_in()
     end
+
+    @testset "Stream Filters" begin
+        test_stream_filters()
+        test_stream_filters_on_plain_vector()
+        test_stream_filters_empty()
+    end
 end
 
 function _make_q_frame(data=Dict{String,Any}())
@@ -362,5 +368,60 @@ function test_tambo_frames_abstractvector_drop_in()
         # Can be passed to a function typed as AbstractVector{Frame}
         f_count(v::AbstractVector{Frame}) = length(v)
         @test f_count(tf) == 3
+    end
+end
+
+function _make_mixed_stream_frames()
+    g = Frame('G')
+    c = Frame('C')
+    d = Frame('D')
+    m = Frame('M')
+    q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('C' => c))
+    r = Frame('R')
+    (g=g, c=c, d=d, m=m, q=q, r=r)
+end
+
+function test_stream_filters()
+    @testset "frames_of_stream and short aliases" begin
+        fs = _make_mixed_stream_frames()
+        tf = TamboFrames([fs.g, fs.c, fs.d, fs.m, fs.q, fs.r])
+
+        @test frames_of_stream(tf, 'G') == [fs.g]
+        @test frames_of_stream(tf, 'C') == [fs.c]
+        @test frames_of_stream(tf, 'D') == [fs.d]
+        @test frames_of_stream(tf, 'M') == [fs.m]
+        @test frames_of_stream(tf, 'Q') == [fs.q]
+        @test frames_of_stream(tf, 'R') == [fs.r]
+
+        @test g_frames(tf) == [fs.g]
+        @test c_frames(tf) == [fs.c]
+        @test d_frames(tf) == [fs.d]
+        @test m_frames(tf) == [fs.m]
+        @test q_frames(tf) == [fs.q]
+        @test r_frames(tf) == [fs.r]
+    end
+end
+
+function test_stream_filters_on_plain_vector()
+    @testset "Filters work on plain Vector{Frame}" begin
+        fs = _make_mixed_stream_frames()
+        v = Frame[fs.g, fs.c, fs.q]
+
+        # Defined on AbstractVector{Frame} — should work without wrapping.
+        @test g_frames(v) == [fs.g]
+        @test q_frames(v) == [fs.q]
+        @test frames_of_stream(v, 'C') == [fs.c]
+    end
+end
+
+function test_stream_filters_empty()
+    @testset "Empty results when no matching frames" begin
+        tf = TamboFrames([Frame('G'), Frame('G')])
+        @test isempty(c_frames(tf))
+        @test isempty(d_frames(tf))
+        @test isempty(m_frames(tf))
+        @test isempty(q_frames(tf))
+        @test isempty(r_frames(tf))
+        @test isempty(frames_of_stream(tf, 'X'))  # arbitrary unknown letter
     end
 end

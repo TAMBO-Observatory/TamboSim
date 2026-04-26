@@ -33,6 +33,15 @@ function run_frame_tests()
     @testset "Multi-geometry reconstruction" begin
         test_multi_geometry_parent_reset()
     end
+
+    @testset "TamboFrames Wrapper" begin
+        test_tambo_frames_construction()
+        test_tambo_frames_indexing()
+        test_tambo_frames_iteration()
+        test_tambo_frames_mutation()
+        test_tambo_frames_vcat_copy()
+        test_tambo_frames_abstractvector_drop_in()
+    end
 end
 
 function _make_q_frame(data=Dict{String,Any}())
@@ -218,4 +227,140 @@ function test_multi_geometry_parent_reset()
     # run2 Q frames should have geo2 and run2's M — not geo1 or run1's M
     @test run2_qs[1].gframe["site"] == "geo2"
     @test run2_qs[1].mframe["run"] == "run2"
+end
+
+function test_tambo_frames_construction()
+    @testset "Construction" begin
+        # Empty
+        tf = TamboFrames()
+        @test length(tf) == 0
+        @test isempty(tf)
+        @test tf isa AbstractVector{Frame}
+
+        # From Vector
+        f1 = Frame('G')
+        f2 = Frame('G')
+        tf = TamboFrames([f1, f2])
+        @test length(tf) == 2
+        @test tf[1] === f1
+        @test tf[2] === f2
+
+        # Vararg
+        tf = TamboFrames(f1, f2)
+        @test length(tf) == 2
+        @test tf[1] === f1
+    end
+end
+
+function test_tambo_frames_indexing()
+    @testset "Indexing" begin
+        f1 = Frame('G')
+        f2 = Frame('G')
+        f3 = Frame('G')
+        tf = TamboFrames([f1, f2, f3])
+
+        @test tf[1] === f1
+        @test tf[end] === f3
+        @test tf[1:2] == [f1, f2]
+        @test firstindex(tf) == 1
+        @test lastindex(tf) == 3
+
+        # setindex!
+        f_new = Frame('G')
+        tf[2] = f_new
+        @test tf[2] === f_new
+
+        # IndexStyle
+        @test IndexStyle(typeof(tf)) == IndexLinear()
+    end
+end
+
+function test_tambo_frames_iteration()
+    @testset "Iteration" begin
+        f1 = Frame('G')
+        f2 = Frame('G')
+        f3 = Frame('G')
+        tf = TamboFrames([f1, f2, f3])
+
+        collected = [f for f in tf]
+        @test collected == [f1, f2, f3]
+
+        @test eltype(tf) == Frame
+        @test eltype(typeof(tf)) == Frame
+        @test size(tf) == (3,)
+    end
+end
+
+function test_tambo_frames_mutation()
+    @testset "Mutation" begin
+        tf = TamboFrames()
+        f1 = Frame('G')
+        f2 = Frame('G')
+        f3 = Frame('G')
+
+        # push! returns the container (chainable)
+        ret = push!(tf, f1)
+        @test ret === tf
+        @test length(tf) == 1
+        @test tf[1] === f1
+
+        # append!
+        append!(tf, [f2, f3])
+        @test length(tf) == 3
+
+        # deleteat!
+        deleteat!(tf, 2)
+        @test length(tf) == 2
+        @test tf[1] === f1
+        @test tf[2] === f3
+
+        # empty!
+        empty!(tf)
+        @test length(tf) == 0
+        @test isempty(tf)
+    end
+end
+
+function test_tambo_frames_vcat_copy()
+    @testset "vcat and copy" begin
+        f1 = Frame('G')
+        f2 = Frame('G')
+        f3 = Frame('G')
+
+        tf1 = TamboFrames([f1, f2])
+        tf2 = TamboFrames([f3])
+
+        # vcat preserves TamboFrames type
+        combined = vcat(tf1, tf2)
+        @test combined isa TamboFrames
+        @test length(combined) == 3
+        @test combined[1] === f1
+        @test combined[3] === f3
+
+        # copy preserves type and is independent
+        c = copy(tf1)
+        @test c isa TamboFrames
+        @test length(c) == 2
+        push!(c, f3)
+        @test length(c) == 3
+        @test length(tf1) == 2  # original unchanged
+    end
+end
+
+function test_tambo_frames_abstractvector_drop_in()
+    @testset "AbstractVector drop-in" begin
+        # Functions written against AbstractVector{Frame} should accept TamboFrames.
+        f1 = Frame('G')
+        f2 = Frame('G')
+        f3 = Frame('G')
+        tf = TamboFrames([f1, f2, f3])
+
+        # filter, map, length, etc. all derive from AbstractArray
+        gframes = filter(f -> f.stream == 'G', tf)
+        @test length(gframes) == 3
+
+        # Can be passed to a function typed as AbstractVector{Frame}
+        f_count(v::AbstractVector{Frame}) = length(v)
+        @test f_count(tf) == 3
+    end
 end

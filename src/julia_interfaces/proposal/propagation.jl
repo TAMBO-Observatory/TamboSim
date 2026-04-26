@@ -137,7 +137,7 @@ end
 
 """
     proposal_propagation!(
-        frames::Vector{Frame},
+        frames::TamboFrames,
         config::Dict;
         prefix::String="proposal",
         inkey::String="injection_final_state"
@@ -148,7 +148,7 @@ in the existing C frame under `prefix`, then operates on all Q frames in
 `frames` that contain `inkey`.
 """
 function proposal_propagation!(
-    frames::Vector{Frame},
+    frames::TamboFrames,
     config::Dict;
     prefix::String="proposal",
     inkey::String="injection_final_state"

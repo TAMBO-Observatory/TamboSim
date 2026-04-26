@@ -113,7 +113,7 @@ end
 
 """
     corsika_run(
-        frames::Vector{Frame},
+        frames::TamboFrames,
         config::Dict,
         base_outdir;
         prefix::String="corsika",
@@ -127,7 +127,7 @@ the existing C frame under `prefix`, then operates on all Q frames that contain
 `inkey`.
 """
 function corsika_run(
-    frames::Vector{Frame},
+    frames::TamboFrames,
     config::Dict,
     base_outdir;
     prefix::String="corsika",

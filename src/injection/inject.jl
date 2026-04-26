@@ -537,7 +537,7 @@ function inject_proton_event(
     return initial_proton, final_proton, visible_areas, passes_through_rock
 end
 
-function _setup_injection(frames::Vector{Frame}, config::Dict, prefix::String, fname::String)
+function _setup_injection(frames::TamboFrames, config::Dict, prefix::String, fname::String)
     haskey(config, "nevent") || error("$fname config must contain \"nevent\"")
     _ensure_earth_loaded!(frames)
     gframe = _get_last_frame(frames, 'G')
@@ -563,7 +563,7 @@ function _setup_injection(frames::Vector{Frame}, config::Dict, prefix::String, f
 end
 
 """
-    inject!(frames::Vector{Frame}, config::Dict; prefix::String="injection")
+    inject!(frames::TamboFrames, config::Dict; prefix::String="injection")
 
 Injects neutrino events into the simulation. Creates a C frame from `config`,
 appends it and `config["nevent"]` Q frames to `frames`, then populates each Q
@@ -572,7 +572,7 @@ frame with injection states. `config` must contain `"nevent"`.
 The config is stored in the C frame under `prefix` for provenance.
 """
 function inject!(
-    frames::Vector{Frame},
+    frames::TamboFrames,
     config::Dict;
     prefix::String="injection"
 )
@@ -626,7 +626,7 @@ function inject!(
 end
 
 """
-    inject_protons!(frames::Vector{Frame}, config::Dict; prefix::String="injection")
+    inject_protons!(frames::TamboFrames, config::Dict; prefix::String="injection")
 
 Injects downgoing cosmic ray protons. Creates a C frame from `config`, appends
 it and `config["nevent"]` Q frames to `frames`, then runs proton injection.
@@ -635,7 +635,7 @@ it and `config["nevent"]` Q frames to `frames`, then runs proton injection.
 The config is stored in the C frame under `prefix` for provenance.
 """
 function inject_protons!(
-    frames::Vector{Frame},
+    frames::TamboFrames,
     config::Dict;
     prefix::String="injection"
 )

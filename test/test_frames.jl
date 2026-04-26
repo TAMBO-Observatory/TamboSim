@@ -66,6 +66,12 @@ function run_frame_tests()
         test_deleteat_remove_children_no_descendants()
         test_deleteat_remove_children_multiple_indices()
     end
+
+    @testset "I/O wrapping" begin
+        test_save_load_returns_tambo_frames()
+        test_save_load_roundtrip_with_tambo_frames()
+        test_save_frames_accepts_tambo_frames()
+    end
 end
 
 function _make_q_frame(data=Dict{String,Any}())
@@ -588,5 +594,59 @@ function test_deleteat_remove_children_multiple_indices()
         deleteat!(tf, [2, 5]; remove_children=true)
         @test length(tf) == 1
         @test tf[1] === e.g1
+    end
+end
+
+function _make_small_save_load_frames()
+    g = Frame('G', Dict{String,Any}("site" => "demo"))
+    c = Frame('C', Dict{String,Any}("run" => 7), Dict{Char,Frame}('G' => g))
+    q_parents = Dict{Char,Frame}('G' => g, 'C' => c)
+    q1 = Frame('Q', Dict{String,Any}("event_id" => 1), q_parents)
+    q2 = Frame('Q', Dict{String,Any}("event_id" => 2), q_parents)
+    Frame[g, c, q1, q2]
+end
+
+function test_save_load_returns_tambo_frames()
+    @testset "load_frames returns a TamboFrames" begin
+        path = tempname() * ".jld2"
+        save_frames(path, _make_small_save_load_frames(), streams=('G','C','Q'))
+        loaded = load_frames(path)
+        rm(path)
+
+        @test loaded isa TamboFrames
+        @test loaded isa AbstractVector{Frame}
+    end
+end
+
+function test_save_load_roundtrip_with_tambo_frames()
+    @testset "round-trip via TamboFrames preserves structure" begin
+        original = TamboFrames(_make_small_save_load_frames())
+        path = tempname() * ".jld2"
+        save_frames(path, original, streams=('G','C','Q'))
+        loaded = load_frames(path)
+        rm(path)
+
+        # Counts per stream preserved.
+        @test length(g_frames(loaded)) == length(g_frames(original))
+        @test length(c_frames(loaded)) == length(c_frames(original))
+        @test length(q_frames(loaded)) == length(q_frames(original))
+
+        # Q-frame data preserved (and parent inheritance still works after reload).
+        loaded_q1 = first(q_frames(loaded))
+        @test loaded_q1["event_id"] == 1
+        @test loaded_q1["run"] == 7      # inherited from C parent
+        @test loaded_q1["site"] == "demo" # inherited from G parent
+    end
+end
+
+function test_save_frames_accepts_tambo_frames()
+    @testset "save_frames accepts TamboFrames directly" begin
+        tf = TamboFrames(_make_small_save_load_frames())
+        path = tempname() * ".jld2"
+        save_frames(path, tf, streams=('G','C','Q'))   # no manual unwrap
+        @test isfile(path)
+        loaded = load_frames(path)
+        rm(path)
+        @test length(loaded) == length(tf)
     end
 end

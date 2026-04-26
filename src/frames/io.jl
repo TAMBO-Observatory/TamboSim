@@ -1,15 +1,16 @@
 """
-    save_frames(path::String, frames::Vector{Frame}; streams=('M', 'Q'))
+    save_frames(path::String, frames::AbstractVector{Frame}; streams=('M', 'Q'))
 
 Writes frames whose stream type is in `streams` to a JLD2 file. Defaults to
 M and Q frames so that simulation meta/config rides along with the event frames.
+Accepts either a `Vector{Frame}` or a `TamboFrames`.
 
 Parent references are not stored; they are reconstructed from stream order on
 load. G frames are written as-is, including earth geometry keys, so a saved G
 frame is fully self-contained and does not require the original h5 file on
 reload. To save a standalone geometry file, use `streams=('G',)`.
 """
-function save_frames(path::String, frames::Vector{Frame}; streams::Tuple{Vararg{Char}}=('M', 'Q'))
+function save_frames(path::String, frames::AbstractVector{Frame}; streams::Tuple{Vararg{Char}}=('M', 'Q'))
     to_save = filter(f -> f.stream in streams, frames)
     jldopen(path, "w") do file
         file["nframes"] = length(to_save)
@@ -26,7 +27,7 @@ function _reconstruct_frames(raw::Vector{Tuple{Char,Dict{String,Any}}})
     for (stream, data) in raw
         # A new frame invalidates all lower-hierarchy context: e.g. a new G
         # frame means any cached C or Q frames belong to the previous run.
-        found = false
+        found = fal
         for s in STREAM_HIERARCHY
             found && delete!(parent_cache, s)
             s == stream && (found = true)
@@ -47,13 +48,13 @@ function _reconstruct_frames(raw::Vector{Tuple{Char,Dict{String,Any}}})
 end
 
 """
-    load_frames(paths::Vector{String}) -> Vector{Frame}
+    load_frames(paths::Vector{String}) -> TamboFrames
 
 Loads frames from one or more JLD2 files and concatenates them into a single
-vector. Parent references are reconstructed from stream order, with the parent
-cache (G/C frames) carrying over across file boundaries.
+`TamboFrames`. Parent references are reconstructed from stream order, with
+the parent cache (G/C frames) carrying over across file boundaries.
 
-    load_frames(path::String) -> Vector{Frame}
+    load_frames(path::String) -> TamboFrames
 
 Loads frames from a single JLD2 file.
 """
@@ -69,7 +70,7 @@ function load_frames(paths::Vector{String})
             end
         end
     end
-    return _reconstruct_frames(raw)
+    return TamboFrames(_reconstruct_frames(raw))
 end
 
 load_frames(path::String) = load_frames([path])

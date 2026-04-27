@@ -46,7 +46,7 @@ function run_frame_tests()
 
     @testset "Stream Filters" begin
         test_stream_filters()
-        test_stream_filters_on_plain_vector()
+        test_frames_of_stream_on_plain_vector()
         test_stream_filters_empty()
     end
 
@@ -434,7 +434,7 @@ function _make_mixed_stream_frames()
 end
 
 function test_stream_filters()
-    @testset "frames_of_stream and short aliases" begin
+    @testset "frames_of_stream and stream-property accessors" begin
         fs = _make_mixed_stream_frames()
         tf = TamboFrames([fs.g, fs.c, fs.d, fs.m, fs.q, fs.p])
 
@@ -445,35 +445,38 @@ function test_stream_filters()
         @test frames_of_stream(tf, 'Q') == [fs.q]
         @test frames_of_stream(tf, 'P') == [fs.p]
 
-        @test g_frames(tf) == [fs.g]
-        @test c_frames(tf) == [fs.c]
-        @test d_frames(tf) == [fs.d]
-        @test m_frames(tf) == [fs.m]
-        @test q_frames(tf) == [fs.q]
-        @test p_frames(tf) == [fs.p]
+        @test tf.g_frames == [fs.g]
+        @test tf.c_frames == [fs.c]
+        @test tf.d_frames == [fs.d]
+        @test tf.m_frames == [fs.m]
+        @test tf.q_frames == [fs.q]
+        @test tf.p_frames == [fs.p]
+
+        # Property names are discoverable for tab-completion.
+        @test :q_frames in propertynames(tf)
+        @test :frames in propertynames(tf)
     end
 end
 
-function test_stream_filters_on_plain_vector()
-    @testset "Filters work on plain Vector{Frame}" begin
+function test_frames_of_stream_on_plain_vector()
+    @testset "frames_of_stream works on plain Vector{Frame}" begin
         fs = _make_mixed_stream_frames()
         v = Frame[fs.g, fs.c, fs.q]
 
-        # Defined on AbstractVector{Frame} — should work without wrapping.
-        @test g_frames(v) == [fs.g]
-        @test q_frames(v) == [fs.q]
+        @test frames_of_stream(v, 'G') == [fs.g]
         @test frames_of_stream(v, 'C') == [fs.c]
+        @test frames_of_stream(v, 'Q') == [fs.q]
     end
 end
 
 function test_stream_filters_empty()
     @testset "Empty results when no matching frames" begin
         tf = TamboFrames([Frame('G'), Frame('G')])
-        @test isempty(c_frames(tf))
-        @test isempty(d_frames(tf))
-        @test isempty(m_frames(tf))
-        @test isempty(q_frames(tf))
-        @test isempty(p_frames(tf))
+        @test isempty(tf.c_frames)
+        @test isempty(tf.d_frames)
+        @test isempty(tf.m_frames)
+        @test isempty(tf.q_frames)
+        @test isempty(tf.p_frames)
         @test isempty(frames_of_stream(tf, 'X'))  # arbitrary unknown letter
     end
 end
@@ -655,12 +658,12 @@ function test_save_load_roundtrip_with_tambo_frames()
         rm(path)
 
         # Counts per stream preserved.
-        @test length(g_frames(loaded)) == length(g_frames(original))
-        @test length(m_frames(loaded)) == length(m_frames(original))
-        @test length(q_frames(loaded)) == length(q_frames(original))
+        @test length(loaded.g_frames) == length(original.g_frames)
+        @test length(loaded.m_frames) == length(original.m_frames)
+        @test length(loaded.q_frames) == length(original.q_frames)
 
         # Q-frame data preserved (and parent inheritance still works after reload).
-        loaded_q1 = first(q_frames(loaded))
+        loaded_q1 = first(loaded.q_frames)
         @test loaded_q1["event_id"] == 1
         @test loaded_q1["run"] == 7      # inherited from M parent
         @test loaded_q1["site"] == "demo" # inherited from G parent

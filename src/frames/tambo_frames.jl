@@ -124,19 +124,33 @@ Return the subset of `frames` whose stream tag matches `stream`. Defined on
 frames_of_stream(frames::AbstractVector{Frame}, s::Char) =
     filter(f -> f.stream == s, frames)
 
-"""
-    g_frames(frames), c_frames(frames), d_frames(frames),
-    m_frames(frames), q_frames(frames), p_frames(frames)
+const _STREAM_PROPERTY = Dict(
+    :g_frames => 'G',
+    :c_frames => 'C',
+    :d_frames => 'D',
+    :m_frames => 'M',
+    :q_frames => 'Q',
+    :p_frames => 'P',
+)
 
-Short aliases for `frames_of_stream(frames, 'G')` etc., one per stream tag in
-the `G → C → D → M → Q → P` hierarchy. Return `Vector{Frame}`.
 """
-g_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'G')
-c_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'C')
-d_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'D')
-m_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'M')
-q_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'Q')
-p_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'P')
+    tf.g_frames, tf.c_frames, tf.d_frames, tf.m_frames, tf.q_frames, tf.p_frames
+
+Property accessors that return all frames of the given stream from `tf`. One
+per stream tag in the `G → C → D → M → Q → P` hierarchy.
+
+These mirror the singular `f.gframe` / `f.cframe` / etc. parent-property idiom
+on individual frames: dotted access, computed on each call. For a plain
+`Vector{Frame}` (or when the stream tag is dynamic) use `frames_of_stream`.
+"""
+function Base.getproperty(tf::TamboFrames, sym::Symbol)
+    stream = get(_STREAM_PROPERTY, sym, nothing)
+    stream === nothing && return getfield(tf, sym)
+    return frames_of_stream(getfield(tf, :frames), stream)
+end
+
+Base.propertynames(::TamboFrames, private::Bool=false) =
+    (:frames, keys(_STREAM_PROPERTY)...)
 
 # Validation ------------------------------------------------------------------
 

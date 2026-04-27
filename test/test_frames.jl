@@ -699,9 +699,7 @@ function test_show_simple_chain()
         tf = TamboFrames([g, m, q1, q2])
         @test _show_lines(tf) == [
             "TamboFrames (1 G, 1 M, 2 Q)",
-            "└─ G",
-            "   └─ M",
-            "      └─ Q × 2",
+            "└─ G → M → Q × 2",
         ]
     end
 end
@@ -712,12 +710,8 @@ function test_show_ensemble()
         tf = TamboFrames([e.g1, e.m1, e.q1a, e.q1b, e.g2, e.m2, e.q2])
         @test _show_lines(tf) == [
             "TamboFrames (2 G, 2 M, 3 Q)",
-            "├─ G",
-            "│  └─ M",
-            "│     └─ Q × 2",
-            "└─ G",
-            "   └─ M",
-            "      └─ Q",
+            "├─ G → M → Q × 2",
+            "└─ G → M → Q",
         ]
     end
 end
@@ -731,9 +725,7 @@ function test_show_collapses_q_runs()
         tf = TamboFrames([g, m, qs...])
         @test _show_lines(tf) == [
             "TamboFrames (1 G, 1 M, 50 Q)",
-            "└─ G",
-            "   └─ M",
-            "      └─ Q × 50",
+            "└─ G → M → Q × 50",
         ]
     end
 end

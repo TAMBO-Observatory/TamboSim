@@ -312,10 +312,39 @@ end
 
 function _render_subtree(io, frame, children_of, prefix, is_last)
     branch = is_last ? "└─ " : "├─ "
-    println(io, prefix, branch, frame.stream)
 
-    children = get(children_of, frame, Frame[])
-    isempty(children) && return
-    new_prefix = prefix * (is_last ? "   " : "│  ")
-    _render_children(io, children, children_of, new_prefix)
+    # Collapse runs of single-child frames into a horizontal `A → B → C` chain.
+    # Box-drawing resumes at the first branch point or terminal `× N` collapse.
+    chain_labels = String[string(frame.stream)]
+    cur = frame
+    branched_children = Frame[]
+    while true
+        children = get(children_of, cur, Frame[])
+        isempty(children) && break
+        runs = _stream_runs(children)
+        if length(runs) != 1
+            branched_children = children
+            break
+        end
+        (run_stream, run_group) = runs[1]
+        if run_stream in _COLLAPSE_STREAMS
+            label = length(run_group) == 1 ? "$run_stream" : "$run_stream × $(length(run_group))"
+            push!(chain_labels, label)
+            break
+        end
+        if length(run_group) != 1
+            branched_children = children
+            break
+        end
+        cur = run_group[1]
+        push!(chain_labels, string(cur.stream))
+    end
+
+    chain_text = join(chain_labels, " → ")
+    println(io, prefix, branch, chain_text)
+
+    isempty(branched_children) && return
+    chain_indent = length(chain_text) - length(chain_labels[end])
+    new_prefix = prefix * (is_last ? "   " : "│  ") * (" " ^ chain_indent)
+    _render_children(io, branched_children, children_of, new_prefix)
 end

@@ -126,17 +126,17 @@ frames_of_stream(frames::AbstractVector{Frame}, s::Char) =
 
 """
     g_frames(frames), c_frames(frames), d_frames(frames),
-    m_frames(frames), q_frames(frames), r_frames(frames)
+    m_frames(frames), q_frames(frames), p_frames(frames)
 
 Short aliases for `frames_of_stream(frames, 'G')` etc., one per stream tag in
-the `G → C → D → M → Q → R` hierarchy. Return `Vector{Frame}`.
+the `G → C → D → M → Q → P` hierarchy. Return `Vector{Frame}`.
 """
 g_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'G')
 c_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'C')
 d_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'D')
 m_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'M')
 q_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'Q')
-r_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'R')
+p_frames(frames::AbstractVector{Frame}) = frames_of_stream(frames, 'P')
 
 # Validation ------------------------------------------------------------------
 
@@ -214,7 +214,7 @@ is_valid_hierarchy(frames::AbstractVector{Frame}) = isempty(hierarchy_violations
 # Pretty-printing -------------------------------------------------------------
 
 const _CHILDREN_CAP = 3
-const _COLLAPSE_STREAMS = ('Q', 'R')
+const _COLLAPSE_STREAMS = ('Q', 'P')
 
 function Base.show(io::IO, ::MIME"text/plain", tf::TamboFrames)
     # Header: counts per stream in hierarchy order.

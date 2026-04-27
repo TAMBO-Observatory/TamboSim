@@ -408,29 +408,29 @@ function _make_mixed_stream_frames()
     c = Frame('C')
     d = Frame('D')
     m = Frame('M')
-    q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('C' => c))
-    r = Frame('R')
-    (g=g, c=c, d=d, m=m, q=q, r=r)
+    q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('M' => m))
+    p = Frame('P')
+    (g=g, c=c, d=d, m=m, q=q, p=p)
 end
 
 function test_stream_filters()
     @testset "frames_of_stream and short aliases" begin
         fs = _make_mixed_stream_frames()
-        tf = TamboFrames([fs.g, fs.c, fs.d, fs.m, fs.q, fs.r])
+        tf = TamboFrames([fs.g, fs.c, fs.d, fs.m, fs.q, fs.p])
 
         @test frames_of_stream(tf, 'G') == [fs.g]
         @test frames_of_stream(tf, 'C') == [fs.c]
         @test frames_of_stream(tf, 'D') == [fs.d]
         @test frames_of_stream(tf, 'M') == [fs.m]
         @test frames_of_stream(tf, 'Q') == [fs.q]
-        @test frames_of_stream(tf, 'R') == [fs.r]
+        @test frames_of_stream(tf, 'P') == [fs.p]
 
         @test g_frames(tf) == [fs.g]
         @test c_frames(tf) == [fs.c]
         @test d_frames(tf) == [fs.d]
         @test m_frames(tf) == [fs.m]
         @test q_frames(tf) == [fs.q]
-        @test r_frames(tf) == [fs.r]
+        @test p_frames(tf) == [fs.p]
     end
 end
 
@@ -453,7 +453,7 @@ function test_stream_filters_empty()
         @test isempty(d_frames(tf))
         @test isempty(m_frames(tf))
         @test isempty(q_frames(tf))
-        @test isempty(r_frames(tf))
+        @test isempty(p_frames(tf))
         @test isempty(frames_of_stream(tf, 'X'))  # arbitrary unknown letter
     end
 end
@@ -473,12 +473,12 @@ end
 function test_hierarchy_validation_well_formed_multi_subtree()
     @testset "Well-formed multi-subtree (ensemble) is valid" begin
         g1 = Frame('G')
-        c1 = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g1))
-        q1 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g1, 'C' => c1))
+        m1 = Frame('M', Dict{String,Any}(), Dict{Char,Frame}('G' => g1))
+        q1 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g1, 'M' => m1))
         g2 = Frame('G')
-        c2 = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g2))
-        q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g2, 'C' => c2))
-        tf = TamboFrames([g1, c1, q1, g2, c2, q2])
+        m2 = Frame('M', Dict{String,Any}(), Dict{Char,Frame}('G' => g2))
+        q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g2, 'M' => m2))
+        tf = TamboFrames([g1, m1, q1, g2, m2, q2])
 
         @test isempty(hierarchy_violations(tf))
         @test is_valid_hierarchy(tf)
@@ -498,10 +498,10 @@ end
 
 function test_hierarchy_validation_parent_key_mismatch()
     @testset ":parent_key_mismatch" begin
-        c = Frame('C')
-        # 'G' key with a C-stream value (paired with proper 'C' so Q invariant passes).
-        q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => c, 'C' => c))
-        tf = TamboFrames([c, q])
+        m = Frame('M')
+        # 'G' key with an M-stream value (paired with proper 'M' so Q invariant passes).
+        q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => m, 'M' => m))
+        tf = TamboFrames([m, q])
         vs = hierarchy_violations(tf)
         @test any(v -> v.kind == :parent_key_mismatch, vs)
     end
@@ -509,11 +509,11 @@ end
 
 function test_hierarchy_validation_parent_rank()
     @testset ":parent_rank" begin
-        c = Frame('C')
-        q1 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('C' => c))
+        m = Frame('M')
+        q1 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('M' => m))
         # q2 has q1 (a Q frame) as a 'Q' parent — equal rank.
-        q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('C' => c, 'Q' => q1))
-        tf = TamboFrames([c, q1, q2])
+        q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('M' => m, 'Q' => q1))
+        tf = TamboFrames([m, q1, q2])
         vs = hierarchy_violations(tf)
         @test any(v -> v.kind == :parent_rank, vs)
     end
@@ -521,9 +521,9 @@ end
 
 function test_hierarchy_validation_parent_not_in_container()
     @testset ":parent_not_in_container" begin
-        external_c = Frame('C')
-        q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('C' => external_c))
-        tf = TamboFrames([q])  # external_c not included
+        external_m = Frame('M')
+        q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('M' => external_m))
+        tf = TamboFrames([q])  # external_m not included
         vs = hierarchy_violations(tf)
         @test any(v -> v.kind == :parent_not_in_container, vs)
     end
@@ -532,10 +532,10 @@ end
 function test_hierarchy_validation_parent_appears_later()
     @testset ":parent_appears_later" begin
         g = Frame('G')
-        c = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g))
-        q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g, 'C' => c))
+        m = Frame('M', Dict{String,Any}(), Dict{Char,Frame}('G' => g))
+        q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g, 'M' => m))
         # Wrong order: child first, parents after.
-        tf = TamboFrames([q, c, g])
+        tf = TamboFrames([q, m, g])
         vs = hierarchy_violations(tf)
         @test any(v -> v.kind == :parent_appears_later, vs)
     end
@@ -543,19 +543,19 @@ end
 
 function _make_two_subtree_ensemble()
     g1 = Frame('G')
-    c1 = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g1))
-    q1a = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g1, 'C' => c1))
-    q1b = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g1, 'C' => c1))
+    m1 = Frame('M', Dict{String,Any}(), Dict{Char,Frame}('G' => g1))
+    q1a = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g1, 'M' => m1))
+    q1b = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g1, 'M' => m1))
     g2 = Frame('G')
-    c2 = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g2))
-    q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g2, 'C' => c2))
-    (g1=g1, c1=c1, q1a=q1a, q1b=q1b, g2=g2, c2=c2, q2=q2)
+    m2 = Frame('M', Dict{String,Any}(), Dict{Char,Frame}('G' => g2))
+    q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g2, 'M' => m2))
+    (g1=g1, m1=m1, q1a=q1a, q1b=q1b, g2=g2, m2=m2, q2=q2)
 end
 
 function test_deleteat_default_unchanged()
     @testset "default behavior unchanged" begin
         e = _make_two_subtree_ensemble()
-        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b, e.g2, e.c2, e.q2])
+        tf = TamboFrames([e.g1, e.m1, e.q1a, e.q1b, e.g2, e.m2, e.q2])
         deleteat!(tf, 3)  # remove q1a only
         @test length(tf) == 6
         @test tf[3] === e.q1b
@@ -565,7 +565,7 @@ end
 function test_deleteat_remove_children_cascades()
     @testset "cascade through full hierarchy" begin
         e = _make_two_subtree_ensemble()
-        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b])
+        tf = TamboFrames([e.g1, e.m1, e.q1a, e.q1b])
         deleteat!(tf, 1; remove_children=true)
         @test isempty(tf)
     end
@@ -574,11 +574,11 @@ end
 function test_deleteat_remove_children_preserves_siblings()
     @testset "siblings of target subtree remain" begin
         e = _make_two_subtree_ensemble()
-        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b, e.g2, e.c2, e.q2])
+        tf = TamboFrames([e.g1, e.m1, e.q1a, e.q1b, e.g2, e.m2, e.q2])
         deleteat!(tf, 1; remove_children=true)  # nuke first subtree
         @test length(tf) == 3
         @test tf[1] === e.g2
-        @test tf[2] === e.c2
+        @test tf[2] === e.m2
         @test tf[3] === e.q2
     end
 end
@@ -586,7 +586,7 @@ end
 function test_deleteat_remove_children_no_descendants()
     @testset "no descendants → just removes target" begin
         e = _make_two_subtree_ensemble()
-        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b])
+        tf = TamboFrames([e.g1, e.m1, e.q1a, e.q1b])
         deleteat!(tf, 3; remove_children=true)  # remove q1a (a leaf)
         @test length(tf) == 3
         @test e.q1a ∉ tf
@@ -597,7 +597,7 @@ end
 function test_deleteat_remove_children_multiple_indices()
     @testset "multiple indices, including downstream targets" begin
         e = _make_two_subtree_ensemble()
-        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b, e.g2, e.c2, e.q2])
+        tf = TamboFrames([e.g1, e.m1, e.q1a, e.q1b, e.g2, e.m2, e.q2])
         # Remove c1 and g2: c1 takes its Q's with it; g2 takes c2 and q2.
         deleteat!(tf, [2, 5]; remove_children=true)
         @test length(tf) == 1
@@ -607,17 +607,17 @@ end
 
 function _make_small_save_load_frames()
     g = Frame('G', Dict{String,Any}("site" => "demo"))
-    c = Frame('C', Dict{String,Any}("run" => 7), Dict{Char,Frame}('G' => g))
-    q_parents = Dict{Char,Frame}('G' => g, 'C' => c)
+    m = Frame('M', Dict{String,Any}("run" => 7), Dict{Char,Frame}('G' => g))
+    q_parents = Dict{Char,Frame}('G' => g, 'M' => m)
     q1 = Frame('Q', Dict{String,Any}("event_id" => 1), q_parents)
     q2 = Frame('Q', Dict{String,Any}("event_id" => 2), q_parents)
-    Frame[g, c, q1, q2]
+    Frame[g, m, q1, q2]
 end
 
 function test_save_load_returns_tambo_frames()
     @testset "load_frames returns a TamboFrames" begin
         path = tempname() * ".jld2"
-        save_frames(path, _make_small_save_load_frames(), streams=('G','C','Q'))
+        save_frames(path, _make_small_save_load_frames(), streams=('G','M','Q'))
         loaded = load_frames(path)
         rm(path)
 
@@ -630,19 +630,19 @@ function test_save_load_roundtrip_with_tambo_frames()
     @testset "round-trip via TamboFrames preserves structure" begin
         original = TamboFrames(_make_small_save_load_frames())
         path = tempname() * ".jld2"
-        save_frames(path, original, streams=('G','C','Q'))
+        save_frames(path, original, streams=('G','M','Q'))
         loaded = load_frames(path)
         rm(path)
 
         # Counts per stream preserved.
         @test length(g_frames(loaded)) == length(g_frames(original))
-        @test length(c_frames(loaded)) == length(c_frames(original))
+        @test length(m_frames(loaded)) == length(m_frames(original))
         @test length(q_frames(loaded)) == length(q_frames(original))
 
         # Q-frame data preserved (and parent inheritance still works after reload).
         loaded_q1 = first(q_frames(loaded))
         @test loaded_q1["event_id"] == 1
-        @test loaded_q1["run"] == 7      # inherited from C parent
+        @test loaded_q1["run"] == 7      # inherited from M parent
         @test loaded_q1["site"] == "demo" # inherited from G parent
     end
 end
@@ -651,7 +651,7 @@ function test_save_frames_accepts_tambo_frames()
     @testset "save_frames accepts TamboFrames directly" begin
         tf = TamboFrames(_make_small_save_load_frames())
         path = tempname() * ".jld2"
-        save_frames(path, tf, streams=('G','C','Q'))   # no manual unwrap
+        save_frames(path, tf, streams=('G','M','Q'))   # no manual unwrap
         @test isfile(path)
         loaded = load_frames(path)
         rm(path)
@@ -668,16 +668,16 @@ function test_show_empty()
 end
 
 function test_show_simple_chain()
-    @testset "G → C → Q chain" begin
+    @testset "G → M → Q chain" begin
         g = Frame('G')
-        c = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g))
-        q1 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g, 'C' => c))
-        q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g, 'C' => c))
-        tf = TamboFrames([g, c, q1, q2])
+        m = Frame('M', Dict{String,Any}(), Dict{Char,Frame}('G' => g))
+        q1 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g, 'M' => m))
+        q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g, 'M' => m))
+        tf = TamboFrames([g, m, q1, q2])
         @test _show_lines(tf) == [
-            "TamboFrames (1 G, 1 C, 2 Q)",
+            "TamboFrames (1 G, 1 M, 2 Q)",
             "└─ G",
-            "   └─ C",
+            "   └─ M",
             "      └─ Q × 2",
         ]
     end
@@ -686,14 +686,14 @@ end
 function test_show_ensemble()
     @testset "two-subtree ensemble" begin
         e = _make_two_subtree_ensemble()
-        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b, e.g2, e.c2, e.q2])
+        tf = TamboFrames([e.g1, e.m1, e.q1a, e.q1b, e.g2, e.m2, e.q2])
         @test _show_lines(tf) == [
-            "TamboFrames (2 G, 2 C, 3 Q)",
+            "TamboFrames (2 G, 2 M, 3 Q)",
             "├─ G",
-            "│  └─ C",
+            "│  └─ M",
             "│     └─ Q × 2",
             "└─ G",
-            "   └─ C",
+            "   └─ M",
             "      └─ Q",
         ]
     end
@@ -702,14 +702,14 @@ end
 function test_show_collapses_q_runs()
     @testset "long Q runs collapse to count" begin
         g = Frame('G')
-        c = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g))
-        q_parents = Dict{Char,Frame}('G' => g, 'C' => c)
+        m = Frame('M', Dict{String,Any}(), Dict{Char,Frame}('G' => g))
+        q_parents = Dict{Char,Frame}('G' => g, 'M' => m)
         qs = [Frame('Q', Dict{String,Any}(), q_parents) for _ in 1:50]
-        tf = TamboFrames([g, c, qs...])
+        tf = TamboFrames([g, m, qs...])
         @test _show_lines(tf) == [
-            "TamboFrames (1 G, 1 C, 50 Q)",
+            "TamboFrames (1 G, 1 M, 50 Q)",
             "└─ G",
-            "   └─ C",
+            "   └─ M",
             "      └─ Q × 50",
         ]
     end

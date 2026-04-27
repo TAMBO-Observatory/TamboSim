@@ -195,7 +195,7 @@ function _ensure_earth_loaded!(frames::TamboFrames)
 end
 
 """
-    build_gcd_bundle(earth_path, detector_key) -> Vector{Frame}
+    build_gcd_bundle(earth_path, detector_key) -> TamboFrames
 
 Builds a self-contained GCD bundle: one G frame (full terrain), one blank C
 frame (placeholder for future calibration data), and one D frame (detector
@@ -228,5 +228,5 @@ function build_gcd_bundle(earth_path::String, detector_key::String)
         "detector_bvh"    => detector_bvh,
     ), Dict{Char,Frame}('G' => gframe, 'C' => cframe))
 
-    return Frame[gframe, cframe, dframe]
+    return TamboFrames(Frame[gframe, cframe, dframe])
 end

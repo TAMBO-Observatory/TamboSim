@@ -72,6 +72,14 @@ function run_frame_tests()
         test_save_load_roundtrip_with_tambo_frames()
         test_save_frames_accepts_tambo_frames()
     end
+
+    @testset "Pretty-printing" begin
+        test_show_empty()
+        test_show_simple_chain()
+        test_show_ensemble()
+        test_show_collapses_q_runs()
+        test_show_truncates_many_roots()
+    end
 end
 
 function _make_q_frame(data=Dict{String,Any}())
@@ -648,5 +656,76 @@ function test_save_frames_accepts_tambo_frames()
         loaded = load_frames(path)
         rm(path)
         @test length(loaded) == length(tf)
+    end
+end
+
+_show_lines(tf) = split(rstrip(sprint(show, MIME("text/plain"), tf)), '\n')
+
+function test_show_empty()
+    @testset "empty TamboFrames" begin
+        @test sprint(show, MIME("text/plain"), TamboFrames()) == "TamboFrames ()\n"
+    end
+end
+
+function test_show_simple_chain()
+    @testset "G → C → Q chain" begin
+        g = Frame('G')
+        c = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g))
+        q1 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g, 'C' => c))
+        q2 = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g, 'C' => c))
+        tf = TamboFrames([g, c, q1, q2])
+        @test _show_lines(tf) == [
+            "TamboFrames (1 G, 1 C, 2 Q)",
+            "└─ G",
+            "   └─ C",
+            "      └─ Q × 2",
+        ]
+    end
+end
+
+function test_show_ensemble()
+    @testset "two-subtree ensemble" begin
+        e = _make_two_subtree_ensemble()
+        tf = TamboFrames([e.g1, e.c1, e.q1a, e.q1b, e.g2, e.c2, e.q2])
+        @test _show_lines(tf) == [
+            "TamboFrames (2 G, 2 C, 3 Q)",
+            "├─ G",
+            "│  └─ C",
+            "│     └─ Q × 2",
+            "└─ G",
+            "   └─ C",
+            "      └─ Q",
+        ]
+    end
+end
+
+function test_show_collapses_q_runs()
+    @testset "long Q runs collapse to count" begin
+        g = Frame('G')
+        c = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g))
+        q_parents = Dict{Char,Frame}('G' => g, 'C' => c)
+        qs = [Frame('Q', Dict{String,Any}(), q_parents) for _ in 1:50]
+        tf = TamboFrames([g, c, qs...])
+        @test _show_lines(tf) == [
+            "TamboFrames (1 G, 1 C, 50 Q)",
+            "└─ G",
+            "   └─ C",
+            "      └─ Q × 50",
+        ]
+    end
+end
+
+function test_show_truncates_many_roots()
+    @testset "more than _CHILDREN_CAP roots truncates" begin
+        # 5 standalone G frames at root level.
+        gs = [Frame('G') for _ in 1:5]
+        tf = TamboFrames(gs)
+        @test _show_lines(tf) == [
+            "TamboFrames (5 G)",
+            "├─ G",
+            "├─ G",
+            "├─ G",
+            "└─ … (2 more G)",
+        ]
     end
 end

@@ -210,3 +210,98 @@ end
 Return `true` iff `hierarchy_violations(frames)` is empty.
 """
 is_valid_hierarchy(frames::AbstractVector{Frame}) = isempty(hierarchy_violations(frames))
+
+# Pretty-printing -------------------------------------------------------------
+
+const _CHILDREN_CAP = 3
+const _COLLAPSE_STREAMS = ('Q', 'R')
+
+function Base.show(io::IO, ::MIME"text/plain", tf::TamboFrames)
+    # Header: counts per stream in hierarchy order.
+    counts = Dict{Char, Int}()
+    for f in tf
+        counts[f.stream] = get(counts, f.stream, 0) + 1
+    end
+    parts = String[]
+    for s in STREAM_HIERARCHY
+        haskey(counts, s) && push!(parts, "$(counts[s]) $s")
+    end
+    println(io, "TamboFrames (", join(parts, ", "), ")")
+    isempty(tf) && return
+
+    children_of = _immediate_children_map(tf.frames)
+    rs = filter(f -> isempty(f.parents), tf.frames)
+    _render_children(io, rs, children_of, "")
+end
+
+function _immediate_children_map(frames::AbstractVector{Frame})
+    children_of = IdDict{Frame, Vector{Frame}}()
+    for f in frames
+        isempty(f.parents) && continue
+        # Immediate parent: highest STREAM_HIERARCHY index among the frame's parents.
+        best_idx = -1
+        best_parent = nothing
+        for parent in values(f.parents)
+            idx = findfirst(==(parent.stream), STREAM_HIERARCHY)
+            if !isnothing(idx) && idx > best_idx
+                best_idx = idx
+                best_parent = parent
+            end
+        end
+        best_parent === nothing && continue
+        push!(get!(children_of, best_parent, Frame[]), f)
+    end
+    children_of
+end
+
+function _stream_runs(children::AbstractVector{Frame})
+    runs = Tuple{Char, Vector{Frame}}[]
+    isempty(children) && return runs
+    cur_stream = children[1].stream
+    cur_group = Frame[children[1]]
+    for c in @view children[2:end]
+        if c.stream == cur_stream
+            push!(cur_group, c)
+        else
+            push!(runs, (cur_stream, cur_group))
+            cur_stream = c.stream
+            cur_group = Frame[c]
+        end
+    end
+    push!(runs, (cur_stream, cur_group))
+    runs
+end
+
+function _render_children(io, children, children_of, prefix)
+    isempty(children) && return
+    runs = _stream_runs(children)
+    for (gi, (stream, group)) in enumerate(runs)
+        is_last_run = (gi == length(runs))
+        if stream in _COLLAPSE_STREAMS
+            g_branch = is_last_run ? "└─ " : "├─ "
+            label = length(group) == 1 ? "$stream" : "$stream × $(length(group))"
+            println(io, prefix, g_branch, label)
+        else
+            n = length(group)
+            n_show = n > _CHILDREN_CAP ? _CHILDREN_CAP : n
+            for i in 1:n_show
+                child_is_last = is_last_run && i == n_show && n_show == n
+                _render_subtree(io, group[i], children_of, prefix, child_is_last)
+            end
+            if n > n_show
+                t_branch = is_last_run ? "└─ " : "├─ "
+                println(io, prefix, t_branch, "… (", n - n_show, " more ", stream, ")")
+            end
+        end
+    end
+end
+
+function _render_subtree(io, frame, children_of, prefix, is_last)
+    branch = is_last ? "└─ " : "├─ "
+    println(io, prefix, branch, frame.stream)
+
+    children = get(children_of, frame, Frame[])
+    isempty(children) && return
+    new_prefix = prefix * (is_last ? "   " : "│  ")
+    _render_children(io, children, children_of, new_prefix)
+end

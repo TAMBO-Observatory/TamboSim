@@ -39,19 +39,19 @@ frames = load_frames(geometry_file)
 inject!(frames, injection_config)
 
 gframe = get_frame(frames, 'G')
-cframe = get_frame(frames, 'C')
+mframe = get_frame(frames, 'M')
 
 println("G frame keys: ", sort(collect(String, keys(gframe.data))))
-println("C frame keys: ", sort(collect(String, keys(cframe.data))))
+println("M frame keys: ", sort(collect(String, keys(mframe.data))))
 
 # =============================================================================
 # 2. Key lookup and inheritance
 # =============================================================================
-# Keys are resolved by checking own data first, then parents in G → C order.
+# Keys are resolved by checking own data first, then parents in G → M order.
 
 qframe = first(filter(f -> f.stream == 'Q', frames))
 println("\nearth_path via Q frame:  ", qframe["earth_path"])          # from G parent
-println("injection nevent via Q:  ", qframe["injection"]["nevent"])  # from C parent
+println("injection nevent via Q:  ", qframe["injection"]["nevent"])  # from M parent
 println("event_id (own data):     ", qframe["event_id"])             # own Q data
 
 println("has earth_path:          ", haskey(qframe, "earth_path"))
@@ -116,4 +116,4 @@ n_after = count(f -> f.stream == 'Q', frames2)
 
 println("\nQ frames before cut: $n_before")
 println("Q frames after cut:  $n_after")
-println("G/C frames present:  ", count(f -> f.stream in ('G','C'), frames2))
+println("G/M frames present:  ", count(f -> f.stream in ('G','M'), frames2))

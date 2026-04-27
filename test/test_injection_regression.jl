@@ -71,12 +71,14 @@ function run_injection_regression_tests()
     geometry_path = get_tambosim_path() * "/resources/geometry/colca_valley_3000.jld2"
     xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
-    gframe = get_frame(load_frames(geometry_path), 'G')
+    frames_geo = load_frames(geometry_path)
+    gframe = get_frame(frames_geo, 'G')
+    dframe = get_frame(frames_geo, 'D')
     prem            = gframe["prem"]
     bvh             = gframe["bvh"]
     cs              = gframe["cs"]
     topography      = gframe["topography"]
-    detector_region = gframe["detector_region"]
+    detector_region = dframe["detector_region"]
 
     xs = CrossSection(xs_path)
     detector_props = precompute_detector_properties(topography, detector_region)

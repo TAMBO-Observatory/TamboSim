@@ -67,7 +67,9 @@ function test_inject_creates_c_and_q_frames()
     frames = load_frames(GEOMETRY_PATH)
     inject!(frames, _injection_config(nevent=5))
 
+    # GCD bundle contributes a blank C frame; inject! adds an M frame with config
     @test count(f -> f.stream == 'C', frames) == 1
+    @test count(f -> f.stream == 'M', frames) == 1
     @test count(f -> f.stream == 'Q', frames) == 5
 end
 
@@ -76,9 +78,9 @@ function test_inject_config_stored_under_prefix()
     config = _injection_config(nevent=3)
     inject!(frames, config)
 
-    cframe = get_frame(frames, 'C')
-    @test haskey(cframe.data, "injection")
-    @test cframe.data["injection"]["nevent"] == 3
+    mframe = get_frame(frames, 'M')
+    @test haskey(mframe.data, "injection")
+    @test mframe.data["injection"]["nevent"] == 3
 end
 
 function test_inject_q_frame_parents()
@@ -86,12 +88,12 @@ function test_inject_q_frame_parents()
     inject!(frames, _injection_config(nevent=3))
 
     gframe = get_frame(frames, 'G')
-    cframe = get_frame(frames, 'C')
+    mframe = get_frame(frames, 'M')
     q_frames = filter(f -> f.stream == 'Q', frames)
 
     for qf in q_frames
         @test qf.parents['G'] === gframe
-        @test qf.parents['C'] === cframe
+        @test qf.parents['M'] === mframe
     end
 end
 
@@ -99,8 +101,8 @@ function test_inject_custom_prefix()
     frames = load_frames(GEOMETRY_PATH)
     inject!(frames, _injection_config(nevent=2); prefix="nu_injection")
 
-    cframe = get_frame(frames, 'C')
-    @test haskey(cframe.data, "nu_injection")
+    mframe = get_frame(frames, 'M')
+    @test haskey(mframe.data, "nu_injection")
 
     q_frames = filter(f -> f.stream == 'Q', frames)
     for qf in q_frames
@@ -136,9 +138,9 @@ function test_proposal_config_stored()
     )
     proposal_propagation!(frames, proposal_config)
 
-    cframe = get_frame(frames, 'C')
-    @test haskey(cframe.data, "proposal")
-    @test cframe.data["proposal"]["vcut"] == 0.05
+    mframe = get_frame(frames, 'M')
+    @test haskey(mframe.data, "proposal")
+    @test mframe.data["proposal"]["vcut"] == 0.05
 end
 
 function test_proposal_output_keys()
@@ -176,33 +178,33 @@ end
 # =============================================================================
 
 function test_save_load_roundtrip()
-    # Build C+Q in memory — no real geometry needed for this test
+    # Build M+Q in memory — no real geometry needed for this test
     gframe = Frame('G', Dict{String,Any}("site" => "test"))
-    cframe = Frame('C', Dict{String,Any}("cfg" => 42), Dict{Char,Frame}('G' => gframe))
-    q_parents = Dict{Char,Frame}('G' => gframe, 'C' => cframe)
+    mframe = Frame('M', Dict{String,Any}("cfg" => 42), Dict{Char,Frame}('G' => gframe))
+    q_parents = Dict{Char,Frame}('G' => gframe, 'M' => mframe)
     frames = Frame[
         gframe,
-        cframe,
+        mframe,
         Frame('Q', Dict{String,Any}("event_id" => 1, "val" => 1.0), q_parents),
         Frame('Q', Dict{String,Any}("event_id" => 2, "val" => 2.0), q_parents),
     ]
 
     path = tempname() * ".jld2"
-    save_frames(path, frames)  # default: C+Q only
+    save_frames(path, frames)  # default: M+Q only
     loaded = load_frames(path)
     rm(path)
 
-    @test count(f -> f.stream == 'C', loaded) == 1
+    @test count(f -> f.stream == 'M', loaded) == 1
     @test count(f -> f.stream == 'Q', loaded) == 2
     @test count(f -> f.stream == 'G', loaded) == 0
 end
 
 function test_save_load_data_preserved()
     gframe = Frame('G', Dict{String,Any}("site" => "test"))
-    cframe = Frame('C', Dict{String,Any}("run" => "abc"), Dict{Char,Frame}('G' => gframe))
-    q_parents = Dict{Char,Frame}('G' => gframe, 'C' => cframe)
+    mframe = Frame('M', Dict{String,Any}("run" => "abc"), Dict{Char,Frame}('G' => gframe))
+    q_parents = Dict{Char,Frame}('G' => gframe, 'M' => mframe)
     qf = Frame('Q', Dict{String,Any}("event_id" => 99, "energy" => 1.5e6), q_parents)
-    frames = Frame[gframe, cframe, qf]
+    frames = Frame[gframe, mframe, qf]
 
     path = tempname() * ".jld2"
     save_frames(path, frames)
@@ -212,25 +214,25 @@ function test_save_load_data_preserved()
     loaded_q = first(filter(f -> f.stream == 'Q', loaded))
     @test loaded_q["event_id"] == 99
     @test loaded_q["energy"] ≈ 1.5e6
-    # C frame data accessible via parent inheritance
+    # M frame data accessible via parent inheritance
     @test loaded_q["run"] == "abc"
 end
 
 function test_save_load_multi_file()
     # Two separate event files sharing the same geometry
     gframe = Frame('G', Dict{String,Any}("site" => "test"))
-    c1 = Frame('C', Dict{String,Any}("run" => 1), Dict{Char,Frame}('G' => gframe))
-    c2 = Frame('C', Dict{String,Any}("run" => 2), Dict{Char,Frame}('G' => gframe))
-    q_p1 = Dict{Char,Frame}('G' => gframe, 'C' => c1)
-    q_p2 = Dict{Char,Frame}('G' => gframe, 'C' => c2)
+    m1 = Frame('M', Dict{String,Any}("run" => 1), Dict{Char,Frame}('G' => gframe))
+    m2 = Frame('M', Dict{String,Any}("run" => 2), Dict{Char,Frame}('G' => gframe))
+    q_p1 = Dict{Char,Frame}('G' => gframe, 'M' => m1)
+    q_p2 = Dict{Char,Frame}('G' => gframe, 'M' => m2)
 
-    frames1 = Frame[gframe, c1, Frame('Q', Dict{String,Any}("event_id" => 1), q_p1)]
-    frames2 = Frame[gframe, c2, Frame('Q', Dict{String,Any}("event_id" => 2), q_p2)]
+    frames1 = Frame[gframe, m1, Frame('Q', Dict{String,Any}("event_id" => 1), q_p1)]
+    frames2 = Frame[gframe, m2, Frame('Q', Dict{String,Any}("event_id" => 2), q_p2)]
 
     p1 = tempname() * ".jld2"
     p2 = tempname() * ".jld2"
-    save_frames(p1, frames1, streams=('G','C','Q'))
-    save_frames(p2, frames2, streams=('G','C','Q'))
+    save_frames(p1, frames1, streams=('G','M','Q'))
+    save_frames(p2, frames2, streams=('G','M','Q'))
 
     combined = load_frames([p1, p2])
     rm(p1); rm(p2)
@@ -240,8 +242,8 @@ function test_save_load_multi_file()
 
     q1 = first(filter(f -> f["event_id"] == 1, q_frames))
     q2 = first(filter(f -> f["event_id"] == 2, q_frames))
-    @test q1.cframe["run"] == 1
-    @test q2.cframe["run"] == 2
+    @test q1.mframe["run"] == 1
+    @test q2.mframe["run"] == 2
 end
 
 function test_save_geometry_self_contained()

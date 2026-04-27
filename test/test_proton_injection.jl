@@ -11,10 +11,10 @@ import Tambo: CoordinateSystem, precompute_detector_properties,
 
 using Unitful
 
-function make_test_gframe()
+function make_test_frames()
     tambosim_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
     geometry_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley_3000.jld2")
-    return get_frame(load_frames(geometry_path), 'G')
+    return load_frames(geometry_path)
 end
 
 function run_proton_injection_tests()
@@ -35,9 +35,10 @@ end
 # ============================================================================
 
 function test_proton_altitude()
-    gframe = make_test_gframe()
+    frames = make_test_frames()
+    gframe = get_frame(frames, 'G'); dframe = get_frame(frames, 'D')
     bvh = gframe["bvh"]; cs = gframe["cs"]
-    topography = gframe["topography"]; detector_region = gframe["detector_region"]
+    topography = gframe["topography"]; detector_region = dframe["detector_region"]
 
     pl = UnitfulPowerLawSampler(2.7, 1e3u"GeV", 1e7u"GeV")
     # Downgoing: theta in [91, 130] deg to ensure visibility of downward-facing detector triangles
@@ -71,9 +72,10 @@ function test_proton_altitude()
 end
 
 function test_proton_particle_type()
-    gframe = make_test_gframe()
+    frames = make_test_frames()
+    gframe = get_frame(frames, 'G'); dframe = get_frame(frames, 'D')
     bvh = gframe["bvh"]; cs = gframe["cs"]
-    topography = gframe["topography"]; detector_region = gframe["detector_region"]
+    topography = gframe["topography"]; detector_region = dframe["detector_region"]
     pl = UnitfulPowerLawSampler(2.7, 1e3u"GeV", 1e7u"GeV")
     as = UniformAngularSampler(deg2rad(91.0), deg2rad(130.0), deg2rad(0.0), deg2rad(360.0))
     detector_props = precompute_detector_properties(topography, detector_region)
@@ -89,9 +91,10 @@ function test_proton_particle_type()
 end
 
 function test_proton_energy_in_range()
-    gframe = make_test_gframe()
+    frames = make_test_frames()
+    gframe = get_frame(frames, 'G'); dframe = get_frame(frames, 'D')
     bvh = gframe["bvh"]; cs = gframe["cs"]
-    topography = gframe["topography"]; detector_region = gframe["detector_region"]
+    topography = gframe["topography"]; detector_region = dframe["detector_region"]
     emin, emax = 1e3u"GeV", 1e7u"GeV"
     pl = UnitfulPowerLawSampler(2.7, emin, emax)
     as = UniformAngularSampler(deg2rad(91.0), deg2rad(130.0), deg2rad(0.0), deg2rad(360.0))
@@ -109,9 +112,10 @@ function test_proton_energy_in_range()
 end
 
 function test_proton_returns_visible_areas()
-    gframe = make_test_gframe()
+    frames = make_test_frames()
+    gframe = get_frame(frames, 'G'); dframe = get_frame(frames, 'D')
     bvh = gframe["bvh"]; cs = gframe["cs"]
-    topography = gframe["topography"]; detector_region = gframe["detector_region"]
+    topography = gframe["topography"]; detector_region = dframe["detector_region"]
     pl = UnitfulPowerLawSampler(2.7, 1e3u"GeV", 1e7u"GeV")
     as = UniformAngularSampler(deg2rad(91.0), deg2rad(130.0), deg2rad(0.0), deg2rad(360.0))
     detector_props = precompute_detector_properties(topography, detector_region)

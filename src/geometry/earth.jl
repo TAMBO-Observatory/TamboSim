@@ -154,30 +154,29 @@ end
 """
     load_earth!(gframe::Frame)
 
-Reads geometry from `gframe["earth_path"]` and `gframe["detector_key"]` and
-populates the G frame with the following keys:
+Reads geometry from `gframe["earth_path"]` and populates the G frame with:
 
 - `"prem"`: `Vector{Sphere}` — concentric PREM layers for ray tracing
 - `"topography"`: `Vector{Triangle}` — surface mesh
 - `"bvh"`: `BVHTree` — acceleration structure over the full topography
-- `"detector_region"`: `Vector{Int}` — indices of detector-region triangles
 - `"cs"`: `CoordinateSystem` — local ENU coordinate system at the site
 
+Detector region data is NOT stored here; it belongs in the D frame.
 Dispatches to HDF5 or PLY loading based on the file extension of `earth_path`.
+For HDF5 files, also reads `gframe["detector_key"]` if present (legacy path).
 """
 function load_earth!(gframe::Frame)
-    location     = gframe["earth_path"]
-    detectorname = gframe["detector_key"]
-    prem, topography, bvh, detector_region, cs = if endswith(location, ".ply")
+    location = gframe["earth_path"]
+    prem, topography, bvh, _, cs = if endswith(location, ".ply")
         _load_earth_ply(location)
     else
+        detectorname = haskey(gframe.data, "detector_key") ? gframe.data["detector_key"] : ""
         _load_earth_h5(location, detectorname)
     end
-    gframe["prem"]            = prem
-    gframe["topography"]      = topography
-    gframe["bvh"]             = bvh
-    gframe["detector_region"] = detector_region
-    gframe["cs"]              = cs
+    gframe["prem"]       = prem
+    gframe["topography"] = topography
+    gframe["bvh"]        = bvh
+    gframe["cs"]         = cs
     return gframe
 end
 
@@ -193,4 +192,41 @@ function _ensure_earth_loaded!(frames::Vector{Frame})
     if !haskey(gframe.data, "prem")
         load_earth!(gframe)
     end
+end
+
+"""
+    build_gcd_bundle(earth_path, detector_key) -> Vector{Frame}
+
+Builds a self-contained GCD bundle: one G frame (full terrain), one blank C
+frame (placeholder for future calibration data), and one D frame (detector
+region indices and pre-built detector BVH).
+
+Save the result with `save_frames(path, frames, streams=('G','C','D'))` to
+produce a JLD2 that downstream runs can load without the original HDF5 file.
+"""
+function build_gcd_bundle(earth_path::String, detector_key::String)
+    prem, topography, bvh, detector_region, cs = if endswith(earth_path, ".ply")
+        _load_earth_ply(earth_path)
+    else
+        _load_earth_h5(earth_path, detector_key)
+    end
+
+    gframe = Frame('G', Dict{String,Any}(
+        "earth_path" => earth_path,
+        "prem"       => prem,
+        "topography" => topography,
+        "bvh"        => bvh,
+        "cs"         => cs,
+    ))
+
+    cframe = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe))
+
+    detector_triangles = topography[detector_region]
+    detector_bvh       = BVHTree(detector_triangles)
+    dframe = Frame('D', Dict{String,Any}(
+        "detector_region" => detector_region,
+        "detector_bvh"    => detector_bvh,
+    ), Dict{Char,Frame}('G' => gframe, 'C' => cframe))
+
+    return Frame[gframe, cframe, dframe]
 end

@@ -19,13 +19,14 @@ end
 
 frames = Tambo.load_frames([gc_file, "$(basedir)/simfile_corsika.jld2"])
 gframe = Tambo.get_frame(frames, 'G')
+dframe = Tambo.get_frame(frames, 'D')
 q_frames = filter(f -> f.stream == 'Q', frames)
 
 cs  = gframe["cs"]
-bvh = Tambo.BVHTree(gframe["topography"][gframe["detector_region"]])
+bvh = dframe["detector_bvh"]
 
 Δy = 125.0u"m"
-det_triangles = gframe["topography"][gframe["detector_region"]]
+det_triangles = dframe["detector_bvh"].triangles
 areas     = ustrip.(u"m^2", Tambo.area.(det_triangles))
 centroids = [ustrip.(u"m", (t.v1.point + t.v2.point + t.v3.point) ./ 3) for t in det_triangles]
 normals   = [Tambo.normal(t).point for t in det_triangles]

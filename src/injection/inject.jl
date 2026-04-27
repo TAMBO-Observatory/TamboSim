@@ -541,9 +541,9 @@ function _setup_injection(frames::Vector{Frame}, config::Dict, prefix::String, f
     haskey(config, "nevent") || error("$fname config must contain \"nevent\"")
     _ensure_earth_loaded!(frames)
     gframe = get_frame(frames, 'G')
-    cframe = Frame('C', Dict{String,Any}(prefix => config), Dict{Char,Frame}('G' => gframe))
-    push!(frames, cframe)
-    q_parents = Dict{Char,Frame}('G' => gframe, 'C' => cframe)
+    mframe = Frame('M', Dict{String,Any}(prefix => config), Dict{Char,Frame}('G' => gframe))
+    push!(frames, mframe)
+    q_parents = Dict{Char,Frame}('G' => gframe, 'M' => mframe)
     q_frames = Frame[]
     for idx in 1:config["nevent"]
         qframe = Frame('Q', Dict{String,Any}(), q_parents)
@@ -551,7 +551,7 @@ function _setup_injection(frames::Vector{Frame}, config::Dict, prefix::String, f
         push!(q_frames, qframe)
     end
     append!(frames, q_frames)
-    return gframe, cframe, q_frames
+    return gframe, mframe, q_frames
 end
 
 """
@@ -569,12 +569,14 @@ function inject!(
     prefix::String="injection"
 )
     gframe, _, q_frames = _setup_injection(frames, config, prefix, "inject!")
+    dframe = get_frame(frames, 'D')
 
     prem            = gframe["prem"]
     bvh             = gframe["bvh"]
     cs              = gframe["cs"]
     topography      = gframe["topography"]
-    detector_region = gframe["detector_region"]
+    detector_region = dframe["detector_region"]
+    detector_bvh    = dframe["detector_bvh"]
 
     pl = UnitfulPowerLawSampler(
         config["gamma"],
@@ -588,8 +590,7 @@ function inject!(
         deg2rad(config["phimax"]),
     )
     cross_section = CrossSection(config["xs_location"])
-    detector_triangles = topography[detector_region]
-    detector_bvh    = BVHTree(detector_triangles)
+    detector_triangles = detector_bvh.triangles
     detector_areas  = area.(detector_triangles)
     detector_normals = normal.(detector_triangles)
     Random.seed!(config["pinecone"])
@@ -631,11 +632,12 @@ function inject_protons!(
     prefix::String="injection"
 )
     gframe, _, q_frames = _setup_injection(frames, config, prefix, "inject_protons!")
+    dframe = get_frame(frames, 'D')
 
     bvh             = gframe["bvh"]
     cs              = gframe["cs"]
     topography      = gframe["topography"]
-    detector_region = gframe["detector_region"]
+    detector_region = dframe["detector_region"]
 
     pl = UnitfulPowerLawSampler(
         config["gamma"],

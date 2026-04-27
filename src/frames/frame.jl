@@ -1,4 +1,4 @@
-const STREAM_HIERARCHY = ('G', 'C', 'Q', 'P')
+const STREAM_HIERARCHY = ('G', 'C', 'D', 'M', 'Q', 'P')
 
 """
     Frame
@@ -8,15 +8,16 @@ A hierarchical, dictionary-like container for simulation data.
 A `Frame` holds data in a dictionary and carries references to parent frames
 from higher-level streams. When a key is accessed, the current frame's data is
 checked first; if the key is absent, parent frames are searched in stream
-hierarchy order (G → C → Q → P).
+hierarchy order (G → C → D → M → Q → P).
 
-Q frames require a C parent (config always travels with events) but not a G
-parent — analysis workflows that do not need earth geometry can load C+Q frames
-without a geometry file. Accessing `.gframe` on a Q frame without a G parent
-raises an error at that point.
+Q frames require an M parent (simulation meta/config always travels with events)
+but not G, C, or D parents — analysis workflows that do not need earth/detector
+geometry can load M+Q frames without a GCD bundle. Accessing `.gframe`,
+`.cframe`, or `.dframe` on a Q frame without the corresponding parent raises an
+error at that point.
 
 # Fields
-- `stream::Char`: Stream type ('G' geometry, 'C' config, 'Q' event, 'P' physics).
+- `stream::Char`: Stream type ('G' geometry, 'C' calibration, 'D' detector, 'M' meta/config, 'Q' event, 'P' physics).
 - `data::Dict{String, Any}`: Data stored in this frame.
 - `parents::Dict{Char, Frame}`: Parent frames indexed by their stream type.
 
@@ -33,7 +34,7 @@ mutable struct Frame
     Frame(stream::Char, data::Dict) = Frame(stream, data, Dict{Char,Frame}())
     function Frame(stream::Char, data::Dict, parents::Dict{Char,Frame})
         if stream == 'Q'
-            haskey(parents, 'C') || error("Q frame requires a C parent")
+            haskey(parents, 'M') || error("Q frame requires an M parent")
         end
         new(stream, data, parents)
     end
@@ -46,6 +47,12 @@ function Base.getproperty(f::Frame, sym::Symbol)
     elseif sym === :cframe
         haskey(f.parents, 'C') || error("Frame (stream='$(f.stream)') has no C parent")
         return f.parents['C']
+    elseif sym === :dframe
+        haskey(f.parents, 'D') || error("Frame (stream='$(f.stream)') has no D parent")
+        return f.parents['D']
+    elseif sym === :mframe
+        haskey(f.parents, 'M') || error("Frame (stream='$(f.stream)') has no M parent")
+        return f.parents['M']
     end
     return getfield(f, sym)
 end

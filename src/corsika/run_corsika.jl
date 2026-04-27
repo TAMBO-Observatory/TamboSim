@@ -136,13 +136,14 @@ function corsika_run(
     store_paths=true
 )
     _ensure_earth_loaded!(frames)
-    cframe = get_frame(frames, 'C')
+    mframe = get_frame(frames, 'M')
     gframe = get_frame(frames, 'G')
 
-    cframe[prefix] = config
+    mframe[prefix] = config
 
     topography      = gframe["topography"]
-    detector_region = gframe["detector_region"]
+    dframe          = get_frame(frames, 'D')
+    detector_region = dframe["detector_region"]
 
     obs_mesh_path     = config["obs_mesh_path"]
     terrain_mesh_path = get(config, "terrain_mesh_path", "")

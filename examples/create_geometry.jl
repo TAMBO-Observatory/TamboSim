@@ -253,38 +253,23 @@ vertices, faces, detector_indices = write_geometry_h5(
     half_width_km=50.0, n_cells=30
 )
 
-"""
-    build_geometry_frame(earth_path, detector_key) -> Vector{Frame}
-
-Reads geometry from an HDF5 or PLY source file and returns a one-element
-vector containing a fully-loaded G frame (mesh, BVH, coordinate system).
-This is a one-time step: save the result with `save_frames(..., streams=('G',))`
-to produce a self-contained JLD2 that never requires the source file again.
-"""
-function build_geometry_frame(earth_path::String, detector_key::String)
-    gframe = Frame('G')
-    gframe["earth_path"]   = earth_path
-    gframe["detector_key"] = detector_key
-    Tambo.load_earth!(gframe)
-    return Frame[gframe]
-end
-
-# --- Build and save G frame ---
-# build_geometry_frame reads the HDF5 and builds the full G frame (including
-# BVH). Saving with streams=('G',) produces a self-contained JLD2 — downstream
+# --- Build and save GCD bundle ---
+# build_gcd_bundle reads the HDF5 and produces G + blank C + D frames.
+# Saving with streams=('G','C','D') produces a self-contained JLD2 — downstream
 # simulation runs use load_frames("geometry.jld2") and never touch the HDF5.
-println("\nBuilding G frame and saving to JLD2...")
+println("\nBuilding GCD bundle and saving to JLD2...")
 g_path = joinpath(outdir, "geometry.jld2")
-frames = build_geometry_frame("$h5_path:$groupname", "detector1")
-save_frames(g_path, frames, streams=('G',))
+frames = Tambo.build_gcd_bundle("$h5_path:$groupname", "detector1")
+save_frames(g_path, frames, streams=('G', 'C', 'D'))
 println("  Saved → $g_path ($(round(filesize(g_path)/1024^2, digits=1)) MB)")
 
 # Verify round-trip: reload from JLD2 (no HDF5 file needed).
 frames2 = load_frames(g_path)
 gframe2 = get_frame(frames2, 'G')
+dframe2 = get_frame(frames2, 'D')
 n_prem   = length(gframe2["prem"])
 n_tris   = length(gframe2["topography"])
-n_det    = length(gframe2["detector_region"])
+n_det    = length(dframe2["detector_region"])
 println("  Reloaded — PREM layers: $n_prem  triangles: $n_tris  detector faces: $n_det")
 
 # --- 2. ASCII PLY (for earth_from_ply) ---

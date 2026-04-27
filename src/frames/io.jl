@@ -1,15 +1,15 @@
 """
-    save_frames(path::String, frames::Vector{Frame}; streams=('C', 'Q'))
+    save_frames(path::String, frames::Vector{Frame}; streams=('M', 'Q'))
 
 Writes frames whose stream type is in `streams` to a JLD2 file. Defaults to
-C and Q frames so that simulation config rides along with the event frames.
+M and Q frames so that simulation meta/config rides along with the event frames.
 
 Parent references are not stored; they are reconstructed from stream order on
 load. G frames are written as-is, including earth geometry keys, so a saved G
 frame is fully self-contained and does not require the original h5 file on
 reload. To save a standalone geometry file, use `streams=('G',)`.
 """
-function save_frames(path::String, frames::Vector{Frame}; streams::Tuple{Vararg{Char}}=('C', 'Q'))
+function save_frames(path::String, frames::Vector{Frame}; streams::Tuple{Vararg{Char}}=('M', 'Q'))
     to_save = filter(f -> f.stream in streams, frames)
     jldopen(path, "w") do file
         file["nframes"] = length(to_save)

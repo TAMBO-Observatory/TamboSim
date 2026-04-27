@@ -28,6 +28,7 @@ function run_frame_tests()
     @testset "Frame Utilities" begin
         test_cut_frames_q_only()
         test_cut_frames_preserves_gc()
+        test_cut_frames_cascades_to_descendants()
     end
 
     @testset "Multi-geometry reconstruction" begin
@@ -207,28 +208,28 @@ function test_cut_frames_q_only()
     gframe = Frame('G', Dict{String,Any}("geo" => true))
     mframe = Frame('M', Dict{String,Any}("cfg" => true))
     q_parents = Dict{Char,Frame}('G' => gframe, 'M' => mframe)
-    frames = Frame[gframe, mframe]
+    frames = TamboFrames(Frame[gframe, mframe])
     for v in [10, 20, 30, 40, 50]
         push!(frames, Frame('Q', Dict{String,Any}("value" => v), q_parents))
     end
 
     cut_frames!(frames, f -> f["value"] > 25)
 
-    q_frames = filter(f -> f.stream == 'Q', frames)
-    @test length(q_frames) == 3
-    @test all(f -> f["value"] > 25, q_frames)
+    surviving_q = filter(f -> f.stream == 'Q', frames)
+    @test length(surviving_q) == 3
+    @test all(f -> f["value"] > 25, surviving_q)
 end
 
 function test_cut_frames_preserves_gc()
     gframe = Frame('G', Dict{String,Any}("geo" => true))
     mframe = Frame('M', Dict{String,Any}("cfg" => true))
     q_parents = Dict{Char,Frame}('G' => gframe, 'M' => mframe)
-    frames = Frame[
+    frames = TamboFrames(Frame[
         gframe,
         mframe,
         Frame('Q', Dict{String,Any}("value" => 5),  q_parents),
         Frame('Q', Dict{String,Any}("value" => 50), q_parents),
-    ]
+    ])
 
     cut_frames!(frames, f -> f["value"] > 25)
 
@@ -237,6 +238,25 @@ function test_cut_frames_preserves_gc()
     @test frames[2].stream == 'M'
     @test frames[3].stream == 'Q'
     @test frames[3]["value"] == 50
+end
+
+function test_cut_frames_cascades_to_descendants()
+    # Q frames with P children — cutting a Q must also remove its P descendants.
+    gframe = Frame('G')
+    mframe = Frame('M', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe))
+    q_keep = Frame('Q', Dict{String,Any}("value" => 50), Dict{Char,Frame}('G' => gframe, 'M' => mframe))
+    q_cut  = Frame('Q', Dict{String,Any}("value" => 5),  Dict{Char,Frame}('G' => gframe, 'M' => mframe))
+    p_keep = Frame('P', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe, 'M' => mframe, 'Q' => q_keep))
+    p_cut  = Frame('P', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe, 'M' => mframe, 'Q' => q_cut))
+    frames = TamboFrames(Frame[gframe, mframe, q_keep, p_keep, q_cut, p_cut])
+
+    cut_frames!(frames, f -> f["value"] > 25)
+
+    @test length(frames) == 4
+    @test q_cut ∉ frames
+    @test p_cut ∉ frames  # cascaded out via parent reference
+    @test q_keep in frames
+    @test p_keep in frames
 end
 
 function test_multi_geometry_parent_reset()

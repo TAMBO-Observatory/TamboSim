@@ -484,11 +484,19 @@ function inject_muon_event(
 
     weight_params = WeightParameters(
         sum(visible_areas),
-        pl, as,
+        pl.emin,
+        pl.emax,
+        pl.γ,
+        as.θmin,
+        as.θmax,
+        as.ϕmin,
+        as.ϕmax,
         energy,
         NaN * u"GeV",
         NaN * u"g/cm^2",
-        NaN * u"g/cm^3"
+        NaN * u"g/cm^3",
+        NaN * u"cm^2",
+        NaN * u"cm^2",
     )
 
     return initial_state, final_state, final_state, weight_params

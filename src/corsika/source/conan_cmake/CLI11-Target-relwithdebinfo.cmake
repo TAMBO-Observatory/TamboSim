@@ -1,0 +1,71 @@
+# Avoid multiple calls to find_package to append duplicated properties to the targets
+include_guard()########### VARIABLES #######################################################################
+#############################################################################################
+set(cli11_FRAMEWORKS_FOUND_RELWITHDEBINFO "") # Will be filled later
+conan_find_apple_frameworks(cli11_FRAMEWORKS_FOUND_RELWITHDEBINFO "${cli11_FRAMEWORKS_RELWITHDEBINFO}" "${cli11_FRAMEWORK_DIRS_RELWITHDEBINFO}")
+
+set(cli11_LIBRARIES_TARGETS "") # Will be filled later
+
+
+######## Create an interface target to contain all the dependencies (frameworks, system and conan deps)
+if(NOT TARGET cli11_DEPS_TARGET)
+    add_library(cli11_DEPS_TARGET INTERFACE IMPORTED)
+endif()
+
+set_property(TARGET cli11_DEPS_TARGET
+             APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+             $<$<CONFIG:RelWithDebInfo>:${cli11_FRAMEWORKS_FOUND_RELWITHDEBINFO}>
+             $<$<CONFIG:RelWithDebInfo>:${cli11_SYSTEM_LIBS_RELWITHDEBINFO}>
+             $<$<CONFIG:RelWithDebInfo>:>)
+
+####### Find the libraries declared in cpp_info.libs, create an IMPORTED target for each one and link the
+####### cli11_DEPS_TARGET to all of them
+conan_package_library_targets("${cli11_LIBS_RELWITHDEBINFO}"    # libraries
+                              "${cli11_LIB_DIRS_RELWITHDEBINFO}" # package_libdir
+                              "${cli11_BIN_DIRS_RELWITHDEBINFO}" # package_bindir
+                              "${cli11_LIBRARY_TYPE_RELWITHDEBINFO}"
+                              "${cli11_IS_HOST_WINDOWS_RELWITHDEBINFO}"
+                              cli11_DEPS_TARGET
+                              cli11_LIBRARIES_TARGETS  # out_libraries_targets
+                              "_RELWITHDEBINFO"
+                              "cli11"    # package_name
+                              "${cli11_NO_SONAME_MODE_RELWITHDEBINFO}")  # soname
+
+# FIXME: What is the result of this for multi-config? All configs adding themselves to path?
+set(CMAKE_MODULE_PATH ${cli11_BUILD_DIRS_RELWITHDEBINFO} ${CMAKE_MODULE_PATH})
+
+########## GLOBAL TARGET PROPERTIES RelWithDebInfo ########################################
+    set_property(TARGET CLI11::CLI11
+                 APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+                 $<$<CONFIG:RelWithDebInfo>:${cli11_OBJECTS_RELWITHDEBINFO}>
+                 $<$<CONFIG:RelWithDebInfo>:${cli11_LIBRARIES_TARGETS}>
+                 )
+
+    if("${cli11_LIBS_RELWITHDEBINFO}" STREQUAL "")
+        # If the package is not declaring any "cpp_info.libs" the package deps, system libs,
+        # frameworks etc are not linked to the imported targets and we need to do it to the
+        # global target
+        set_property(TARGET CLI11::CLI11
+                     APPEND PROPERTY INTERFACE_LINK_LIBRARIES
+                     cli11_DEPS_TARGET)
+    endif()
+
+    set_property(TARGET CLI11::CLI11
+                 APPEND PROPERTY INTERFACE_LINK_OPTIONS
+                 $<$<CONFIG:RelWithDebInfo>:${cli11_LINKER_FLAGS_RELWITHDEBINFO}>)
+    set_property(TARGET CLI11::CLI11
+                 APPEND PROPERTY INTERFACE_INCLUDE_DIRECTORIES
+                 $<$<CONFIG:RelWithDebInfo>:${cli11_INCLUDE_DIRS_RELWITHDEBINFO}>)
+    # Necessary to find LINK shared libraries in Linux
+    set_property(TARGET CLI11::CLI11
+                 APPEND PROPERTY INTERFACE_LINK_DIRECTORIES
+                 $<$<CONFIG:RelWithDebInfo>:${cli11_LIB_DIRS_RELWITHDEBINFO}>)
+    set_property(TARGET CLI11::CLI11
+                 APPEND PROPERTY INTERFACE_COMPILE_DEFINITIONS
+                 $<$<CONFIG:RelWithDebInfo>:${cli11_COMPILE_DEFINITIONS_RELWITHDEBINFO}>)
+    set_property(TARGET CLI11::CLI11
+                 APPEND PROPERTY INTERFACE_COMPILE_OPTIONS
+                 $<$<CONFIG:RelWithDebInfo>:${cli11_COMPILE_OPTIONS_RELWITHDEBINFO}>)
+
+########## For the modules (FindXXX)
+set(cli11_LIBRARIES_RELWITHDEBINFO CLI11::CLI11)

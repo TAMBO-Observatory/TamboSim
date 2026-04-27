@@ -82,8 +82,13 @@ const range_parameters = Dict(
     MuPlus => (1.76666667e-1 * u"GeV*cm^3/m/g", 2.0916666667e-4 * u"cm^3/m/g"),
     TauMinus => (1.473684210526e3 * u"GeV*cm^3/m/g", 2.63e-5 * u"cm^3/m/g"),
     TauPlus => (1.473684210526e3 * u"GeV*cm^3/m/g", 2.63e-5 * u"cm^3/m/g"),
+    NuE => (1.0e-10 * u"GeV*cm^3/m/g", 1.0e-10 * u"cm^3/m/g"),
+    NuEBar => (1.0e-10 * u"GeV*cm^3/m/g", 1.0e-10 * u"cm^3/m/g"),
+    NuMu => (1.0e-10 * u"GeV*cm^3/m/g", 1.0e-10 * u"cm^3/m/g"),
+    NuMuBar => (1.0e-10 * u"GeV*cm^3/m/g", 1.0e-10 * u"cm^3/m/g"),
+    NuTau => (1.0e-10 * u"GeV*cm^3/m/g", 1.0e-10 * u"cm^3/m/g"),
+    NuTauBar => (1.0e-10 * u"GeV*cm^3/m/g", 1.0e-10 * u"cm^3/m/g"),
 )
-
 const particle_parameters = Dict{ParticleType, Tuple}(
     TauMinus => (1.77686 * u"GeV"/speedoflight^2, 2.903e-13 * u"s"),
     TauPlus => (1.77686 * u"GeV"/speedoflight^2, 2.903e-13 * u"s"),

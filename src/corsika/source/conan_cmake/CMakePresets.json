@@ -1,0 +1,49 @@
+{
+    "version": 3,
+    "vendor": {
+        "conan": {}
+    },
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 15,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "conan-relwithdebinfo",
+            "displayName": "'conan-relwithdebinfo' config",
+            "description": "'conan-relwithdebinfo' configure using 'Unix Makefiles' generator",
+            "generator": "Unix Makefiles",
+            "cacheVariables": {
+                "CMAKE_POLICY_DEFAULT_CMP0091": "NEW",
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            },
+            "environment": {
+                "CONAN_BISON_ROOT": "/n/home09/tkrishnan/.conan2/p/b/bison69a19f915f2cd/p",
+                "BISON_PKGDATADIR": "/n/home09/tkrishnan/.conan2/p/b/bison69a19f915f2cd/p/res/bison",
+                "PATH": "/n/home09/tkrishnan/.conan2/p/b/bison69a19f915f2cd/p/bin:/n/home09/tkrishnan/.conan2/p/m43fe61932e2887/p/bin:$penv{PATH}",
+                "LD_LIBRARY_PATH": "/n/home09/tkrishnan/.conan2/p/b/bison69a19f915f2cd/p/lib:/n/home09/tkrishnan/.conan2/p/b/readl62f9b1b1e9381/p/lib:$penv{LD_LIBRARY_PATH}",
+                "DYLD_LIBRARY_PATH": "/n/home09/tkrishnan/.conan2/p/b/bison69a19f915f2cd/p/lib:/n/home09/tkrishnan/.conan2/p/b/readl62f9b1b1e9381/p/lib:$penv{DYLD_LIBRARY_PATH}",
+                "M4": "/n/home09/tkrishnan/.conan2/p/m43fe61932e2887/p/bin/m4"
+            },
+            "toolchainFile": "/n/home09/tkrishnan/corsika/conan_cmake/conan_toolchain.cmake",
+            "binaryDir": "/n/home09/tkrishnan/corsika/conan_cmake"
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "conan-relwithdebinfo",
+            "configurePreset": "conan-relwithdebinfo",
+            "jobs": 112
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "conan-relwithdebinfo",
+            "configurePreset": "conan-relwithdebinfo",
+            "environment": {
+                "OPENSSL_MODULES": "/n/home09/tkrishnan/.conan2/p/b/opensc20ff3cad4ee2/p/lib/ossl-modules"
+            }
+        }
+    ]
+}

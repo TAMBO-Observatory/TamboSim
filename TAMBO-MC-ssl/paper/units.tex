@@ -1,0 +1,83 @@
+% This holds definitions of macros to enforce consistency in units.
+
+% This file is the sole location for such definitions.  Check here to
+% learn what there is and add new ones only here.
+
+% also see defs.tex for names.
+
+
+% see
+%  http://ctan.org/pkg/siunitx
+%  http://mirrors.ctan.org/macros/latex/contrib/siunitx/siunitx.pdf
+
+% Examples:
+%  % angles
+%  \ang{1.5} off-axis
+%
+%  % just a unit
+%  \si{\kilo\tonne}
+%
+%  % with a value:
+%  \SI{10}{\mega\electronvolt}
+
+%  range of values:
+% \SIrange{60}{120}{\GeV}
+
+% some shorthand notation
+%\DeclareSIUnit \MBq {\mega\Bq}
+\DeclareSIUnit \s {\second}
+\DeclareSIUnit \ns {\nano\second}
+\DeclareSIUnit \mus {\micro\second}
+\DeclareSIUnit \ms {\milli\second}
+\DeclareSIUnit \MB {\mega\byte}
+\DeclareSIUnit \GB {\giga\byte}
+\DeclareSIUnit \TB {\tera\byte}
+\DeclareSIUnit \PB {\peta\byte}
+\DeclareSIUnit \Mbps {\mega\bit/\s}
+\DeclareSIUnit \Gbps {\giga\bit/\s}
+\DeclareSIUnit \Tbps {\tera\bit/\s}
+\DeclareSIUnit \Pbps {\peta\bit/\s}
+\DeclareSIUnit \kton {\kilo\tonne} % changed  back to kton
+\DeclareSIUnit \kt {\kilo\tonne}
+\DeclareSIUnit \kty {\kilo\tonne-\year}
+\DeclareSIUnit \Mt {\mega\tonne}
+\DeclareSIUnit \eV {\electronvolt}
+\DeclareSIUnit \keV {\kilo\electronvolt}
+\DeclareSIUnit \MeV {\mega\electronvolt}
+\DeclareSIUnit \GeV {\giga\electronvolt}
+\DeclareSIUnit \TeV {\tera\electronvolt}
+\DeclareSIUnit \PeV {\peta\electronvolt}
+\DeclareSIUnit \EeV {\exa\electronvolt}
+\DeclareSIUnit \sr {sr}
+\DeclareSIUnit \m {\meter}
+\DeclareSIUnit \cm {\centi\meter}
+\DeclareSIUnit \nm {\nano\meter}
+\DeclareSIUnit \in {\inchcommand}
+\DeclareSIUnit \km {\kilo\meter}
+\DeclareSIUnit \kV {\kilo\volt}
+\DeclareSIUnit \kW {\kilo\watt}
+\DeclareSIUnit \MW {\mega\watt}
+\DeclareSIUnit \MHz {\mega\hertz}
+\DeclareSIUnit \mrad {\milli\radian}
+\DeclareSIUnit \year {years}
+\DeclareSIUnit \POT {POT}
+\DeclareSIUnit \sig {$\sigma$}
+\DeclareSIUnit\parsec{pc}
+\DeclareSIUnit\lightyear{ly}
+\DeclareSIUnit\foot{ft}
+\DeclareSIUnit\ft{ft}
+\DeclareSIUnit \ppb{ppb}
+\DeclareSIUnit \ppt{ppt}
+\DeclareSIUnit \samples{S}
+\DeclareSIUnit \pe{PE}
+\DeclareSIUnit \GeVmwe{GeV/mwe}
+\DeclareSIUnit \mwe{mwe}
+
+\newcommand\SigmaOne{\SI{68.3}\percent}
+\newcommand\SigmaTwo{\SI{95.4}\percent}
+
+% parameter definitions
+\newcommand{\enu}{\E_\enu}
+\newcommand{\spectralindex}{\gamma}
+\newcommand{\zenith}{\theta_z}
+\newcommand{\azimuth}{\phi}

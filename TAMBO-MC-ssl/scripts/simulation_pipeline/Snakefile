@@ -1,0 +1,192 @@
+"""
+Snakemake workflow for TAMBO simulation pipeline.
+
+Pipeline steps:
+1. inject_neutrinos - Generate neutrino injections and propagate taus to air interface
+2. take_shower - Run CORSIKA for each event's air entry tau (parallel via Slurm)
+3. process_corsika_hits - Process all showers and compute detector hits
+4. apply_trigger - Apply trigger logic to select events
+
+Environment variables required:
+- TAMBOSIM_PATH: Path to TAMBOSim repository
+- TAMBO_DATA_PATH: Path for output data
+
+Example usage:
+    snakemake --profile slurm {TAMBO_DATA_PATH}/{config}/triggered/{config}_{simset_id}_triggered.jld2
+"""
+
+import json
+import subprocess
+from os import environ
+
+TAMBOSIM_PATH = environ['TAMBOSIM_PATH']
+TAMBO_DATA_PATH = environ['TAMBO_DATA_PATH']
+PIPELINE_DIR = f"{TAMBOSIM_PATH}/scripts/simulation_pipeline"
+JULIA_LIB = "/n/home09/tkrishnan/.julia/juliaup/julia-1.12.1+0.x64.linux.gnu/lib/julia"
+
+
+# =============================================================================
+# Checkpoint: inject_neutrinos
+# =============================================================================
+# This checkpoint allows dynamic expansion of CORSIKA jobs after injection
+checkpoint inject_neutrinos:
+    input:
+        config = lambda wildcards: f"{TAMBOSIM_PATH}/resources/configuration_examples/{wildcards.config}.toml"
+    output:
+        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/injection/{{config}}_{{simset_id}}.jld2"
+    resources:
+        cpus_per_task=1,
+        mem_mb=10000,
+        slurm_partition="sapphire,shared",
+        runtime=8*60
+    shell:
+        f"""
+        julia {PIPELINE_DIR}/inject_neutrinos.jl \
+            --config {{input.config}} \
+            --simset_id {{wildcards.simset_id}} \
+            --output {{output.injection_file}}
+        """
+
+
+# =============================================================================
+# Rule: take_shower
+# =============================================================================
+# Runs CORSIKA for a single event's air entry tau
+rule take_shower:
+    input:
+        config = lambda wildcards: f"{TAMBOSIM_PATH}/resources/configuration_examples/{wildcards.config}.toml",
+        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/injection/{{config}}_{{simset_id}}.jld2"
+    output:
+        particles = f"{TAMBO_DATA_PATH}/{{config}}/showers/{{simset_id}}/event_{{event_id}}/shower_1/particles/particles.parquet"
+    resources:
+        cpus_per_task=1,
+        mem_mb=8000,
+        slurm_partition="sapphire,shared",
+        runtime=24*60
+    shell:
+        f"""
+        export LD_LIBRARY_PATH={JULIA_LIB} && \
+        julia {PIPELINE_DIR}/take_shower.jl \
+            --config {{input.config}} \
+            --injection_file {{input.injection_file}} \
+            --shower_dir {TAMBO_DATA_PATH}/{{wildcards.config}}/showers/{{wildcards.simset_id}} \
+            --event_id {{wildcards.event_id}} \
+            --simset_id {{wildcards.simset_id}}
+        """
+
+
+# =============================================================================
+# Helper functions for dynamic job discovery
+# =============================================================================
+def get_shower_jobs(wildcards):
+    """
+    After the inject_neutrinos checkpoint completes, read the injection file
+    to determine which shower jobs need to run.
+
+    Returns list of output particle.parquet files expected.
+    """
+    # Get the checkpoint output to ensure injection has completed
+    checkpoint_output = checkpoints.inject_neutrinos.get(**wildcards).output.injection_file
+
+    # Run Julia helper script to get event_id list
+    result = subprocess.run(
+        ["julia", f"{PIPELINE_DIR}/list_shower_jobs.jl", "--injection_file", checkpoint_output],
+        capture_output=True,
+        text=True,
+        check=True
+    )
+
+    jobs = json.loads(result.stdout)
+
+    # Build list of expected output files
+    shower_files = []
+    for job in jobs:
+        event_id = str(job["event_id"]).zfill(6)
+        shower_file = f"{TAMBO_DATA_PATH}/{wildcards.config}/showers/{wildcards.simset_id}/event_{event_id}/shower_1/particles/particles.parquet"
+        shower_files.append(shower_file)
+
+    return shower_files
+
+
+# =============================================================================
+# Rule: process_corsika_hits
+# =============================================================================
+# Aggregates all shower outputs and computes detector hits
+rule process_corsika_hits:
+    input:
+        injection_file = f"{TAMBO_DATA_PATH}/{{config}}/injection/{{config}}_{{simset_id}}.jld2",
+        showers = get_shower_jobs
+    output:
+        hits_file = f"{TAMBO_DATA_PATH}/{{config}}/hits/{{config}}_{{simset_id}}_hits.jld2"
+    resources:
+        cpus_per_task=1,
+        mem_mb=8000,
+        slurm_partition="sapphire,shared",
+        runtime=4*60
+    shell:
+        f"""
+        julia {PIPELINE_DIR}/process_corsika_hits.jl \
+            --injection_file {{input.injection_file}} \
+            --shower_dir {TAMBO_DATA_PATH}/{{wildcards.config}}/showers/{{wildcards.simset_id}} \
+            --output {{output.hits_file}}
+        """
+
+
+# =============================================================================
+# Rule: apply_trigger  [COMMENTED OUT - use compute_event_rate instead]
+# =============================================================================
+# rule apply_trigger:
+#     input:
+#         hits_file = f"{TAMBO_DATA_PATH}/{{config}}/hits/{{config}}_{{simset_id}}_hits.jld2"
+#     output:
+#         triggered_file = f"{TAMBO_DATA_PATH}/{{config}}/triggered/{{config}}_{{simset_id}}_triggered.jld2"
+#     params:
+#         module_threshold = 3,
+#         event_threshold = 30,
+#         min_modules = 3
+#     resources:
+#         cpus_per_task=1,
+#         mem_mb=4000,
+#         slurm_partition="sapphire,shared",
+#         runtime=1*60
+#     shell:
+#         f"""
+#         julia {PIPELINE_DIR}/apply_trigger.jl \
+#             --input {{input.hits_file}} \
+#             --output {{output.triggered_file}} \
+#             --module_threshold {{params.module_threshold}} \
+#             --event_threshold {{params.event_threshold}} \
+#             --min_modules {{params.min_modules}}
+#         """
+
+
+# =============================================================================
+# Rule: compute_event_rate
+# =============================================================================
+# Compute expected event rate from hits file (bypasses trigger)
+rule compute_event_rate:
+    input:
+        hits_file = f"{TAMBO_DATA_PATH}/{{config}}/hits/{{config}}_{{simset_id}}_hits.jld2"
+    output:
+        rate_file = f"{TAMBO_DATA_PATH}/{{config}}/rate/{{config}}_{{simset_id}}_rate.txt"
+    resources:
+        cpus_per_task=1,
+        mem_mb=4000,
+        slurm_partition="sapphire,shared",
+        runtime=1*60
+    shell:
+        f"""
+        julia {PIPELINE_DIR}/compute_event_rate.jl \
+            --input {{input.hits_file}} \
+            > {{output.rate_file}}
+        """
+
+
+# =============================================================================
+# Usage example:
+# =============================================================================
+# To run the full pipeline for a specific config and simset_id:
+#   snakemake --profile slurm $TAMBO_DATA_PATH/{config}/triggered/{config}_{simset_id}_triggered.jld2
+#
+# For example:
+#   snakemake --profile slurm $TAMBO_DATA_PATH/tambo_config/triggered/tambo_config_00001_triggered.jld2

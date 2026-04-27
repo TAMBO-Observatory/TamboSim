@@ -52,16 +52,9 @@ function corsika_run(
     seed::Int64; 
     sbatch_command=""
 ) where {T}
-    
-    cs = inject_pos.coordinate_system
-    rot = AngleAxis(-π/2, cs.origin...)
-    cs = CoordinateSystem(cs.origin, Float64.(cs.rotation*rot))
+
     #convert to CORSIKA internal units of GeV
     emcut, photoncut, mucut, hadcut = ustrip.(ecuts .|> u"GeV")
-
-    plane = convert(cs, plane)
-    inject_pos = convert(cs, inject_pos)
-    intercept_pos = convert(cs, intercept_pos)
 
     ## Set environment variables using Julia's ENV dictionary
     ENV["FLUPRO"] = corsika_FLUPRO

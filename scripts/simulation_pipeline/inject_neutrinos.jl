@@ -79,12 +79,7 @@ function main()
 
     proposal_propagation_to_air!(sim)
 
-    # Cut frames where the tau didn't reach the air interface.
-    # No in-air cut is needed: air_entry_state is by construction at a rock→air
-    # boundary, so the tau is entering air. (The old pipeline checked isinair on
-    # proposal_final_state, which was well above the surface after air propagation.
-    # Here the position is exactly on the surface, where the upray test is
-    # numerically unreliable.)
+    # Cut frames where the particle didn't reach the air interface.
     cut_frames!(sim.results, f -> haskey(f, "proposal_air_entry_state"))
 
     # Create output directory if it does not exist

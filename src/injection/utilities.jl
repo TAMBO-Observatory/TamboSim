@@ -77,7 +77,12 @@ function mask_helper(
     mask = ones(Bool, length(intersections))
     bad_idxs = Int[]
     for (idx, i) in enumerate(intersections)
-        if idx in bad_idxs || isa(i, SphereIntersection)
+        if idx in bad_idxs
+            continue
+        end
+        # Mark ALL SphereIntersections as bad (they are PREM layers, not topography)
+        if isa(i, SphereIntersection)
+            push!(bad_idxs, idx)
             continue
         end
         if i.index in earth.detector_region

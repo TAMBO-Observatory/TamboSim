@@ -1,0 +1,1 @@
+. "/n/home09/tkrishnan/corsika/conan_cmake/deactivate_conanbuildenv-relwithdebinfo-x86_64.sh"

@@ -1,0 +1,4 @@
+simfile = "/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/will_misc/perfect_valley/perfect_valley_00000_00002.jld2"
+eventdictdir = "/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/will_misc/perfect_valley/event_dicts_150m/"
+outdir = "/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/will_misc/perfect_valley/triggered_events_150m/"
+trigger_type = "whitepaper"

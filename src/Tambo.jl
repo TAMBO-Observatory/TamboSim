@@ -263,25 +263,46 @@ function inject!(
         deg2rad(cfg["phimin"]),
         deg2rad(cfg["phimax"]),
     )
-    cross_section = CrossSection(cfg["xs_location"])
     detector_bvh = BVHTree(earth.topography[earth.detector_region])
     detector_areas = area.(earth.topography[earth.detector_region])
     detector_normals = normal.(earth.topography[earth.detector_region])
     Random.seed!(cfg["pinecone"])
 
+    is_muon = abs(cfg["nu_pdg"]) == 13
+    if is_muon
+        detector_props = DetectorProperties(
+            earth.topography[earth.detector_region],
+            detector_normals,
+            detector_bvh,
+            detector_areas
+        )
+    else
+        cross_section = CrossSection(cfg["xs_location"])
+    end
+
     @llama_showprogress "Injecting" for frame in sim.results
         tr_seed = rand(UInt32)
-        istate, cstate, fstate, wp = inject_event(
-            cfg["nu_pdg"],
-            earth,
-            as,
-            pl,
-            cross_section;
-            detector_areas=detector_areas,
-            detector_normals=detector_normals,
-            detector_bvh=detector_bvh,
-            tr_seed=tr_seed
-        )
+        if is_muon
+            istate, cstate, fstate, wp = inject_muon_event(
+                cfg["nu_pdg"],
+                earth,
+                as,
+                pl,
+                detector_props
+            )
+        else
+            istate, cstate, fstate, wp = inject_event(
+                cfg["nu_pdg"],
+                earth,
+                as,
+                pl,
+                cross_section;
+                detector_areas=detector_areas,
+                detector_normals=detector_normals,
+                detector_bvh=detector_bvh,
+                tr_seed=tr_seed
+            )
+        end
         frame["$(outprefix)_initial_state"] = istate
         if !isnan(cstate.energy)
             frame["$(outprefix)_close_state"] = cstate

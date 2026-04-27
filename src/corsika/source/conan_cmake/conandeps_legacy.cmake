@@ -1,0 +1,15 @@
+message(STATUS "Conan: Using CMakeDeps conandeps_legacy.cmake aggregator via include()")
+message(STATUS "Conan: It is recommended to use explicit find_package() per dependency instead")
+
+find_package(Catch2)
+find_package(yaml-cpp)
+find_package(CLI11)
+find_package(Arrow)
+find_package(PROPOSAL)
+find_package(Boost)
+find_package(ZLIB)
+find_package(BZip2)
+find_package(Eigen3)
+find_package(spdlog)
+
+set(CONANDEPS_LEGACY  Catch2::Catch2WithMain  yaml-cpp::yaml-cpp  CLI11::CLI11  arrow::arrow  PROPOSAL::PROPOSAL  boost::boost  ZLIB::ZLIB  BZip2::BZip2  Eigen3::Eigen  spdlog::spdlog )

@@ -38,8 +38,8 @@ geometry_file = "$(tambo_path)/resources/geometry/colca_valley_3000.jld2"
 frames = load_frames(geometry_file)
 inject!(frames, injection_config)
 
-gframe = get_frame(frames, 'G')
-mframe = get_frame(frames, 'M')
+gframe = Tambo._get_last_frame(frames, 'G')
+mframe = Tambo._get_last_frame(frames, 'M')
 
 println("G frame keys: ", sort(collect(String, keys(gframe.data))))
 println("M frame keys: ", sort(collect(String, keys(mframe.data))))
@@ -99,7 +99,7 @@ println("Combined load: $(count(f -> f.stream == 'Q', frames_combined)) Q frames
 # geometry, load the geometry JLD2 directly. The G frame is self-contained —
 # bvh, topography, and coordinate system are all stored inside it.
 
-gframe2 = get_frame(load_frames(geometry_file), 'G')
+gframe2 = Tambo._get_last_frame(load_frames(geometry_file), 'G')
 bvh = gframe2["bvh"]
 println("\nBVH type:          ", typeof(bvh))
 println("Triangles in BVH:  ", length(bvh.triangles))

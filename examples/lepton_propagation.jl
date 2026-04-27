@@ -64,7 +64,7 @@ proposal_propagation!(frames, proposal_config)
 @show count(f -> f.stream == 'Q', frames)
 
 if cut_inmountain
-    gframe = get_frame(frames, 'G')
+    gframe = Tambo._get_last_frame(frames, 'G')
 
     function upray(particle)
         d = Direction(

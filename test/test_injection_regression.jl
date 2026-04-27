@@ -72,8 +72,8 @@ function run_injection_regression_tests()
     xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
     frames_geo = load_frames(geometry_path)
-    gframe = get_frame(frames_geo, 'G')
-    dframe = get_frame(frames_geo, 'D')
+    gframe = Tambo._get_last_frame(frames_geo, 'G')
+    dframe = Tambo._get_last_frame(frames_geo, 'D')
     prem            = gframe["prem"]
     bvh             = gframe["bvh"]
     cs              = gframe["cs"]

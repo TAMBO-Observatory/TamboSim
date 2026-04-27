@@ -18,8 +18,8 @@ function intersect_module_signed(event, bvh)
 end
 
 frames = Tambo.load_frames([gc_file, "$(basedir)/simfile_corsika.jld2"])
-gframe = Tambo.get_frame(frames, 'G')
-dframe = Tambo.get_frame(frames, 'D')
+gframe = Tambo._get_last_frame(frames, 'G')
+dframe = Tambo._get_last_frame(frames, 'D')
 q_frames = filter(f -> f.stream == 'Q', frames)
 
 cs  = gframe["cs"]

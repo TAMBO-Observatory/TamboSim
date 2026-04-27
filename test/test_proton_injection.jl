@@ -36,7 +36,7 @@ end
 
 function test_proton_altitude()
     frames = make_test_frames()
-    gframe = get_frame(frames, 'G'); dframe = get_frame(frames, 'D')
+    gframe = Tambo._get_last_frame(frames, 'G'); dframe = Tambo._get_last_frame(frames, 'D')
     bvh = gframe["bvh"]; cs = gframe["cs"]
     topography = gframe["topography"]; detector_region = dframe["detector_region"]
 
@@ -73,7 +73,7 @@ end
 
 function test_proton_particle_type()
     frames = make_test_frames()
-    gframe = get_frame(frames, 'G'); dframe = get_frame(frames, 'D')
+    gframe = Tambo._get_last_frame(frames, 'G'); dframe = Tambo._get_last_frame(frames, 'D')
     bvh = gframe["bvh"]; cs = gframe["cs"]
     topography = gframe["topography"]; detector_region = dframe["detector_region"]
     pl = UnitfulPowerLawSampler(2.7, 1e3u"GeV", 1e7u"GeV")
@@ -92,7 +92,7 @@ end
 
 function test_proton_energy_in_range()
     frames = make_test_frames()
-    gframe = get_frame(frames, 'G'); dframe = get_frame(frames, 'D')
+    gframe = Tambo._get_last_frame(frames, 'G'); dframe = Tambo._get_last_frame(frames, 'D')
     bvh = gframe["bvh"]; cs = gframe["cs"]
     topography = gframe["topography"]; detector_region = dframe["detector_region"]
     emin, emax = 1e3u"GeV", 1e7u"GeV"
@@ -113,7 +113,7 @@ end
 
 function test_proton_returns_visible_areas()
     frames = make_test_frames()
-    gframe = get_frame(frames, 'G'); dframe = get_frame(frames, 'D')
+    gframe = Tambo._get_last_frame(frames, 'G'); dframe = Tambo._get_last_frame(frames, 'D')
     bvh = gframe["bvh"]; cs = gframe["cs"]
     topography = gframe["topography"]; detector_region = dframe["detector_region"]
     pl = UnitfulPowerLawSampler(2.7, 1e3u"GeV", 1e7u"GeV")

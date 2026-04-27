@@ -80,7 +80,7 @@ isempty(oneweights) || println("  median one-weight          : $(round(median(on
 # =============================================================================
 # 4. Rock vs air decay
 # =============================================================================
-gframe = get_frame(frames, 'G')
+gframe = Tambo._get_last_frame(frames, 'G')
 
 function outward_ray(position)
     ecef_dir = Direction(normalize(convert(ecefcoordinates, position).point),

@@ -44,7 +44,7 @@ frames = load_frames([geometry_file, injection_outfile])
 
 proposal_propagation!(frames, config["proposal"])
 
-gframe = get_frame(frames, 'G')
+gframe = Tambo._get_last_frame(frames, 'G')
 
 function upray(particle)
     d = Direction(

@@ -540,10 +540,18 @@ end
 function _setup_injection(frames::Vector{Frame}, config::Dict, prefix::String, fname::String)
     haskey(config, "nevent") || error("$fname config must contain \"nevent\"")
     _ensure_earth_loaded!(frames)
-    gframe = get_frame(frames, 'G')
-    mframe = Frame('M', Dict{String,Any}(prefix => config), Dict{Char,Frame}('G' => gframe))
+    gframe = _get_last_frame(frames, 'G')
+    m_parents = Dict{Char,Frame}('G' => gframe)
+    for s in ('C', 'D')
+        f = _get_last_frame(frames, s; required=false)
+        f !== nothing && (m_parents[s] = f)
+    end
+    mframe = Frame('M', Dict{String,Any}(prefix => config), m_parents)
     push!(frames, mframe)
-    q_parents = Dict{Char,Frame}('G' => gframe, 'M' => mframe)
+    q_parents = Dict{Char,Frame}('M' => mframe)
+    for s in ('G', 'C', 'D')
+        haskey(m_parents, s) && (q_parents[s] = m_parents[s])
+    end
     q_frames = Frame[]
     for idx in 1:config["nevent"]
         qframe = Frame('Q', Dict{String,Any}(), q_parents)
@@ -568,8 +576,8 @@ function inject!(
     config::Dict;
     prefix::String="injection"
 )
-    gframe, _, q_frames = _setup_injection(frames, config, prefix, "inject!")
-    dframe = get_frame(frames, 'D')
+    gframe, mframe, q_frames = _setup_injection(frames, config, prefix, "inject!")
+    dframe = mframe.dframe
 
     prem            = gframe["prem"]
     bvh             = gframe["bvh"]
@@ -631,8 +639,8 @@ function inject_protons!(
     config::Dict;
     prefix::String="injection"
 )
-    gframe, _, q_frames = _setup_injection(frames, config, prefix, "inject_protons!")
-    dframe = get_frame(frames, 'D')
+    gframe, mframe, q_frames = _setup_injection(frames, config, prefix, "inject_protons!")
+    dframe = mframe.dframe
 
     bvh             = gframe["bvh"]
     cs              = gframe["cs"]

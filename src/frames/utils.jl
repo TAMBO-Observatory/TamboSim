@@ -1,12 +1,16 @@
 """
-    get_frame(frames::Vector{Frame}, stream::Char) -> Frame
+    _get_last_frame(frames::Vector{Frame}, stream::Char) -> Frame
 
-Returns the last frame in `frames` with the given stream type. Errors if none
-is found.
+Returns the last frame in `frames` with the given stream type. Internal
+bootstrap utility — prefer navigating via parent references (e.g. `qframe.gframe`)
+wherever a parent chain already exists.
 """
-function get_frame(frames::Vector{Frame}, stream::Char)
+function _get_last_frame(frames::Vector{Frame}, stream::Char; required::Bool=true)
     idx = findlast(f -> f.stream == stream, frames)
-    isnothing(idx) && error("No '$stream' frame found in frame vector")
+    if isnothing(idx)
+        required && error("No '$stream' frame found in frame vector")
+        return nothing
+    end
     return frames[idx]
 end
 

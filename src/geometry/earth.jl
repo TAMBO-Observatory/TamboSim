@@ -188,7 +188,7 @@ CoordinateSystem(gframe::Frame) = gframe["cs"]
 Ensures the G frame has earth geometry loaded. Calls `load_earth!` if prem is missing.
 """
 function _ensure_earth_loaded!(frames::Vector{Frame})
-    gframe = get_frame(frames, 'G')
+    gframe = _get_last_frame(frames, 'G')
     if !haskey(gframe.data, "prem")
         load_earth!(gframe)
     end

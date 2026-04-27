@@ -4,7 +4,6 @@ authors = ["Carlos A. Arguelles <carguelles@fas.harvard.edu>", "Jeffrey Lazar <j
 version = "0.1.0"
 
 [deps]
-ArgParse = "c7e460c6-2fb9-53a9-8c5b-16f535851c63"
 Arrow = "69666777-d1a9-59fb-9406-91d4454c9d45"
 CoordinateTransformations = "150eb455-5306-5404-9cee-2592286d6298"
 Coverage = "a2441757-f6aa-5fb2-8edb-039e3f45d037"
@@ -38,7 +37,6 @@ PROPOSAL = {url = "https://github.com/jlazar17/PROPOSAL.jl.git"}
 TauRunner = {subdir = "TauRunner.jl", url = "https://github.com/icecube/TauRunner.git"}
 
 [compat]
-ArgParse = "1.2.0"
 Arrow = "2.8.0"
 Coverage = "1.8.1"
 Dierckx = "0.5.4"

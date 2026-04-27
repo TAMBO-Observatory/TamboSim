@@ -27,7 +27,7 @@ function _reconstruct_frames(raw::Vector{Tuple{Char,Dict{String,Any}}})
     for (stream, data) in raw
         # A new frame invalidates all lower-hierarchy context: e.g. a new G
         # frame means any cached C or Q frames belong to the previous run.
-        found = fal
+        found = false
         for s in STREAM_HIERARCHY
             found && delete!(parent_cache, s)
             s == stream && (found = true)

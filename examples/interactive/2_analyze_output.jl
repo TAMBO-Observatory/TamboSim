@@ -1,8 +1,8 @@
 # 2_analyze_output.jl
 #
-# Analyze a TamboSim simulation output: cut failed events, compute one-weights
-# for flux estimates, classify tau decay locations and products. Designed to be
-# pasted into the REPL section by section.
+# Analyze a TamboSim simulation output: filter to events where the tau decayed
+# in air, compute one-weights for flux estimates, classify decay products.
+# Designed to be pasted into the REPL section by section.
 #
 # This file targets examples/resources/example_output.jld2 so it runs on a
 # fresh checkout. With only 50 generated events, the resulting statistics
@@ -13,10 +13,9 @@
 # For frame-container and key-inheritance basics, see 1_frame_usage.jl.
 #
 # Topics covered:
-#   1. Filtering events with cut_frames!
-#   2. Computing one-weights for physical flux estimates
-#   3. Determining whether the tau decayed in rock or air
-#   4. Classifying decay-product flavor (EM / hadronic / muonic)
+#   1. Filtering to air decays with cut_frames!
+#   2. Computing one-weights (with units!) for physical flux estimates
+#   3. Classifying decay-product flavor (EM / hadronic / muonic)
 
 using LinearAlgebra
 using Statistics
@@ -30,58 +29,10 @@ example_file  = joinpath(tambo_path, "examples", "resources", "example_output.jl
 
 frames = load_frames([geometry_file, example_file])
 
-length(frames.q_frames)           # surviving Q frames in the example output
-
-# =============================================================================
-# 1. Filtering events with cut_frames!
-# =============================================================================
-# cut_frames!(frames, predicate) keeps Q frames where predicate returns true.
-# G/C/D/M frames are always preserved. Any P (physics) descendants of a cut
-# Q frame cascade out alongside their parent — though that doesn't activate
-# here, since example_output has only M+Q. See cut_frames!'s docstring for
-# the full semantics.
-
-# @doc cut_frames!                # uncomment to read the docstring inline
-
-n_before = length(frames.q_frames)
-cut_frames!(frames, f -> haskey(f, "injection_final_state"))
-cut_frames!(frames, f -> haskey(f, "proposal_final_state"))
-q_frames = frames.q_frames
-
-@show n_before length(q_frames)
-
-# =============================================================================
-# 2. One-weights for physical flux estimates
-# =============================================================================
-# Each Q frame carries weight_params, which inject! populates with the
-# generation density p_mc evaluated at the event's energy and direction.
-# The one-weight 1 / (p_mc * n_gen) gives the per-event volume in
-# (energy × area × solid-angle) phase space.
-
-n_gen = n_before  # generated count, before any cuts
-
-oneweights = Float64[]
-energies   = Float64[]
-
-for f in q_frames
-    wp = f["weight_params"]
-    pmc = Tambo.p_mc(wp)
-    ustrip_pmc = ustrip(u"GeV^-1 * m^-3 * sr^-1", pmc)
-    (ustrip_pmc <= 0 || !isfinite(ustrip_pmc)) && continue
-    push!(oneweights, 1.0 / (ustrip_pmc * n_gen))
-    push!(energies, ustrip(u"GeV", wp.generated_initial_e))
-end
-
-length(oneweights)                # events with a valid weight
-median(oneweights)                # GeV · m^3 · sr / event
-
-# =============================================================================
-# 3. Rock vs air decay
-# =============================================================================
 # A tau decay is "in air" if a ray from the decay vertex pointed radially
-# outward never re-intersects the topography. Otherwise it decayed in rock.
-
-gframe = frames.g_frames[end]
+# outward never re-intersects the topography (BVH stored on the G frame).
+# Otherwise the tau decayed inside rock. The `outward_ray` and `decayed_in_air`
+# helpers are reused in Sections 1 and 2.
 
 function outward_ray(position)
     ecef_dir = Direction(normalize(convert(ecefcoordinates, position).point),
@@ -92,15 +43,60 @@ end
 
 function decayed_in_air(frame)
     haskey(frame, "proposal_final_state") || return false
-    return isempty(intersect_all(gframe["bvh"], outward_ray(frame["proposal_final_state"].position)))
+    return isempty(intersect_all(frame["bvh"], outward_ray(frame["proposal_final_state"].position)))
 end
 
-n_air  = count(decayed_in_air, q_frames)
-n_rock = length(q_frames) - n_air
-@show n_air n_rock
+# =============================================================================
+# 1. Filtering to air decays with cut_frames!
+# =============================================================================
+# cut_frames!(frames, predicate) keeps Q frames where predicate returns true.
+# G/C/D/M frames are always preserved. Any P (physics) descendants of a cut
+# Q frame cascade out alongside their parent — though that doesn't activate
+# here, since example_output has only M+Q.
+
+# Note the `!`: in Julia, this notation denotes functions which modify their
+# argument, rather than returning a modified copy.
+
+@doc cut_frames!
+
+# Pre-cut tally:
+@show n_before     = length(frames.q_frames);
+@show n_air_before = count(decayed_in_air, frames.q_frames);
+@show n_rock_before = n_before - n_air_before;
+
+cut_frames!(frames, decayed_in_air)
+q_frames = frames.q_frames;
+@show length(q_frames);                  # should match n_air_before
 
 # =============================================================================
-# 4. Decay-product flavor classification
+# 2. One-weights for physical flux estimates
+# =============================================================================
+# Each Q frame carries weight_params, which inject! populates with the
+# generation density p_mc evaluated at the event's energy and direction.
+# The one-weight w = 1 / (p_mc · n_gen) gives the per-event volume in
+# (energy × area × solid-angle) phase space. Units: GeV · m³ · sr / event.
+# Multiplying by a flux dN/(dE·dA·dt·dΩ) (units 1/(GeV·m²·s·sr)) and an
+# exposure time (s) gives the expected event count.
+
+# Units stay attached throughout — Unitful does the bookkeeping, and the
+# REPL display tells you what you're looking at.
+
+n_gen = n_before  # generated count, before any cuts
+
+wps  = [f["weight_params"] for f in q_frames]
+pmcs = [Tambo.p_mc(wp) for wp in wps]
+
+# Filter to events with a finite, positive generation density:
+valid_idx = findall(p -> isfinite(ustrip(p)) && ustrip(p) > 0, pmcs)
+
+oneweights = [1.0 / (pmcs[i] * n_gen) for i in valid_idx]   # GeV · m³ · sr / event
+energies   = [wps[i].generated_initial_e for i in valid_idx] # GeV
+
+@show length(oneweights);
+@show median(oneweights);                # the median one-weight, with units
+
+# =============================================================================
+# 3. Decay-product flavor classification
 # =============================================================================
 # Tau decays produce a mix of leptons + hadrons. Sum decay-product energies
 # by flavor (skipping neutrinos and muons), then label by the dominant
@@ -133,8 +129,9 @@ end
 decay_types = classify_decay.(q_frames)
 Dict(t => count(==(t), decay_types) for t in (:em, :hadronic, :muonic, :no_decay))
 
-# A representative air-decay event, for poking at:
-air_idx = findfirst(decayed_in_air, q_frames)
-f = q_frames[air_idx]
+# A representative event, for poking at:
+f = first(q_frames)
 @show f["event_id"] f["proposal_final_state"].energy
 f["proposal_decay_products"]
+
+# see TamboMakie.jl for visualization functions that would allow you to plot this event!

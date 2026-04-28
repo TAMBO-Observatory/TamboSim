@@ -5,16 +5,18 @@
 # that script loads and explores.
 #
 # Pipeline: inject 50 nu_tau CC events on the colca_valley_3000 geometry,
-# cut failed injections, run PROPOSAL propagation, cut events whose final
-# state ended up inside rock. CORSIKA is not invoked — the artifact stays
-# fully reproducible without depending on the tambo_shower binary.
+# cut failed injections (PROPOSAL requires pre-filtered input), then run
+# propagation. Rock-vs-air filtering is intentionally NOT applied here —
+# we want the artifact to contain both rock and air decays so consumers
+# (e.g. 2_analyze_output.jl) can demonstrate that filter themselves.
+# CORSIKA is not invoked — the artifact stays fully reproducible without
+# depending on the tambo_shower binary.
 #
 # The output is committed to git. Re-run when the on-disk schema changes
 # (in which case 1_frame_usage.jl probably needs updating too).
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
-using LinearAlgebra
 using Tambo
 using TOML
 
@@ -37,18 +39,6 @@ inject!(frames, config["injection"])
 cut_frames!(frames, f -> haskey(f, "injection_final_state"))
 
 proposal_propagation!(frames, config["proposal"])
-gframe = frames.g_frames[end]
-
-function upray(particle)
-    d = Direction(
-        normalize(convert(ecefcoordinates, particle.position)),
-        ecefcoordinates
-    )
-    d = convert(particle.position.coordinate_system, d)
-    return Ray(particle.position, d)
-end
-isinair(particle) = isempty(intersect_all(gframe["bvh"], upray(particle)))
-cut_frames!(frames, f -> isinair(f["proposal_final_state"]))
 
 mkpath(dirname(out_file))
 save_frames(out_file, frames)

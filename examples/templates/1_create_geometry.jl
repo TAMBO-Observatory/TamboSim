@@ -1,35 +1,36 @@
-"""
-create_geometry.jl
-
-Build a Tambo geometry HDF5 file for an arbitrary site, export it to the
-PLY formats used downstream, and save a self-contained G frame JLD2.
-
-  1. HDF5 — primary source format; contains terrain mesh, PREM radii, site
-             coordinates, and detector region face indices.
-
-  2. ASCII PLY — general-purpose mesh with per-face is_in_injection flag and
-                 a custom radii element.
-
-  3. Binary PLY (CORSIKA) — binary_little_endian mesh required by the CORSIKA 8
-                             tambo_shower module.  Two files are written:
-                               custom_terrain.ply     — full terrain mesh
-                               custom_obs_surface.ply — detector region only
-
-  4. JLD2 G frame — self-contained geometry frame (mesh + BVH + coordinate
-                    system).  Downstream simulation runs can load this directly
-                    with load_frames("geometry.jld2") without needing the HDF5
-                    file.
-
-HDF5 schema written under the group key:
-  location   - [lon, lat] in degrees
-  radii      - PREM layer radii in metres (13 values)
-  vertices   - (n_verts, 3) ECEF positions in metres
-  faces      - (n_faces, 3) 1-based vertex indices
-  detector1  - 1-based face indices for the detector region
-
-For a realistic geometry replace build_terrain_patch with a function that
-interpolates actual DEM data (e.g. GEBCO earth_relief).
-"""
+# 1_create_geometry.jl
+#
+# Build a self-contained Tambo geometry bundle for a site. Writes five files
+# under `<outdir>/`, all stemmed by `<name>`:
+#
+#   <name>.h5                  HDF5 source — terrain mesh, PREM radii, site
+#                              coords, detector region face indices
+#   <name>.ply                 ASCII PLY mesh with per-face is_in_injection
+#                              flag and PREM radii (used by earth_from_ply)
+#   <name>_terrain.ply         Binary PLY for CORSIKA's tambo_shower
+#   <name>_obs_surface.ply     Binary PLY for CORSIKA, detector region only
+#   <name>.jld2                Self-contained GCD bundle, loaded directly by
+#                              downstream Tambo simulation runs
+#
+# HDF5 schema, written under the group `<name>`:
+#   location   - [lon, lat] in degrees
+#   radii      - PREM layer radii in m (13 values)
+#   vertices   - (n_verts, 3) ECEF positions in m
+#   faces      - (n_faces, 3) 1-based vertex indices
+#   detector1  - 1-based face indices for the detector region
+#
+# The terrain itself is built by `build_terrain_patch` (defined below), a
+# flat-square placeholder. For real topography, replace it with a function
+# that interpolates DEM data (e.g. GEBCO earth_relief). The CLI flags split
+# into two groups accordingly:
+#
+#   - --name, --outdir         general script args, inherent to the script's
+#                              identity and output location
+#   - --lon, --lat,            coupled to the placeholder build_terrain_patch
+#     --elevation,             — a real DEM replacement would likely take
+#     --half-width-km,         different inputs (DEM file path, bounding box,
+#     --n-cells                sampling density, etc.) and these flags would
+#                              change with the function.
 
 using ArgParse
 using HDF5
@@ -43,6 +44,8 @@ const PREM_RADII_KM = [1221.5, 3480.0, 3630.0, 5600.0, 5701.0, 5771.0,
 # =============================================================================
 # Terrain patch builder
 # =============================================================================
+
+# This function is a placeholder; the placeholder version just builds a flat plane tangent to the PREM surface at a given point and elevation.
 
 """
     build_terrain_patch(lon_deg, lat_deg, elevation_m; half_width_km, n_cells)
@@ -242,18 +245,9 @@ function parse_commandline()
     )
 
     @add_arg_table! s begin
-        "--lon"
-            help = "Site longitude in degrees"
-            arg_type = Float64
-            default = -72.5
-        "--lat"
-            help = "Site latitude in degrees"
-            arg_type = Float64
-            default = -15.6
-        "--elevation"
-            help = "Site elevation above PREM surface in metres"
-            arg_type = Float64
-            default = 3_500.0
+        # --- General script args ---
+        # Inherent to this script's job (identity + output location); persist
+        # regardless of how the terrain mesh is generated.
         "--name", "-n"
             help = "HDF5 group name and output-file stem"
             arg_type = String
@@ -262,12 +256,30 @@ function parse_commandline()
             help = "Output directory"
             arg_type = String
             default = joinpath(dirname(@__DIR__), "output")
+
+        # --- Placeholder build_terrain_patch args ---
+        # Coupled to the flat-square placeholder. A real DEM-interpolating
+        # replacement would likely take different inputs (DEM file path,
+        # bounding box, sampling density) — replace these alongside the
+        # function.
+        "--lon"
+            help = "(placeholder) Site longitude in degrees"
+            arg_type = Float64
+            default = -72.5
+        "--lat"
+            help = "(placeholder) Site latitude in degrees"
+            arg_type = Float64
+            default = -15.6
+        "--elevation"
+            help = "(placeholder) Site elevation above PREM surface in metres"
+            arg_type = Float64
+            default = 3_500.0
         "--half-width-km"
-            help = "Terrain patch half-width in km"
+            help = "(placeholder) Terrain patch half-width in km"
             arg_type = Float64
             default = 50.0
         "--n-cells"
-            help = "Cells per side in the terrain mesh (2 n_cells² triangles total)"
+            help = "(placeholder) Cells per side in the terrain mesh (2 n_cells² triangles total)"
             arg_type = Int
             default = 30
     end

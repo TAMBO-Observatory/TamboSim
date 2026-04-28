@@ -27,7 +27,7 @@ config_file   = joinpath(tambo_path, "resources", "configuration_examples", "tau
 # simulation output (M+Q frames), and parent references are reconstructed
 # from stream order at load time.
 
-frames = load_frames([geometry_file, example_file]);
+frames = load_frames([geometry_file, example_file])
 
 # =============================================================================
 # 2. Exploring the TamboFrames container
@@ -40,12 +40,15 @@ length(frames)                    # total frame count
 length(frames.q_frames)           # event frames only
 length(frames.g_frames)           # geometry frames
 
-# Per-stream property accessors return Vector{Frame}. `frames_of_stream` is
-# the equivalent function call — useful when the stream tag is dynamic, or
-# when you have a plain Vector{Frame} rather than a TamboFrames.
+# Per-stream property accessors return Vector{Frame}. 
 frames.g_frames                   # vector containing the one G frame
 frames.m_frames                   # one M frame per inject! call (one here)
 frames.q_frames[1]                # first event frame
+
+# `frames_of_stream` is the equivalent function call — useful when the stream 
+# tag is dynamic, or when you have a plain Vector{Frame} rather than a TamboFrames.
+frames.q_frames
+frames_of_stream( frames, 'Q' )
 
 # =============================================================================
 # 3. Key lookup and parent inheritance
@@ -80,10 +83,10 @@ haskey(qframe, "nonexistent_key") # false — getindex on this would throw KeyEr
 # each take a sub-table from the parsed config and snapshot it onto the M
 # frame, so the example_output's M frame mirrors what's in the TOML.
 
-config = TOML.parsefile(config_file);
-relativize!(config);
+config = TOML.parsefile(config_file)
+relativize!(config)
 
-keys(config) |> collect |> sort   # top-level: "injection", "proposal", "corsika"
+keys(config) |> collect |> sort   # top-level: "injection", "proposal", "corsika", "geometry"
 
 config["injection"]               # injection knobs: energy spectrum, region, PDG, ...
 config["proposal"]                # PROPOSAL settings

@@ -1,20 +1,14 @@
-"""
-add_detector_units.jl
-
-Load each candidate site GCD bundle, compute the OBBs (detection units)
-from the detector surface, and store them back in the D frame.
-
-The OBBs are placed on a hexagonal grid that is projected onto the detector
-surface triangles. The grid extent is derived from the actual detector
-centroids for each site rather than being hardcoded.
-
-Keys added to the D frame:
-  "detector_units"     — Vector{OBB{Float64}}, one per module
-  "detector_unit_bvh"  — BVHTree over those OBBs (for fast hit queries)
-
-Output: each candidate_site_N.jld2 is overwritten in-place with the
-updated D frame.
-"""
+# add_detector_units_batch.jl
+#
+# Tambo-collab batch op: for each candidate_site_*.jld2 in resources/geometry/,
+# place detector units (OBBs) and write them back into the D frame in place.
+#
+# For single-site placement (external-user / per-site workflow) see the
+# template at examples/templates/2_create_detector.jl.
+#
+# Keys added to each D frame:
+#   "detector_units"     — Vector{OBB{Float64}}, one per module
+#   "detector_unit_bvh"  — BVHTree over those OBBs (for fast hit queries)
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
@@ -24,14 +18,17 @@ using Tambo
 using Unitful
 
 const GEO_DIR      = joinpath(tambo_path, "resources", "geometry")
-const Δy           = 125.0u"m"
+const SPACING      = 125.0u"m"
 const HALF_LENGTHS = [1.0u"m", 1.0u"m", 0.125u"m"]
 const GRID_MARGIN  = 500.0u"m"
 const MAX_SLOPE    = parse(Float64, get(ENV, "MAX_SLOPE_DEG", "35"))  # degrees
 
-function build_detector_units(g_frame::Frame, d_frame::Frame; max_slope_deg=MAX_SLOPE)
-    cs  = g_frame["cs"]
-    bvh = d_frame["detector_bvh"]
+# NOTE: this function is also defined verbatim in
+# examples/templates/2_create_detector.jl. Both copies will be removed once the
+# algorithm is lifted into Tambo proper as `Tambo.place_detector_units`.
+function build_detector_units(gframe::Frame, dframe::Frame, spacing; max_slope_deg)
+    cs  = gframe["cs"]
+    bvh = dframe["detector_bvh"]
     det_triangles = bvh.triangles
 
     # Area-weighted centroid and normal of the detector surface
@@ -52,13 +49,8 @@ function build_detector_units(g_frame::Frame, d_frame::Frame; max_slope_deg=MAX_
     # Each spacing is reduced by cos(slope) in its respective direction.
     n_vec = plane.normal.point  # unit normal in CS [nx, ny, nz]
     nx, ny, nz = n_vec[1], n_vec[2], n_vec[3]
-    # Δy is the target nearest-neighbor distance on the surface.
-    # In a hex grid: within-row spacing = d, row spacing = d*sqrt(3)/2.
-    # The tilt correction maps each 3D surface distance to its horizontal projection:
-    # horizontal = d * nz / sqrt(n_perp^2 + nz^2), where n_perp is the normal component
-    # in that direction.
-    Δx        = (nz / sqrt(nx^2 + nz^2)) * Δy
-    Δy_grid   = (nz / sqrt(ny^2 + nz^2)) * Δy * sqrt(3) / 2
+    Δx        = (nz / sqrt(nx^2 + nz^2)) * spacing
+    Δy_grid   = (nz / sqrt(ny^2 + nz^2)) * spacing * sqrt(3) / 2
 
     # Grid bounds from detector centroid extents + margin
     xs_raw = [c[1] for c in centroids] .* u"m"
@@ -104,18 +96,18 @@ end
 
 site_files = sort(filter(f -> startswith(basename(f), "candidate_site_"), readdir(GEO_DIR, join=true)))
 
-println("Adding detector units to $(length(site_files)) candidate site GCD bundles (max slope: $(MAX_SLOPE)°)\n")
+println("Adding detector units to $(length(site_files)) candidate site GCD bundles (spacing $SPACING, max slope $(MAX_SLOPE)°)\n")
 
 for jld2_path in site_files
     site = replace(basename(jld2_path), ".jld2" => "")
     frames = load_frames(jld2_path)
-    g_frame = Tambo._get_last_frame(frames, 'G')
-    d_frame = Tambo._get_last_frame(frames, 'D')
+    gframe = frames.g_frames[end]
+    dframe = frames.d_frames[end]
 
-    obbs, obb_bvh = build_detector_units(g_frame, d_frame)
+    obbs, obb_bvh = build_detector_units(gframe, dframe, SPACING; max_slope_deg=MAX_SLOPE)
 
-    d_frame["detector_units"]    = obbs
-    d_frame["detector_unit_bvh"] = obb_bvh
+    dframe["detector_units"]    = obbs
+    dframe["detector_unit_bvh"] = obb_bvh
 
     save_frames(jld2_path, frames, streams=('G', 'C', 'D'))
 

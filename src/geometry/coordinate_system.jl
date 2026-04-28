@@ -47,8 +47,16 @@ Returns the element type of the `CoordinateSystem`, which is typically the eleme
 """
 Base.eltype(cs::CoordinateSystem) = eltype(cs.rotation)
 
-# Float64 precision floor: all geometry ultimately references this constant,
-# so sub-Float64 precision is not achievable end-to-end.
+"""
+    ecefcoordinates
+
+Canonical Earth-Centered, Earth-Fixed `CoordinateSystem`: origin at `(0, 0, 0)` m
+with the identity rotation. Serves as the global reference frame to which all
+other `CoordinateSystem`s are ultimately resolved.
+
+Element type is `Float64`; because every coordinate transform chains back to this
+constant, sub-`Float64` precision is not achievable end-to-end.
+"""
 const ecefcoordinates = CoordinateSystem(
     SVector{3}([0.0*u"m", 0.0*u"m", 0.0*u"m"]),
     SMatrix{3, 3, Float64, 9}([1.0 0.0 0.0 0.0 1.0 0.0 0.0 0.0 1.0])

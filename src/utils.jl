@@ -22,6 +22,11 @@ function get_git_commit_hash()::Union{String, Nothing}
     end
 end
 
+"""
+    get_version_string() -> String
+
+Returns the Tambo package version string as recorded in its `Project.toml`.
+"""
 function get_version_string()
     string(pkgversion(Tambo))
 end

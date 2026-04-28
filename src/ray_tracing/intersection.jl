@@ -131,7 +131,22 @@ function find_intersect(ray::Ray{T}, triangle::Triangle{T}, tri_index::Int=-1) w
     return TriangleIntersection(point, normal, t * u"m", u, v, true, tri_index)
 end
 
-# Find all intersections (not just closest)
+"""
+    intersect_all(bvh::BVHTree{T}, ray::Ray{T}) -> Vector{TriangleIntersection{T}}
+
+Calculates all intersections between a `Ray` and the triangles of a `BVHTree`.
+
+Traverses the BVH from the root, collecting every triangle hit along the ray. The
+returned vector is sorted by distance from the ray origin.
+
+# Arguments
+- `bvh::BVHTree{T}`: The BVH-accelerated triangle mesh to test against.
+- `ray::Ray{T}`: The ray to test.
+
+# Returns
+- `Vector{TriangleIntersection{T}}`: Triangle intersections sorted by distance, or
+  empty if the ray misses the mesh.
+"""
 function intersect_all(
     bvh::BVHTree{T},
     ray::Ray{T}

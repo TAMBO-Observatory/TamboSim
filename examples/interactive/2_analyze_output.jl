@@ -1,71 +1,70 @@
-"""
-analyze_simulation.jl
-
-Demonstrates how to work with Tambo simulation output stored in JLD2 files.
-Covers the common analysis patterns:
-
-  1. Loading frames and iterating events
-  2. Accessing particle states and weight parameters
-  3. Cutting events that failed injection
-  4. Computing one-weights for physical flux estimates
-  5. Determining whether the tau decayed in rock or air
-  6. Inspecting decay products
-
-Expected input: a JLD2 file produced by inject! + proposal_propagation!,
-saved with save_frames.
-"""
+# 2_analyze_output.jl
+#
+# Analyze a TamboSim simulation output: cut failed events, compute one-weights
+# for flux estimates, classify tau decay locations and products. Designed to be
+# pasted into the REPL section by section.
+#
+# This file targets examples/resources/example_output.jld2 so it runs on a
+# fresh checkout. With only 50 generated events, the resulting statistics
+# (one-weight distribution, rock-vs-air ratios, decay classification) are
+# noisy — for meaningful analysis, re-run after producing a larger output
+# via templates/6_full_pipeline.jl.
+#
+# For frame-container and key-inheritance basics, see 1_frame_usage.jl.
+#
+# Topics covered:
+#   1. Filtering events with cut_frames!
+#   2. Computing one-weights for physical flux estimates
+#   3. Determining whether the tau decayed in rock or air
+#   4. Classifying decay-product flavor (EM / hadronic / muonic)
 
 using LinearAlgebra
 using Statistics
 using Tambo
 using Unitful: ustrip, @u_str
 
-gc_path  = joinpath(dirname(@__DIR__), "output", "gc_frames.jld2")
-sim_path = joinpath(dirname(@__DIR__), "output", "simulation_proposal.jld2")
+tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
-frames = load_frames([gc_path, sim_path])
-q_frames = filter(f -> f.stream == 'Q', frames)
-println("Loaded $(length(q_frames)) event frames from $sim_path")
+geometry_file = joinpath(tambo_path, "resources", "geometry", "colca_valley_3000.jld2")
+example_file  = joinpath(tambo_path, "examples", "resources", "example_output.jld2")
 
-# =============================================================================
-# 1. Accessing frame variables
-# =============================================================================
-# Each Q frame is a hierarchical dict. Keys are written by inject! and
-# proposal_propagation! using their outprefix arguments (default: "injection"
-# and "proposal"). Every frame has an event_id set at creation time.
+frames = load_frames([geometry_file, example_file])
 
-frame = first(q_frames)
-println("\n--- Frame keys ---")
-println(collect(keys(frame)))
-
-println("\n--- Event $(frame["event_id"]) ---")
-println("  initial neutrino energy : ", frame["injection_initial_state"].energy)
-
-if haskey(frame, "injection_final_state")
-    tau = frame["injection_final_state"]
-    println("  tau energy at vertex    : ", tau.energy)
-    println("  tau PDG                 : ", tau.pdg)
-end
+length(frames.q_frames)           # surviving Q frames in the example output
 
 # =============================================================================
-# 2. Cutting events that did not pass injection
+# 1. Filtering events with cut_frames!
 # =============================================================================
-n_before = length(q_frames)
-filter!(frame -> haskey(frame, "injection_final_state"), frames)
-filter!(frame -> haskey(frame, "proposal_final_state"), frames)
-q_frames = filter(f -> f.stream == 'Q', frames)
-println("\nAfter cuts: $(length(q_frames)) / $n_before events pass")
+# cut_frames!(frames, predicate) keeps Q frames where predicate returns true.
+# G/C/D/M frames are always preserved. Any P (physics) descendants of a cut
+# Q frame cascade out alongside their parent — though that doesn't activate
+# here, since example_output has only M+Q. See cut_frames!'s docstring for
+# the full semantics.
+
+# @doc cut_frames!                # uncomment to read the docstring inline
+
+n_before = length(frames.q_frames)
+cut_frames!(frames, f -> haskey(f, "injection_final_state"))
+cut_frames!(frames, f -> haskey(f, "proposal_final_state"))
+q_frames = frames.q_frames
+
+@show n_before length(q_frames)
 
 # =============================================================================
-# 3. Computing one-weights
+# 2. One-weights for physical flux estimates
 # =============================================================================
-n_gen = n_before
+# Each Q frame carries weight_params, which inject! populates with the
+# generation density p_mc evaluated at the event's energy and direction.
+# The one-weight 1 / (p_mc * n_gen) gives the per-event volume in
+# (energy × area × solid-angle) phase space.
+
+n_gen = n_before  # generated count, before any cuts
 
 oneweights = Float64[]
 energies   = Float64[]
 
-for frame in q_frames
-    wp = frame["weight_params"]
+for f in q_frames
+    wp = f["weight_params"]
     pmc = Tambo.p_mc(wp)
     ustrip_pmc = ustrip(u"GeV^-1 * m^-3 * sr^-1", pmc)
     (ustrip_pmc <= 0 || !isfinite(ustrip_pmc)) && continue
@@ -73,14 +72,16 @@ for frame in q_frames
     push!(energies, ustrip(u"GeV", wp.generated_initial_e))
 end
 
-println("\nOne-weight statistics (units: GeV m^3 sr / event):")
-println("  n events with valid weight : $(length(oneweights))")
-isempty(oneweights) || println("  median one-weight          : $(round(median(oneweights), sigdigits=3))")
+length(oneweights)                # events with a valid weight
+median(oneweights)                # GeV · m^3 · sr / event
 
 # =============================================================================
-# 4. Rock vs air decay
+# 3. Rock vs air decay
 # =============================================================================
-g_frame = Tambo._get_last_frame(frames, 'G')
+# A tau decay is "in air" if a ray from the decay vertex pointed radially
+# outward never re-intersects the topography. Otherwise it decayed in rock.
+
+gframe = frames.g_frames[end]
 
 function outward_ray(position)
     ecef_dir = Direction(normalize(convert(ecefcoordinates, position).point),
@@ -91,18 +92,22 @@ end
 
 function decayed_in_air(frame)
     haskey(frame, "proposal_final_state") || return false
-    return isempty(intersect_all(g_frame["bvh"], outward_ray(frame["proposal_final_state"].position)))
+    return isempty(intersect_all(gframe["bvh"], outward_ray(frame["proposal_final_state"].position)))
 end
 
 n_air  = count(decayed_in_air, q_frames)
 n_rock = length(q_frames) - n_air
-println("\nDecay location:")
-println("  air decays  : $n_air")
-println("  rock decays : $n_rock")
+@show n_air n_rock
 
 # =============================================================================
-# 5. Inspecting decay products
+# 4. Decay-product flavor classification
 # =============================================================================
+# Tau decays produce a mix of leptons + hadrons. Sum decay-product energies
+# by flavor (skipping neutrinos and muons), then label by the dominant
+# component: EM (>80% e/γ), hadronic (otherwise with visible energy), or
+# muonic (everything ended up in skipped leptonic channels — implies a
+# μ ν ν branch leaving no visible shower energy).
+
 const EM_PDGS   = Set([11, -11, 22])
 const SKIP_PDGS = Set([12, 14, 16, -12, -14, -16, 13, -13])
 
@@ -126,17 +131,10 @@ function classify_decay(frame)
 end
 
 decay_types = classify_decay.(q_frames)
-println("\nDecay type classification:")
-for t in (:em, :hadronic, :muonic, :no_decay)
-    println("  $t : $(count(==(t), decay_types))")
-end
+Dict(t => count(==(t), decay_types) for t in (:em, :hadronic, :muonic, :no_decay))
 
+# A representative air-decay event, for poking at:
 air_idx = findfirst(decayed_in_air, q_frames)
-if !isnothing(air_idx)
-    frame = q_frames[air_idx]
-    println("\nFirst air-decay event (event_id=$(frame["event_id"])):")
-    println("  tau final energy : ", frame["proposal_final_state"].energy)
-    for (i, p) in enumerate(frame["proposal_decay_products"])
-        println("  product $i: pdg=$(p.pdg)  energy=$(round(ustrip(u"GeV", p.energy), sigdigits=4)) GeV")
-    end
-end
+f = q_frames[air_idx]
+@show f["event_id"] f["proposal_final_state"].energy
+f["proposal_decay_products"]

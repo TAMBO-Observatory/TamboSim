@@ -31,6 +31,7 @@ For a realistic geometry replace build_terrain_patch with a function that
 interpolates actual DEM data (e.g. GEBCO earth_relief).
 """
 
+using ArgParse
 using HDF5
 using LinearAlgebra
 using Tambo
@@ -235,41 +236,83 @@ end
 # Main
 # =============================================================================
 
-lon_deg     = -72.5
-lat_deg     = -15.6
-elevation_m = 3_500.0
-groupname   = "custom_site"
-outdir      = joinpath(dirname(@__DIR__), "output")
+function parse_commandline()
+    s = ArgParseSettings(
+        description = "Build a Tambo geometry HDF5 + PLY + JLD2 bundle for a custom site"
+    )
+
+    @add_arg_table! s begin
+        "--lon"
+            help = "Site longitude in degrees"
+            arg_type = Float64
+            default = -72.5
+        "--lat"
+            help = "Site latitude in degrees"
+            arg_type = Float64
+            default = -15.6
+        "--elevation"
+            help = "Site elevation above PREM surface in metres"
+            arg_type = Float64
+            default = 3_500.0
+        "--name", "-n"
+            help = "HDF5 group name and output-file stem"
+            arg_type = String
+            default = "custom_site"
+        "--outdir", "-o"
+            help = "Output directory"
+            arg_type = String
+            default = joinpath(dirname(@__DIR__), "output")
+        "--half-width-km"
+            help = "Terrain patch half-width in km"
+            arg_type = Float64
+            default = 50.0
+        "--n-cells"
+            help = "Cells per side in the terrain mesh (2 n_cells² triangles total)"
+            arg_type = Int
+            default = 30
+    end
+
+    return parse_args(s)
+end
+
+args = parse_commandline()
+
+lon_deg     = args["lon"]
+lat_deg     = args["lat"]
+elevation_m = args["elevation"]
+groupname   = args["name"]
+outdir      = args["outdir"]
 mkpath(outdir)
 
-h5_path          = joinpath(outdir, "custom_geometry.h5")
-ply_path         = joinpath(outdir, "custom_geometry.ply")
-corsika_terrain  = joinpath(outdir, "custom_terrain.ply")
-corsika_obs      = joinpath(outdir, "custom_obs_surface.ply")
+h5_path          = joinpath(outdir, "$(groupname).h5")
+ply_path         = joinpath(outdir, "$(groupname).ply")
+corsika_terrain  = joinpath(outdir, "$(groupname)_terrain.ply")
+corsika_obs      = joinpath(outdir, "$(groupname)_obs_surface.ply")
+g_path           = joinpath(outdir, "$(groupname).jld2")
 
 # --- 1. HDF5 ---
 vertices, faces, detector_indices = write_geometry_h5(
     h5_path, groupname, lon_deg, lat_deg, elevation_m;
-    half_width_km=50.0, n_cells=30
+    half_width_km = args["half-width-km"],
+    n_cells       = args["n-cells"],
 )
 
 # --- Build and save GCD bundle ---
 # build_gcd_bundle reads the HDF5 and produces G + blank C + D frames.
 # Saving with streams=('G','C','D') produces a self-contained JLD2 — downstream
-# simulation runs use load_frames("geometry.jld2") and never touch the HDF5.
+# simulation runs use load_frames(g_path) and never touch the HDF5.
 println("\nBuilding GCD bundle and saving to JLD2...")
-g_path = joinpath(outdir, "geometry.jld2")
 frames = Tambo.build_gcd_bundle("$h5_path:$groupname", "detector1")
 save_frames(g_path, frames, streams=('G', 'C', 'D'))
 println("  Saved → $g_path ($(round(filesize(g_path)/1024^2, digits=1)) MB)")
 
 # Verify round-trip: reload from JLD2 (no HDF5 file needed).
 frames2 = load_frames(g_path)
-g_frame2 = Tambo._get_last_frame(frames2, 'G')
-d_frame2 = Tambo._get_last_frame(frames2, 'D')
-n_prem   = length(g_frame2["prem"])
-n_tris   = length(g_frame2["topography"])
-n_det    = length(d_frame2["detector_region"])
+gframe2 = frames2.g_frames[end]
+dframe2 = frames2.d_frames[end]
+n_prem   = length(gframe2["prem"])
+n_tris   = length(gframe2["topography"])
+n_det    = length(dframe2["detector_region"])
 println("  Reloaded — PREM layers: $n_prem  triangles: $n_tris  detector faces: $n_det")
 
 # --- 2. ASCII PLY (for earth_from_ply) ---

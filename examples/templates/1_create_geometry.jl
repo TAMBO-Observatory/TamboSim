@@ -26,12 +26,14 @@
 #
 #   - --name, --outdir         general script args, inherent to the script's
 #                              identity and output location
+#
 #   - --lon, --lat,            coupled to the placeholder build_terrain_patch
 #     --elevation,             — a real DEM replacement would likely take
 #     --half-width-km,         different inputs (DEM file path, bounding box,
 #     --n-cells                sampling density, etc.) and these flags would
 #                              change with the function.
 
+using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
 using HDF5
 using LinearAlgebra
@@ -45,8 +47,7 @@ const PREM_RADII_KM = [1221.5, 3480.0, 3630.0, 5600.0, 5701.0, 5771.0,
 # Terrain patch builder
 # =============================================================================
 
-# This function is a placeholder; the placeholder version just builds a flat plane tangent to the PREM surface at a given point and elevation.
-
+# This function is a placeholder -- replace with something physical!
 """
     build_terrain_patch(lon_deg, lat_deg, elevation_m; half_width_km, n_cells)
 

@@ -18,58 +18,23 @@ function intersect_module_signed(event, bvh)
 end
 
 frames = Tambo.load_frames([gc_file, "$(basedir)/simfile_corsika.jld2"])
-g_frame = Tambo._get_last_frame(frames, 'G')
-d_frame = Tambo._get_last_frame(frames, 'D')
+gframe = Tambo._get_last_frame(frames, 'G')
+dframe = Tambo._get_last_frame(frames, 'D')
 q_frames = filter(f -> f.stream == 'Q', frames)
 
-cs  = g_frame["cs"]
-bvh = d_frame["detector_bvh"]
+cs = gframe["cs"]
 
-Δy = 125.0u"m"
-det_triangles = d_frame["detector_bvh"].triangles
-areas     = ustrip.(u"m^2", Tambo.area.(det_triangles))
-centroids = [ustrip.(u"m", (t.v1.point + t.v2.point + t.v3.point) ./ 3) for t in det_triangles]
-normals   = [Tambo.normal(t).point for t in det_triangles]
-total_a   = sum(areas)
-wc = sum(a .* c for (a, c) in zip(areas, centroids)) ./ total_a
-wn = sum(a .* n for (a, n) in zip(areas, normals))
-point     = Tambo.Coordinate(wc .* u"m", cs)
-direction = Tambo.Direction(wn, cs)
-plane = Tambo.Plane(point, direction)
-up = Tambo.Direction([0.0, 0.0, 1.0], cs)
-Δx = dot(up, plane.normal) * Δy * sqrt(3) / 2
+haskey(dframe, "detector_unit_bvh") || error(
+    """
+    D frame does not contain "detector_unit_bvh".
 
-ps = Tambo.Coordinate[]
-base_xs = collect(-1000u"m":Δx:750u"m")
-base_ys = collect(-2000u"m":Δy:2000u"m")
-
-for (idx, y) in enumerate(base_ys)
-   xoffset = mod(idx, 2)==0 ? 0.0u"m" : Δx / 2
-   xs = base_xs .+ xoffset
-   coords = [Tambo.Coordinate(x, y, 0.0u"m", cs) for x in xs]
-   rays = Tambo.Ray.(coords, Ref(up))
-   for ray in rays
-       ixs = Tambo.intersect_all(bvh, ray)
-       if length(ixs)==0
-           continue
-       end
-       push!(ps, ray.origin)
-   end
-end
-
-detection_units = Tambo.OBB{Float64}[]
-half_lengths = [1.0u"m", 1.0u"m", 0.125u"m"]
-for p in ps
-    ray = Tambo.Ray(p, up)
-    ixs = Tambo.intersect_all(bvh, ray)
-    n̂ = cross(up, ixs[1].normal)
-    ψ = acos(dot(ixs[1].normal, up))
-    rot = AngleAxis(ψ, n̂...)
-    center = ixs[1].point
-    obb = Tambo.OBB(center, rot, half_lengths)
-    push!(detection_units, obb)
-end
-detection_unit_bvh = Tambo.BVHTree(detection_units)
+    This script requires the input GC bundle to have detector units already
+    placed in its D frame. Run a detector-placement step on $gc_file before
+    re-running this script — see examples/_internal/add_detector_units.jl
+    (or examples/templates/2_create_detector.jl, when available).
+    """
+)
+detector_unit_bvh = dframe["detector_unit_bvh"]
 
 @showprogress for frame in q_frames
     d = "$(basedir)/event_$(lpad(frame["event_id"], 6, "0"))/"
@@ -82,7 +47,7 @@ detection_unit_bvh = Tambo.BVHTree(detection_units)
     end
 
     for event in events
-        result = intersect_module_signed(event, detection_unit_bvh)
+        result = intersect_module_signed(event, detector_unit_bvh)
         isnothing(result) && continue
         ix, sign = result
         p = event.particle

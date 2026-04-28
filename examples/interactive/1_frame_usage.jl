@@ -50,6 +50,13 @@ frames.q_frames[1]                # first event frame
 frames.q_frames
 frames_of_stream( frames, 'Q' )
 
+# If you're curious about a function or struct, you can use Julia's help mode,
+# which is accessible by typing `?` into the REPL or using `@doc` inline.
+# for example:
+@doc Frame
+
+@doc TamboFrames
+
 # =============================================================================
 # 3. Key lookup and parent inheritance
 # =============================================================================

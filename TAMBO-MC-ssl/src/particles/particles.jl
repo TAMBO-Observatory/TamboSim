@@ -1,5 +1,0 @@
-include("pdg_ids.jl")
-include("fit_status.jl")
-include("particle_shape.jl")
-#include("particle_definition.jl")
-include("particle_state.jl")

@@ -1,4 +1,4 @@
-tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(@__DIR__))
+tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using ArgParse
 using LinearAlgebra

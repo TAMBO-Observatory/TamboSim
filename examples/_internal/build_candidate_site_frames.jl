@@ -13,7 +13,7 @@ Each JLD2 can be loaded directly with load_frames("candidate_site_N.jld2")
 without needing the source HDF5 file.
 """
 
-tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(@__DIR__))
+tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using HDF5
 using Tambo

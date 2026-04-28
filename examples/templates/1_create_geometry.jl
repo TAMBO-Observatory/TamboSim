@@ -239,7 +239,7 @@ lon_deg     = -72.5
 lat_deg     = -15.6
 elevation_m = 3_500.0
 groupname   = "custom_site"
-outdir      = joinpath(@__DIR__, "output")
+outdir      = joinpath(dirname(@__DIR__), "output")
 mkpath(outdir)
 
 h5_path          = joinpath(outdir, "custom_geometry.h5")

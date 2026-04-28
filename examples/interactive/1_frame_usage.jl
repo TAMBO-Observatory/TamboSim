@@ -14,7 +14,7 @@
 using Tambo
 using TOML
 
-tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(@__DIR__))
+tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 output_dir = mkpath(joinpath(tambo_path, "examples", "output"))
 
 config_file = joinpath(tambo_path, "resources", "configuration_examples", "tau_neutrino_cc.toml")

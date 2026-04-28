@@ -20,8 +20,8 @@ using Statistics
 using Tambo
 using Unitful: ustrip, @u_str
 
-gc_path  = joinpath(@__DIR__, "output", "gc_frames.jld2")
-sim_path = joinpath(@__DIR__, "output", "simulation_proposal.jld2")
+gc_path  = joinpath(dirname(@__DIR__), "output", "gc_frames.jld2")
+sim_path = joinpath(dirname(@__DIR__), "output", "simulation_proposal.jld2")
 
 frames = load_frames([gc_path, sim_path])
 q_frames = filter(f -> f.stream == 'Q', frames)

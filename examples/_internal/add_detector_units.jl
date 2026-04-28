@@ -16,7 +16,7 @@ Output: each candidate_site_N.jld2 is overwritten in-place with the
 updated D frame.
 """
 
-tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(@__DIR__))
+tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using LinearAlgebra
 using Rotations

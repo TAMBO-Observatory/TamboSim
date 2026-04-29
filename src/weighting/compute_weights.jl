@@ -186,3 +186,21 @@ object and calls the primary `p_phys` function.
 function p_phys(wp::WeightParameters{T}) where {T<:Real}
     return p_phys(wp.generated_cd, wp.generated_density, wp.generated_diff_xs)
 end
+
+"""
+    p_mc_surface(wp::WeightParameters{T})
+
+MC probability density for surface-injected particles (muons, protons).
+No cross-section or column-depth factor — just power law × solid angle × area.
+"""
+function p_mc_surface(wp::WeightParameters{T}) where {T<:Real}
+    if wp.generated_initial_e == 0.0u"GeV" || isnan(ustrip(wp.generated_initial_e))
+        return 0.0 * u"GeV^-1 * m^-2 * sr^-1"
+    end
+    norm = pl_norm(wp.gamma, wp.emin, wp.emax)
+    p = norm * (wp.generated_initial_e / wp.emin) ^ -wp.gamma
+    Ω = (cos(wp.thetamin) - cos(wp.thetamax)) * (wp.phimax - wp.phimin)
+    p /= Ω
+    p /= wp.area
+    return p
+end

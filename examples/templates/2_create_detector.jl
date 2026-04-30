@@ -15,6 +15,7 @@
 # Default behavior overwrites the input file in place.
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
+default_geometry_jld2 = joinpath(tambo_path, "examples", "output", "geometry", "custom_site.jld2")
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
@@ -23,7 +24,11 @@ using Rotations
 using Tambo
 using Unitful
 
+# Dimensions of a single detection unit
 const HALF_LENGTHS = [1.0u"m", 1.0u"m", 0.125u"m"]
+
+# Padding factor to handle edge effects in module placement on the grid:
+# (a) the irregular shape of the detector region — centroids only mark triangle centers, not the full extent of each triangle; (b) floating-point inexactness in the ray-cast; (c) the hex grid's row offsets pushing some rows just outside the detector range
 const GRID_MARGIN  = 500.0u"m"
 
 # NOTE: this function is also defined verbatim in
@@ -110,7 +115,7 @@ function parse_commandline()
         "--input", "-i"
             help = "Path to GC bundle JLD2 (produced by 1_create_geometry.jl)"
             arg_type = String
-            required = true
+            default = default_geometry_jld2
         "--output", "-o"
             help = "Output JLD2 path (defaults to overwriting --input)"
             arg_type = String
@@ -134,6 +139,15 @@ infile  = args["input"]
 outfile = isempty(args["output"]) ? infile : args["output"]
 spacing = args["spacing"] * u"m"
 slope   = args["slope"]
+
+isfile(infile) || error(
+    """
+    GC bundle JLD2 not found: $infile
+
+    Run examples/templates/1_create_geometry.jl first to produce it (or pass
+    an explicit --input path).
+    """
+)
 
 frames = load_frames(infile)
 gframe = frames.g_frames[end]

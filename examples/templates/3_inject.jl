@@ -1,9 +1,36 @@
+# 3_inject.jl
+#
+# Sample neutrino primaries on a Tambo geometry and write the resulting Q
+# frames to disk. Wraps `inject!`, which reads its parameters from the
+# `[injection]` table of a configuration TOML.
+#
+# Input:
+#   <geometry>.jld2     a GCD bundle from 1_create_geometry.jl (D frame may
+#                       or may not have detector units placed; injection
+#                       does not need them)
+#   <config>.toml       injection settings — energy range, zenith range,
+#                       primary PDG, n events, RNG seed (`pinecone`)
+#
+# Output:
+#   <outfile>.jld2      Q-frame stream containing one frame per sampled
+#                       primary, with key `injection_final_state` (and a
+#                       few siblings) populated. By default, frames whose
+#                       injection failed (region not visible from the chosen
+#                       direction) are dropped — pass `--no-cut` to keep them.
+#
+# CLI flags `--nevent`, `--pdg`, `--seed` override the corresponding TOML
+# values (`pinecone` for the seed) so a single config can serve sweeps.
+
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
 using Tambo
 using TOML
+
+# =============================================================================
+# Main
+# =============================================================================
 
 function parse_commandline()
     s = ArgParseSettings(
@@ -22,7 +49,7 @@ function parse_commandline()
         "--outfile", "-o"
             help = "Output JLD2 file path for simulation frames"
             arg_type = String
-            default = "$(tambo_path)/examples/output/injected_events.jld2"
+            default = "$(tambo_path)/examples/output/injected.jld2"
         "--nevent", "-n"
             help = "Number of events to simulate"
             arg_type = Int
@@ -58,9 +85,10 @@ if !isnothing(args["seed"])
     injection_config["pinecone"] = args["seed"]
 end
 
-@show injection_config["nevent"]
-@show injection_config["pdg"]
-@show cut_failed
+println("Injection settings:")
+println("  primary PDG       : $(injection_config["pdg"])")
+println("  n events to throw : $(injection_config["nevent"])")
+println("  drop failed events: $cut_failed")
 
 frames = load_frames(args["geometry"])
 inject!(frames, injection_config)

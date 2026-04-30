@@ -256,7 +256,7 @@ function parse_commandline()
         "--outdir", "-o"
             help = "Output directory"
             arg_type = String
-            default = joinpath(dirname(@__DIR__), "output")
+            default = joinpath(dirname(@__DIR__), "output", "geometry")
 
         # --- Placeholder build_terrain_patch args ---
         # Coupled to the flat-square placeholder. A real DEM-interpolating

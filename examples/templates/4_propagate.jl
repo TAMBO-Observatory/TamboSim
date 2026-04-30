@@ -18,15 +18,14 @@
 #
 # Optional `--cut-inmountain` drops events whose `proposal_final_state` ends
 # below the topography surface — i.e. the lepton ranged out inside rock and
-# will not produce an air shower. The `upray`/`isinair` helper that
-# implements this lives inline; it shoots a vertical ray from the particle
-# position and asks whether the topography BVH sits above it.
+# will not produce an air shower. We delegate the test to
+# `Tambo.is_above_topography`, which shoots a radially-outward ray from the
+# particle's position and asks whether the topography BVH sits above it.
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
-using LinearAlgebra
 using Tambo
 using TOML
 
@@ -94,19 +93,8 @@ proposal_propagation!(frames, proposal_config)
 println("After propagation: $(count(f -> f.stream == 'Q', frames)) Q frames")
 
 if cut_inmountain
-    gframe = frames.g_frames[end]
-
-    function upray(particle)
-        d = Direction(
-            normalize(convert(ecefcoordinates, particle.position)),
-            ecefcoordinates
-        )
-        d = convert(particle.position.coordinate_system, d)
-        return Ray(particle.position, d)
-    end
-
-    isinair(particle) = isempty(intersect_all(gframe["bvh"], upray(particle)))
-    cut_frames!(frames, frame -> isinair(frame["proposal_final_state"]))
+    bvh = frames.g_frames[end]["bvh"]
+    cut_frames!(frames, frame -> is_above_topography(frame["proposal_final_state"], bvh))
 end
 
 println("After in-mountain cut: $(count(f -> f.stream == 'Q', frames)) Q frames")

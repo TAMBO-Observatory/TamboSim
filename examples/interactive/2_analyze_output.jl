@@ -14,7 +14,6 @@
 #   2. Computing one-weights (with units!) for physical flux estimates
 #   3. Classifying decay-product flavor (EM / hadronic / muonic)
 
-using LinearAlgebra
 using Statistics
 using Tambo
 using Unitful: ustrip, @u_str
@@ -26,21 +25,13 @@ example_file  = joinpath(tambo_path, "examples", "resources", "example_output.jl
 
 frames = load_frames([geometry_file, example_file])
 
-# A tau decay is "in air" if a ray from the decay vertex pointed radially
-# outward never re-intersects the topography (BVH stored on the G frame).
-# Otherwise the tau decayed inside rock. The `outward_ray` and `decayed_in_air`
-# helpers are reused in Sections 1 and 2.
-
-function outward_ray(position)
-    ecef_dir = Direction(normalize(convert(ecefcoordinates, position).point),
-                         ecefcoordinates)
-    d = convert(position.coordinate_system, ecef_dir)
-    return Ray(position, d)
-end
+# A tau decay is "in air" if a ray shot radially outward from the decay
+# vertex never re-intersects the topography (BVH stored on the G frame).
+# `Tambo.is_above_topography` is the library helper for exactly this query.
 
 function decayed_in_air(frame)
     haskey(frame, "proposal_final_state") || return false
-    return isempty(intersect_all(frame["bvh"], outward_ray(frame["proposal_final_state"].position)))
+    return is_above_topography(frame["proposal_final_state"], frame["bvh"])
 end
 
 # =============================================================================

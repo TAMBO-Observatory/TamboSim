@@ -78,6 +78,12 @@ function run_geometry_tests()
         test_is_above_topography_above()
         test_is_above_topography_particle_overload()
     end
+
+    @testset "Detector layout" begin
+        test_place_detector_units_basic()
+        test_place_detector_units_slope_filter()
+        test_place_detector_units_spacing()
+    end
 end
 
 # CoordinateSystem tests
@@ -494,4 +500,53 @@ function test_is_above_topography_particle_overload()
     pos = Coordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)
     p   = Particle(NuTau, 1.0u"GeV", pos, Direction([0.0, 0.0, -1.0], cs))
     @test Tambo.is_above_topography(p, bvh) == Tambo.is_above_topography(pos, bvh)
+end
+
+# Detector-layout tests
+
+# Build a synthetic gframe/dframe pair around a single horizontal detector
+# triangle at z = 100 m, large enough that a default 125 m hex grid covers
+# multiple points within its xy projection.
+function _flat_detector_frames(; triangle_half_m=300.0, height_m=100.0, cs=ecefcoordinates)
+    half = triangle_half_m
+    z    = height_m
+    tri  = Triangle(
+        Coordinate([-half*u"m", -half*u"m", z*u"m"], cs),
+        Coordinate([ half*u"m", -half*u"m", z*u"m"], cs),
+        Coordinate([ 0.0u"m",    half*u"m", z*u"m"], cs),
+    )
+    bvh    = BVHTree([tri])
+    gframe = Frame('G', Dict{String,Any}("cs" => cs))
+    dframe = Frame('D', Dict{String,Any}("detector_bvh" => bvh))
+    return gframe, dframe
+end
+
+function test_place_detector_units_basic()
+    gframe, dframe = _flat_detector_frames()
+    obbs, obb_bvh = Tambo.place_detector_units(gframe, dframe)
+
+    @test obbs isa Vector{<:Tambo.OBB}
+    @test obb_bvh isa BVHTree
+    @test length(obbs) > 0                                # at least one module on a flat 600 m triangle
+    @test length(obb_bvh.triangles) > 0                   # BVH has the OBB faces
+    @test !haskey(dframe.data, "detector_units")          # function does not mutate
+    @test !haskey(dframe.data, "detector_unit_bvh")
+end
+
+function test_place_detector_units_slope_filter()
+    gframe, dframe = _flat_detector_frames()
+    # Horizontal triangle has slope = 0; a negative threshold makes the
+    # filter `ψ > max_slope_rad` reject every grid point. With nothing
+    # placed, the function should return an empty OBB list and nothing
+    # for the BVH (since BVHTree refuses an empty input).
+    obbs, obb_bvh = Tambo.place_detector_units(gframe, dframe; max_slope_deg=-1.0)
+    @test isempty(obbs)
+    @test obb_bvh === nothing
+end
+
+function test_place_detector_units_spacing()
+    gframe, dframe = _flat_detector_frames()
+    obbs_coarse, _ = Tambo.place_detector_units(gframe, dframe; spacing=200.0u"m")
+    obbs_fine,   _ = Tambo.place_detector_units(gframe, dframe; spacing=100.0u"m")
+    @test length(obbs_fine) > length(obbs_coarse)         # smaller spacing → more modules
 end

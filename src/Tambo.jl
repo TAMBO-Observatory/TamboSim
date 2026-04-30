@@ -22,6 +22,7 @@ export Ray,
        relativize!,
        upwards_ray_at,
        is_above_topography,
+       place_detector_units,
        # Llama progress utilities
        print_llama,
        llama_progress,

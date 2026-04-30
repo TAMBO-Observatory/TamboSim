@@ -20,6 +20,8 @@ export Ray,
        get_git_commit_hash,
        get_version_string,
        relativize!,
+       upwards_ray_at,
+       is_above_topography,
        # Llama progress utilities
        print_llama,
        llama_progress,
@@ -62,6 +64,7 @@ include("injection/injection.jl")
 include("julia_interfaces/julia_interfaces.jl")
 include("corsika/corsika.jl")
 include("utils.jl")
+include("geometry_queries.jl")
 
 """
     __init__()

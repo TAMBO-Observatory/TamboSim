@@ -70,6 +70,14 @@ function run_geometry_tests()
         test_plane_conversion_same_cs()
         test_plane_conversion_different_cs()
     end
+
+    @testset "Geometry queries" begin
+        test_upwards_ray_at_coordinate()
+        test_upwards_ray_at_particle()
+        test_is_above_topography_below()
+        test_is_above_topography_above()
+        test_is_above_topography_particle_overload()
+    end
 end
 
 # CoordinateSystem tests
@@ -426,4 +434,64 @@ function test_plane_conversion_different_cs()
                 Direction([0.0, 0.0, 1.0], cs2))
     p2  = convert(cs, p)
     @test CoordinateSystem(p2.point) == cs
+end
+
+# Geometry-query tests
+
+function test_upwards_ray_at_coordinate()
+    cs  = ecefcoordinates
+    pos = Coordinate([0.0u"m", 0.0u"m", 1.0u"m"], cs)   # on the +z axis
+    ray = Tambo.upwards_ray_at(pos)
+
+    @test ray isa Ray
+    @test ray.origin === pos
+    # Radially outward from [0,0,1] is +z.
+    @test isapprox(ray.direction.point, [0.0, 0.0, 1.0]; atol=1e-12)
+end
+
+function test_upwards_ray_at_particle()
+    cs  = ecefcoordinates
+    pos = Coordinate([0.0u"m", 0.0u"m", 1.0u"m"], cs)
+    p   = Particle(NuTau, 1.0u"GeV", pos, Direction([1.0, 0.0, 0.0], cs))
+    # The Particle overload should match the Coordinate overload, regardless
+    # of the particle's direction (which is irrelevant — only position matters).
+    @test Tambo.upwards_ray_at(p).direction.point ==
+          Tambo.upwards_ray_at(pos).direction.point
+end
+
+# Construct a single horizontal triangle 5 m above the +z axis,
+# spanning a wide enough patch to be hit by any near-vertical ray
+# from the axis below.
+function _topography_bvh_above()
+    cs  = ecefcoordinates
+    tri = Triangle(
+        Coordinate([-10.0u"m", -10.0u"m", 5.0u"m"], cs),
+        Coordinate([ 10.0u"m", -10.0u"m", 5.0u"m"], cs),
+        Coordinate([  0.0u"m",  10.0u"m", 5.0u"m"], cs),
+    )
+    return BVHTree([tri])
+end
+
+function test_is_above_topography_below()
+    cs  = ecefcoordinates
+    bvh = _topography_bvh_above()
+    pos = Coordinate([0.0u"m", 0.0u"m", 1.0u"m"], cs)   # below the triangle
+    # Upwards ray from pos heads to +z and hits the triangle at z = 5 m.
+    @test Tambo.is_above_topography(pos, bvh) == false
+end
+
+function test_is_above_topography_above()
+    cs  = ecefcoordinates
+    bvh = _topography_bvh_above()
+    pos = Coordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)  # above the triangle
+    # Upwards ray from pos still heads to +z, never re-intersecting the triangle.
+    @test Tambo.is_above_topography(pos, bvh) == true
+end
+
+function test_is_above_topography_particle_overload()
+    cs  = ecefcoordinates
+    bvh = _topography_bvh_above()
+    pos = Coordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)
+    p   = Particle(NuTau, 1.0u"GeV", pos, Direction([0.0, 0.0, -1.0], cs))
+    @test Tambo.is_above_topography(p, bvh) == Tambo.is_above_topography(pos, bvh)
 end

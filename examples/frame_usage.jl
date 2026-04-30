@@ -38,25 +38,25 @@ geometry_file = "$(tambo_path)/resources/geometry/colca_valley_3000.jld2"
 frames = load_frames(geometry_file)
 inject!(frames, injection_config)
 
-gframe = Tambo._get_last_frame(frames, 'G')
-mframe = Tambo._get_last_frame(frames, 'M')
+g_frame = Tambo._get_last_frame(frames, 'G')
+m_frame = Tambo._get_last_frame(frames, 'M')
 
-println("G frame keys: ", sort(collect(String, keys(gframe.data))))
-println("M frame keys: ", sort(collect(String, keys(mframe.data))))
+println("G frame keys: ", sort(collect(String, keys(g_frame.data))))
+println("M frame keys: ", sort(collect(String, keys(m_frame.data))))
 
 # =============================================================================
 # 2. Key lookup and inheritance
 # =============================================================================
 # Keys are resolved by checking own data first, then parents in G → M order.
 
-qframe = first(filter(f -> f.stream == 'Q', frames))
-println("\nearth_path via Q frame:  ", qframe["earth_path"])          # from G parent
-println("injection nevent via Q:  ", qframe["injection"]["nevent"])  # from M parent
-println("event_id (own data):     ", qframe["event_id"])             # own Q data
+q_frame = first(filter(f -> f.stream == 'Q', frames))
+println("\nearth_path via Q frame:  ", q_frame["earth_path"])          # from G parent
+println("injection nevent via Q:  ", q_frame["injection"]["nevent"])  # from M parent
+println("event_id (own data):     ", q_frame["event_id"])             # own Q data
 
-println("has earth_path:          ", haskey(qframe, "earth_path"))
-println("has event_id:            ", haskey(qframe, "event_id"))
-println("has nonexistent:         ", haskey(qframe, "nonexistent_key"))
+println("has earth_path:          ", haskey(q_frame, "earth_path"))
+println("has event_id:            ", haskey(q_frame, "event_id"))
+println("has nonexistent:         ", haskey(q_frame, "nonexistent_key"))
 
 # =============================================================================
 # 3. Saving and loading frames
@@ -99,8 +99,8 @@ println("Combined load: $(count(f -> f.stream == 'Q', frames_combined)) Q frames
 # geometry, load the geometry JLD2 directly. The G frame is self-contained —
 # bvh, topography, and coordinate system are all stored inside it.
 
-gframe2 = Tambo._get_last_frame(load_frames(geometry_file), 'G')
-bvh = gframe2["bvh"]
+g_frame2 = Tambo._get_last_frame(load_frames(geometry_file), 'G')
+bvh = g_frame2["bvh"]
 println("\nBVH type:          ", typeof(bvh))
 println("Triangles in BVH:  ", length(bvh.triangles))
 

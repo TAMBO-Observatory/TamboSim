@@ -84,9 +84,9 @@ function run_frame_tests()
 end
 
 function _make_q_frame(data=Dict{String,Any}())
-    gframe = Frame('G', Dict{String,Any}())
-    mframe = Frame('M', Dict{String,Any}())
-    Frame('Q', data, Dict{Char,Frame}('G' => gframe, 'M' => mframe))
+    g_frame = Frame('G', Dict{String,Any}())
+    m_frame = Frame('M', Dict{String,Any}())
+    Frame('Q', data, Dict{Char,Frame}('G' => g_frame, 'M' => m_frame))
 end
 
 function test_frame_construction()
@@ -105,24 +105,24 @@ function test_frame_with_data()
 end
 
 function test_frame_with_parents()
-    gframe = Frame('G', Dict{String,Any}("earth_path" => "/tmp/earth.h5"))
-    mframe = Frame('M', Dict{String,Any}("nevent" => 100))
-    mframe.parents['G'] = gframe
+    g_frame = Frame('G', Dict{String,Any}("earth_path" => "/tmp/earth.h5"))
+    m_frame = Frame('M', Dict{String,Any}("nevent" => 100))
+    m_frame.parents['G'] = g_frame
 
-    @test mframe["earth_path"] == "/tmp/earth.h5"
-    @test mframe["nevent"] == 100
-    @test mframe.stream == 'M'
-    @test length(mframe.parents) == 1
+    @test m_frame["earth_path"] == "/tmp/earth.h5"
+    @test m_frame["nevent"] == 100
+    @test m_frame.stream == 'M'
+    @test length(m_frame.parents) == 1
 end
 
 function test_q_frame_requires_parents()
     @test_throws ErrorException Frame('Q')
     @test_throws ErrorException Frame('Q', Dict{String,Any}())
-    gframe = Frame('G')
-    @test_throws ErrorException Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe))
+    g_frame = Frame('G')
+    @test_throws ErrorException Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame))
     # G parent is optional — Q frame without G parent is valid for analysis workflows
-    mframe = Frame('M')
-    @test Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('M' => mframe)) isa Frame
+    m_frame = Frame('M')
+    @test Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('M' => m_frame)) isa Frame
 end
 
 function test_frame_getindex()
@@ -139,9 +139,9 @@ function test_frame_setindex()
 end
 
 function test_frame_haskey()
-    gframe = Frame('G', Dict{String,Any}("parent_key" => 1))
-    mframe = Frame('M', Dict{String,Any}())
-    child = Frame('Q', Dict{String,Any}("child_key" => 2), Dict{Char,Frame}('G' => gframe, 'M' => mframe))
+    g_frame = Frame('G', Dict{String,Any}("parent_key" => 1))
+    m_frame = Frame('M', Dict{String,Any}())
+    child = Frame('Q', Dict{String,Any}("child_key" => 2), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame))
 
     @test haskey(child, "child_key")
     @test haskey(child, "parent_key")
@@ -149,9 +149,9 @@ function test_frame_haskey()
 end
 
 function test_frame_keys()
-    gframe = Frame('G', Dict{String,Any}("a" => 1, "b" => 2))
-    mframe = Frame('M', Dict{String,Any}())
-    child = Frame('Q', Dict{String,Any}("c" => 3, "d" => 4), Dict{Char,Frame}('G' => gframe, 'M' => mframe))
+    g_frame = Frame('G', Dict{String,Any}("a" => 1, "b" => 2))
+    m_frame = Frame('M', Dict{String,Any}())
+    child = Frame('Q', Dict{String,Any}("c" => 3, "d" => 4), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame))
 
     all_keys = keys(child)
     @test "a" in all_keys
@@ -167,48 +167,48 @@ function test_frame_getkey_default()
 end
 
 function test_frame_parent_lookup()
-    gframe = Frame('G', Dict{String,Any}("gp_key" => 100))
-    mframe = Frame('M', Dict{String,Any}("p_key" => 200))
-    mframe.parents['G'] = gframe
-    qframe = Frame('Q', Dict{String,Any}("c_key" => 300), Dict{Char,Frame}('G' => gframe, 'M' => mframe))
+    g_frame = Frame('G', Dict{String,Any}("gp_key" => 100))
+    m_frame = Frame('M', Dict{String,Any}("p_key" => 200))
+    m_frame.parents['G'] = g_frame
+    q_frame = Frame('Q', Dict{String,Any}("c_key" => 300), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame))
 
-    @test qframe["gp_key"] == 100
-    @test qframe["p_key"] == 200
-    @test qframe["c_key"] == 300
+    @test q_frame["gp_key"] == 100
+    @test q_frame["p_key"] == 200
+    @test q_frame["c_key"] == 300
 end
 
 function test_frame_override_parent()
-    gframe = Frame('G', Dict{String,Any}("key" => "g_value"))
-    mframe = Frame('M', Dict{String,Any}())
-    qframe = Frame('Q', Dict{String,Any}("key" => "q_value"), Dict{Char,Frame}('G' => gframe, 'M' => mframe))
+    g_frame = Frame('G', Dict{String,Any}("key" => "g_value"))
+    m_frame = Frame('M', Dict{String,Any}())
+    q_frame = Frame('Q', Dict{String,Any}("key" => "q_value"), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame))
 
-    @test qframe["key"] == "q_value"
-    @test gframe["key"] == "g_value"
+    @test q_frame["key"] == "q_value"
+    @test g_frame["key"] == "g_value"
 end
 
 function test_frame_hierarchy_order()
-    gframe = Frame('G', Dict{String,Any}("shared" => "from_g"))
-    mframe = Frame('M', Dict{String,Any}("shared" => "from_m"))
-    qframe = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe, 'M' => mframe))
+    g_frame = Frame('G', Dict{String,Any}("shared" => "from_g"))
+    m_frame = Frame('M', Dict{String,Any}("shared" => "from_m"))
+    q_frame = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame))
 
-    @test qframe["shared"] == "from_g"
+    @test q_frame["shared"] == "from_g"
 end
 
 function test_frame_getproperty()
-    gframe = Frame('G', Dict{String,Any}("geo" => true))
-    mframe = Frame('M', Dict{String,Any}("cfg" => true))
-    qframe = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe, 'M' => mframe))
+    g_frame = Frame('G', Dict{String,Any}("geo" => true))
+    m_frame = Frame('M', Dict{String,Any}("cfg" => true))
+    q_frame = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame))
 
-    @test qframe.gframe === gframe
-    @test qframe.mframe === mframe
-    @test_throws ErrorException Frame('G').gframe
+    @test q_frame.g_frame === g_frame
+    @test q_frame.m_frame === m_frame
+    @test_throws ErrorException Frame('G').g_frame
 end
 
 function test_cut_frames_q_only()
-    gframe = Frame('G', Dict{String,Any}("geo" => true))
-    mframe = Frame('M', Dict{String,Any}("cfg" => true))
-    q_parents = Dict{Char,Frame}('G' => gframe, 'M' => mframe)
-    frames = TamboFrames(Frame[gframe, mframe])
+    g_frame = Frame('G', Dict{String,Any}("geo" => true))
+    m_frame = Frame('M', Dict{String,Any}("cfg" => true))
+    q_parents = Dict{Char,Frame}('G' => g_frame, 'M' => m_frame)
+    frames = TamboFrames(Frame[g_frame, m_frame])
     for v in [10, 20, 30, 40, 50]
         push!(frames, Frame('Q', Dict{String,Any}("value" => v), q_parents))
     end
@@ -221,12 +221,12 @@ function test_cut_frames_q_only()
 end
 
 function test_cut_frames_preserves_gc()
-    gframe = Frame('G', Dict{String,Any}("geo" => true))
-    mframe = Frame('M', Dict{String,Any}("cfg" => true))
-    q_parents = Dict{Char,Frame}('G' => gframe, 'M' => mframe)
+    g_frame = Frame('G', Dict{String,Any}("geo" => true))
+    m_frame = Frame('M', Dict{String,Any}("cfg" => true))
+    q_parents = Dict{Char,Frame}('G' => g_frame, 'M' => m_frame)
     frames = TamboFrames(Frame[
-        gframe,
-        mframe,
+        g_frame,
+        m_frame,
         Frame('Q', Dict{String,Any}("value" => 5),  q_parents),
         Frame('Q', Dict{String,Any}("value" => 50), q_parents),
     ])
@@ -242,13 +242,13 @@ end
 
 function test_cut_frames_cascades_to_descendants()
     # Q frames with P children — cutting a Q must also remove its P descendants.
-    gframe = Frame('G')
-    mframe = Frame('M', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe))
-    q_keep = Frame('Q', Dict{String,Any}("value" => 50), Dict{Char,Frame}('G' => gframe, 'M' => mframe))
-    q_cut  = Frame('Q', Dict{String,Any}("value" => 5),  Dict{Char,Frame}('G' => gframe, 'M' => mframe))
-    p_keep = Frame('P', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe, 'M' => mframe, 'Q' => q_keep))
-    p_cut  = Frame('P', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe, 'M' => mframe, 'Q' => q_cut))
-    frames = TamboFrames(Frame[gframe, mframe, q_keep, p_keep, q_cut, p_cut])
+    g_frame = Frame('G')
+    m_frame = Frame('M', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame))
+    q_keep = Frame('Q', Dict{String,Any}("value" => 50), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame))
+    q_cut  = Frame('Q', Dict{String,Any}("value" => 5),  Dict{Char,Frame}('G' => g_frame, 'M' => m_frame))
+    p_keep = Frame('P', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame, 'Q' => q_keep))
+    p_cut  = Frame('P', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame, 'Q' => q_cut))
+    frames = TamboFrames(Frame[g_frame, m_frame, q_keep, p_keep, q_cut, p_cut])
 
     cut_frames!(frames, f -> f["value"] > 25)
 
@@ -279,12 +279,12 @@ function test_multi_geometry_parent_reset()
     run2_qs = filter(f -> f["event"] == 3, q_frames)
 
     # run1 Q frames should have geo1 and run1's M
-    @test all(f -> f.gframe["site"] == "geo1", run1_qs)
-    @test all(f -> f.mframe["run"] == "run1", run1_qs)
+    @test all(f -> f.g_frame["site"] == "geo1", run1_qs)
+    @test all(f -> f.m_frame["run"] == "run1", run1_qs)
 
     # run2 Q frames should have geo2 and run2's M — not geo1 or run1's M
-    @test run2_qs[1].gframe["site"] == "geo2"
-    @test run2_qs[1].mframe["run"] == "run2"
+    @test run2_qs[1].g_frame["site"] == "geo2"
+    @test run2_qs[1].m_frame["run"] == "run2"
 end
 
 function test_tambo_frames_construction()
@@ -414,8 +414,8 @@ function test_tambo_frames_abstractvector_drop_in()
         tf = TamboFrames([f1, f2, f3])
 
         # filter, map, length, etc. all derive from AbstractArray
-        gframes = filter(f -> f.stream == 'G', tf)
-        @test length(gframes) == 3
+        g_frames = filter(f -> f.stream == 'G', tf)
+        @test length(g_frames) == 3
 
         # Can be passed to a function typed as AbstractVector{Frame}
         f_count(v::AbstractVector{Frame}) = length(v)

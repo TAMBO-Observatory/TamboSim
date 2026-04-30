@@ -2,7 +2,7 @@
     _get_last_frame(frames::AbstractVector{Frame}, stream::Char) -> Frame
 
 Returns the last frame in `frames` with the given stream type. Internal
-bootstrap utility — prefer navigating via parent references (e.g. `qframe.gframe`)
+bootstrap utility — prefer navigating via parent references (e.g. `q_frame.g_frame`)
 wherever a parent chain already exists. Accepts either a `Vector{Frame}` or a
 `TamboFrames`.
 """

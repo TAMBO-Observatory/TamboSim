@@ -152,9 +152,9 @@ function parse_triangles(
 end
 
 """
-    load_earth!(gframe::Frame)
+    load_earth!(g_frame::Frame)
 
-Reads geometry from `gframe["earth_path"]` and populates the G frame with:
+Reads geometry from `g_frame["earth_path"]` and populates the G frame with:
 
 - `"prem"`: `Vector{Sphere}` — concentric PREM layers for ray tracing
 - `"topography"`: `Vector{Triangle}` — surface mesh
@@ -163,24 +163,24 @@ Reads geometry from `gframe["earth_path"]` and populates the G frame with:
 
 Detector region data is NOT stored here; it belongs in the D frame.
 Dispatches to HDF5 or PLY loading based on the file extension of `earth_path`.
-For HDF5 files, also reads `gframe["detector_key"]` if present (legacy path).
+For HDF5 files, also reads `g_frame["detector_key"]` if present (legacy path).
 """
-function load_earth!(gframe::Frame)
-    location = gframe["earth_path"]
+function load_earth!(g_frame::Frame)
+    location = g_frame["earth_path"]
     prem, topography, bvh, _, cs = if endswith(location, ".ply")
         _load_earth_ply(location)
     else
-        detectorname = haskey(gframe.data, "detector_key") ? gframe.data["detector_key"] : ""
+        detectorname = haskey(g_frame.data, "detector_key") ? g_frame.data["detector_key"] : ""
         _load_earth_h5(location, detectorname)
     end
-    gframe["prem"]       = prem
-    gframe["topography"] = topography
-    gframe["bvh"]        = bvh
-    gframe["cs"]         = cs
-    return gframe
+    g_frame["prem"]       = prem
+    g_frame["topography"] = topography
+    g_frame["bvh"]        = bvh
+    g_frame["cs"]         = cs
+    return g_frame
 end
 
-CoordinateSystem(gframe::Frame) = gframe["cs"]
+CoordinateSystem(g_frame::Frame) = g_frame["cs"]
 
 """
     _ensure_earth_loaded!(frames::TamboFrames)
@@ -188,9 +188,9 @@ CoordinateSystem(gframe::Frame) = gframe["cs"]
 Ensures the G frame has earth geometry loaded. Calls `load_earth!` if prem is missing.
 """
 function _ensure_earth_loaded!(frames::TamboFrames)
-    gframe = _get_last_frame(frames, 'G')
-    if !haskey(gframe.data, "prem")
-        load_earth!(gframe)
+    g_frame = _get_last_frame(frames, 'G')
+    if !haskey(g_frame.data, "prem")
+        load_earth!(g_frame)
     end
 end
 
@@ -211,7 +211,7 @@ function build_gcd_bundle(earth_path::String, detector_key::String)
         _load_earth_h5(earth_path, detector_key)
     end
 
-    gframe = Frame('G', Dict{String,Any}(
+    g_frame = Frame('G', Dict{String,Any}(
         "earth_path" => earth_path,
         "prem"       => prem,
         "topography" => topography,
@@ -219,14 +219,14 @@ function build_gcd_bundle(earth_path::String, detector_key::String)
         "cs"         => cs,
     ))
 
-    cframe = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => gframe))
+    c_frame = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame))
 
     detector_triangles = topography[detector_region]
     detector_bvh       = BVHTree(detector_triangles)
-    dframe = Frame('D', Dict{String,Any}(
+    d_frame = Frame('D', Dict{String,Any}(
         "detector_region" => detector_region,
         "detector_bvh"    => detector_bvh,
-    ), Dict{Char,Frame}('G' => gframe, 'C' => cframe))
+    ), Dict{Char,Frame}('G' => g_frame, 'C' => c_frame))
 
-    return TamboFrames(Frame[gframe, cframe, dframe])
+    return TamboFrames(Frame[g_frame, c_frame, d_frame])
 end

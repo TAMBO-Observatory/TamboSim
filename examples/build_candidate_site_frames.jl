@@ -33,10 +33,10 @@ for site in site_keys
     frames = Tambo.build_gcd_bundle(earth_path, "detector1")
     save_frames(jld2_path, frames, streams=('G', 'C', 'D'))
 
-    gframe  = Tambo._get_last_frame(frames, 'G')
-    dframe  = Tambo._get_last_frame(frames, 'D')
-    n_tris  = length(gframe["topography"])
-    n_det   = length(dframe["detector_region"])
+    g_frame  = Tambo._get_last_frame(frames, 'G')
+    d_frame  = Tambo._get_last_frame(frames, 'D')
+    n_tris  = length(g_frame["topography"])
+    n_det   = length(d_frame["detector_region"])
     sz_mb   = round(filesize(jld2_path) / 1024^2, digits=1)
     println("  $site → candidate_$(site).jld2  ($n_tris triangles, $n_det detector faces, $(sz_mb) MB)")
 end

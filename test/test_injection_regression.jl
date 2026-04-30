@@ -72,13 +72,13 @@ function run_injection_regression_tests()
     xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
     frames_geo = load_frames(geometry_path)
-    gframe = Tambo._get_last_frame(frames_geo, 'G')
-    dframe = Tambo._get_last_frame(frames_geo, 'D')
-    prem            = gframe["prem"]
-    bvh             = gframe["bvh"]
-    cs              = gframe["cs"]
-    topography      = gframe["topography"]
-    detector_region = dframe["detector_region"]
+    g_frame = Tambo._get_last_frame(frames_geo, 'G')
+    d_frame = Tambo._get_last_frame(frames_geo, 'D')
+    prem            = g_frame["prem"]
+    bvh             = g_frame["bvh"]
+    cs              = g_frame["cs"]
+    topography      = g_frame["topography"]
+    detector_region = d_frame["detector_region"]
 
     xs = CrossSection(xs_path)
     detector_props = precompute_detector_properties(topography, detector_region)

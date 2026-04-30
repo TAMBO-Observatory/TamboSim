@@ -139,7 +139,7 @@ const _STREAM_PROPERTY = Dict(
 Property accessors that return all frames of the given stream from `tf`. One
 per stream tag in the `G → C → D → M → Q → P` hierarchy.
 
-These mirror the singular `f.gframe` / `f.cframe` / etc. parent-property idiom
+These mirror the singular `f.g_frame` / `f.c_frame` / etc. parent-property idiom
 on individual frames: dotted access, computed on each call. For a plain
 `Vector{Frame}` (or when the stream tag is dynamic) use `frames_of_stream`.
 """

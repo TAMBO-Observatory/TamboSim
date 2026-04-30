@@ -78,22 +78,22 @@ function test_inject_config_stored_under_prefix()
     config = _injection_config(nevent=3)
     inject!(frames, config)
 
-    mframe = Tambo._get_last_frame(frames, 'M')
-    @test haskey(mframe.data, "injection")
-    @test mframe.data["injection"]["nevent"] == 3
+    m_frame = Tambo._get_last_frame(frames, 'M')
+    @test haskey(m_frame.data, "injection")
+    @test m_frame.data["injection"]["nevent"] == 3
 end
 
 function test_inject_q_frame_parents()
     frames = load_frames(GEOMETRY_PATH)
     inject!(frames, _injection_config(nevent=3))
 
-    gframe = Tambo._get_last_frame(frames, 'G')
-    mframe = Tambo._get_last_frame(frames, 'M')
+    g_frame = Tambo._get_last_frame(frames, 'G')
+    m_frame = Tambo._get_last_frame(frames, 'M')
     q_frames = filter(f -> f.stream == 'Q', frames)
 
     for qf in q_frames
-        @test qf.parents['G'] === gframe
-        @test qf.parents['M'] === mframe
+        @test qf.parents['G'] === g_frame
+        @test qf.parents['M'] === m_frame
     end
 end
 
@@ -101,8 +101,8 @@ function test_inject_custom_prefix()
     frames = load_frames(GEOMETRY_PATH)
     inject!(frames, _injection_config(nevent=2); prefix="nu_injection")
 
-    mframe = Tambo._get_last_frame(frames, 'M')
-    @test haskey(mframe.data, "nu_injection")
+    m_frame = Tambo._get_last_frame(frames, 'M')
+    @test haskey(m_frame.data, "nu_injection")
 
     q_frames = filter(f -> f.stream == 'Q', frames)
     for qf in q_frames
@@ -138,9 +138,9 @@ function test_proposal_config_stored()
     )
     proposal_propagation!(frames, proposal_config)
 
-    mframe = Tambo._get_last_frame(frames, 'M')
-    @test haskey(mframe.data, "proposal")
-    @test mframe.data["proposal"]["vcut"] == 0.05
+    m_frame = Tambo._get_last_frame(frames, 'M')
+    @test haskey(m_frame.data, "proposal")
+    @test m_frame.data["proposal"]["vcut"] == 0.05
 end
 
 function test_proposal_output_keys()
@@ -179,12 +179,12 @@ end
 
 function test_save_load_roundtrip()
     # Build M+Q in memory — no real geometry needed for this test
-    gframe = Frame('G', Dict{String,Any}("site" => "test"))
-    mframe = Frame('M', Dict{String,Any}("cfg" => 42), Dict{Char,Frame}('G' => gframe))
-    q_parents = Dict{Char,Frame}('G' => gframe, 'M' => mframe)
+    g_frame = Frame('G', Dict{String,Any}("site" => "test"))
+    m_frame = Frame('M', Dict{String,Any}("cfg" => 42), Dict{Char,Frame}('G' => g_frame))
+    q_parents = Dict{Char,Frame}('G' => g_frame, 'M' => m_frame)
     frames = Frame[
-        gframe,
-        mframe,
+        g_frame,
+        m_frame,
         Frame('Q', Dict{String,Any}("event_id" => 1, "val" => 1.0), q_parents),
         Frame('Q', Dict{String,Any}("event_id" => 2, "val" => 2.0), q_parents),
     ]
@@ -200,11 +200,11 @@ function test_save_load_roundtrip()
 end
 
 function test_save_load_data_preserved()
-    gframe = Frame('G', Dict{String,Any}("site" => "test"))
-    mframe = Frame('M', Dict{String,Any}("run" => "abc"), Dict{Char,Frame}('G' => gframe))
-    q_parents = Dict{Char,Frame}('G' => gframe, 'M' => mframe)
+    g_frame = Frame('G', Dict{String,Any}("site" => "test"))
+    m_frame = Frame('M', Dict{String,Any}("run" => "abc"), Dict{Char,Frame}('G' => g_frame))
+    q_parents = Dict{Char,Frame}('G' => g_frame, 'M' => m_frame)
     qf = Frame('Q', Dict{String,Any}("event_id" => 99, "energy" => 1.5e6), q_parents)
-    frames = Frame[gframe, mframe, qf]
+    frames = Frame[g_frame, m_frame, qf]
 
     path = tempname() * ".jld2"
     save_frames(path, frames)
@@ -220,14 +220,14 @@ end
 
 function test_save_load_multi_file()
     # Two separate event files sharing the same geometry
-    gframe = Frame('G', Dict{String,Any}("site" => "test"))
-    m1 = Frame('M', Dict{String,Any}("run" => 1), Dict{Char,Frame}('G' => gframe))
-    m2 = Frame('M', Dict{String,Any}("run" => 2), Dict{Char,Frame}('G' => gframe))
-    q_p1 = Dict{Char,Frame}('G' => gframe, 'M' => m1)
-    q_p2 = Dict{Char,Frame}('G' => gframe, 'M' => m2)
+    g_frame = Frame('G', Dict{String,Any}("site" => "test"))
+    m1 = Frame('M', Dict{String,Any}("run" => 1), Dict{Char,Frame}('G' => g_frame))
+    m2 = Frame('M', Dict{String,Any}("run" => 2), Dict{Char,Frame}('G' => g_frame))
+    q_p1 = Dict{Char,Frame}('G' => g_frame, 'M' => m1)
+    q_p2 = Dict{Char,Frame}('G' => g_frame, 'M' => m2)
 
-    frames1 = Frame[gframe, m1, Frame('Q', Dict{String,Any}("event_id" => 1), q_p1)]
-    frames2 = Frame[gframe, m2, Frame('Q', Dict{String,Any}("event_id" => 2), q_p2)]
+    frames1 = Frame[g_frame, m1, Frame('Q', Dict{String,Any}("event_id" => 1), q_p1)]
+    frames2 = Frame[g_frame, m2, Frame('Q', Dict{String,Any}("event_id" => 2), q_p2)]
 
     p1 = tempname() * ".jld2"
     p2 = tempname() * ".jld2"
@@ -242,14 +242,14 @@ function test_save_load_multi_file()
 
     q1 = first(filter(f -> f["event_id"] == 1, q_frames))
     q2 = first(filter(f -> f["event_id"] == 2, q_frames))
-    @test q1.mframe["run"] == 1
-    @test q2.mframe["run"] == 2
+    @test q1.m_frame["run"] == 1
+    @test q2.m_frame["run"] == 2
 end
 
 function test_save_geometry_self_contained()
     # G frame saved with streams=('G',) should reload without needing the source file
     frames = load_frames(GEOMETRY_PATH)
-    gframe = Tambo._get_last_frame(frames, 'G')
+    g_frame = Tambo._get_last_frame(frames, 'G')
 
     path = tempname() * ".jld2"
     save_frames(path, frames, streams=('G',))
@@ -258,8 +258,8 @@ function test_save_geometry_self_contained()
 
     @test count(f -> f.stream == 'G', loaded) == 1
     lg = Tambo._get_last_frame(loaded, 'G')
-    @test length(lg["topography"]) == length(gframe["topography"])
-    @test lg["earth_path"] == gframe["earth_path"]
+    @test length(lg["topography"]) == length(g_frame["topography"])
+    @test lg["earth_path"] == g_frame["earth_path"]
 end
 
 # =============================================================================

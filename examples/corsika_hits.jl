@@ -18,15 +18,15 @@ function intersect_module_signed(event, bvh)
 end
 
 frames = Tambo.load_frames([gc_file, "$(basedir)/simfile_corsika.jld2"])
-gframe = Tambo._get_last_frame(frames, 'G')
-dframe = Tambo._get_last_frame(frames, 'D')
+g_frame = Tambo._get_last_frame(frames, 'G')
+d_frame = Tambo._get_last_frame(frames, 'D')
 q_frames = filter(f -> f.stream == 'Q', frames)
 
-cs  = gframe["cs"]
-bvh = dframe["detector_bvh"]
+cs  = g_frame["cs"]
+bvh = d_frame["detector_bvh"]
 
 Δy = 125.0u"m"
-det_triangles = dframe["detector_bvh"].triangles
+det_triangles = d_frame["detector_bvh"].triangles
 areas     = ustrip.(u"m^2", Tambo.area.(det_triangles))
 centroids = [ustrip.(u"m", (t.v1.point + t.v2.point + t.v3.point) ./ 3) for t in det_triangles]
 normals   = [Tambo.normal(t).point for t in det_triangles]

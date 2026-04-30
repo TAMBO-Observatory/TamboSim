@@ -80,7 +80,7 @@ isempty(oneweights) || println("  median one-weight          : $(round(median(on
 # =============================================================================
 # 4. Rock vs air decay
 # =============================================================================
-gframe = Tambo._get_last_frame(frames, 'G')
+g_frame = Tambo._get_last_frame(frames, 'G')
 
 function outward_ray(position)
     ecef_dir = Direction(normalize(convert(ecefcoordinates, position).point),
@@ -91,7 +91,7 @@ end
 
 function decayed_in_air(frame)
     haskey(frame, "proposal_final_state") || return false
-    return isempty(intersect_all(gframe["bvh"], outward_ray(frame["proposal_final_state"].position)))
+    return isempty(intersect_all(g_frame["bvh"], outward_ray(frame["proposal_final_state"].position)))
 end
 
 n_air  = count(decayed_in_air, q_frames)

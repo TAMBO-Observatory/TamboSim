@@ -154,14 +154,14 @@ function proposal_propagation!(
     inkey::String="injection_final_state"
 )
     _ensure_earth_loaded!(frames)
-    mframe = _get_last_frame(frames, 'M')
-    gframe = mframe.gframe
+    m_frame = _get_last_frame(frames, 'M')
+    g_frame = m_frame.g_frame
 
-    mframe[prefix] = config
+    m_frame[prefix] = config
     init_proposal(config)
 
-    prem = gframe["prem"]
-    bvh  = gframe["bvh"]
+    prem = g_frame["prem"]
+    bvh  = g_frame["bvh"]
 
     if !haskey(config, "pinecone")
         @warn "Deciding seed via RNG and adding to configuration"

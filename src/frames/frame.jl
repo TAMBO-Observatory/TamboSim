@@ -12,8 +12,8 @@ hierarchy order (G → C → D → M → Q → P).
 
 Q frames require an M parent (simulation meta/config always travels with events)
 but not G, C, or D parents — analysis workflows that do not need earth/detector
-geometry can load M+Q frames without a GCD bundle. Accessing `.gframe`,
-`.cframe`, or `.dframe` on a Q frame without the corresponding parent raises an
+geometry can load M+Q frames without a GCD bundle. Accessing `.g_frame`,
+`.c_frame`, or `.d_frame` on a Q frame without the corresponding parent raises an
 error at that point.
 
 # Fields
@@ -41,16 +41,16 @@ mutable struct Frame
 end
 
 function Base.getproperty(f::Frame, sym::Symbol)
-    if sym === :gframe
+    if sym === :g_frame
         haskey(f.parents, 'G') || error("Frame (stream='$(f.stream)') has no G parent")
         return f.parents['G']
-    elseif sym === :cframe
+    elseif sym === :c_frame
         haskey(f.parents, 'C') || error("Frame (stream='$(f.stream)') has no C parent")
         return f.parents['C']
-    elseif sym === :dframe
+    elseif sym === :d_frame
         haskey(f.parents, 'D') || error("Frame (stream='$(f.stream)') has no D parent")
         return f.parents['D']
-    elseif sym === :mframe
+    elseif sym === :m_frame
         haskey(f.parents, 'M') || error("Frame (stream='$(f.stream)') has no M parent")
         return f.parents['M']
     end

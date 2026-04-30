@@ -29,9 +29,9 @@ const HALF_LENGTHS = [1.0u"m", 1.0u"m", 0.125u"m"]
 const GRID_MARGIN  = 500.0u"m"
 const MAX_SLOPE    = parse(Float64, get(ENV, "MAX_SLOPE_DEG", "35"))  # degrees
 
-function build_detector_units(gframe::Frame, dframe::Frame; max_slope_deg=MAX_SLOPE)
-    cs  = gframe["cs"]
-    bvh = dframe["detector_bvh"]
+function build_detector_units(g_frame::Frame, d_frame::Frame; max_slope_deg=MAX_SLOPE)
+    cs  = g_frame["cs"]
+    bvh = d_frame["detector_bvh"]
     det_triangles = bvh.triangles
 
     # Area-weighted centroid and normal of the detector surface
@@ -109,13 +109,13 @@ println("Adding detector units to $(length(site_files)) candidate site GCD bundl
 for jld2_path in site_files
     site = replace(basename(jld2_path), ".jld2" => "")
     frames = load_frames(jld2_path)
-    gframe = Tambo._get_last_frame(frames, 'G')
-    dframe = Tambo._get_last_frame(frames, 'D')
+    g_frame = Tambo._get_last_frame(frames, 'G')
+    d_frame = Tambo._get_last_frame(frames, 'D')
 
-    obbs, obb_bvh = build_detector_units(gframe, dframe)
+    obbs, obb_bvh = build_detector_units(g_frame, d_frame)
 
-    dframe["detector_units"]    = obbs
-    dframe["detector_unit_bvh"] = obb_bvh
+    d_frame["detector_units"]    = obbs
+    d_frame["detector_unit_bvh"] = obb_bvh
 
     save_frames(jld2_path, frames, streams=('G', 'C', 'D'))
 

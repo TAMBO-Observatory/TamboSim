@@ -43,7 +43,7 @@ the mountain.
 # Arguments
 - `position::Coordinate`: the location to query.
 - `particle::Particle`: convenience overload — uses `particle.position`.
-- `bvh::BVHTree`: BVH over topography triangles (typically `gframe["bvh"]`).
+- `bvh::BVHTree`: BVH over topography triangles (typically `g_frame["bvh"]`).
 
 # Returns
 - `true` if the upwards ray from `position` does not intersect `bvh`.
@@ -56,8 +56,8 @@ is_above_topography(particle::Particle, bvh::BVHTree) =
 
 """
     place_detector_units(
-        gframe::Frame,
-        dframe::Frame;
+        g_frame::Frame,
+        d_frame::Frame;
         spacing            = 125.0u"m",
         max_slope_deg      = 35.0,
         half_lengths       = [1.0u"m", 1.0u"m", 0.125u"m"],
@@ -65,7 +65,7 @@ is_above_topography(particle::Particle, bvh::BVHTree) =
     ) -> (Vector{OBB{Float64}}, Union{BVHTree, Nothing})
 
 Lay out detector OBBs on a hexagonal grid covering the detector surface
-encoded by `dframe["detector_bvh"]`, returning both the OBBs and a BVH
+encoded by `d_frame["detector_bvh"]`, returning both the OBBs and a BVH
 over them. Pure function — does not mutate either frame.
 
 The grid is laid out in the local-tangent plane derived from the
@@ -77,13 +77,13 @@ their local triangle normal.
 
 Typical caller pattern:
 
-    obbs, obb_bvh = place_detector_units(gframe, dframe; spacing=125.0u"m")
-    dframe["detector_units"]    = obbs
-    dframe["detector_unit_bvh"] = obb_bvh
+    obbs, obb_bvh = place_detector_units(g_frame, d_frame; spacing=125.0u"m")
+    d_frame["detector_units"]    = obbs
+    d_frame["detector_unit_bvh"] = obb_bvh
 
 # Arguments
-- `gframe::Frame`: provides the local coordinate system via `gframe["cs"]`.
-- `dframe::Frame`: provides the detector-region BVH via `dframe["detector_bvh"]`.
+- `g_frame::Frame`: provides the local coordinate system via `g_frame["cs"]`.
+- `d_frame::Frame`: provides the detector-region BVH via `d_frame["detector_bvh"]`.
 
 # Keyword arguments
 - `spacing`: target nearest-neighbor distance between modules along the surface.
@@ -102,15 +102,15 @@ Typical caller pattern:
   callers should check for this case before storing the result.
 """
 function place_detector_units(
-    gframe::Frame,
-    dframe::Frame;
+    g_frame::Frame,
+    d_frame::Frame;
     spacing       = 125.0u"m",
     max_slope_deg = 35.0,
     half_lengths  = [1.0u"m", 1.0u"m", 0.125u"m"],
     grid_margin   = 500.0u"m",
 )
-    cs  = gframe["cs"]
-    bvh = dframe["detector_bvh"]
+    cs  = g_frame["cs"]
+    bvh = d_frame["detector_bvh"]
     det_triangles = bvh.triangles
 
     # Area-weighted mean detector-surface normal. The (a/total_a) ratio is

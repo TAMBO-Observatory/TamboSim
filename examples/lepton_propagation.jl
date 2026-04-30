@@ -64,7 +64,7 @@ proposal_propagation!(frames, proposal_config)
 @show count(f -> f.stream == 'Q', frames)
 
 if cut_inmountain
-    gframe = Tambo._get_last_frame(frames, 'G')
+    g_frame = Tambo._get_last_frame(frames, 'G')
 
     function upray(particle)
         d = Direction(
@@ -75,7 +75,7 @@ if cut_inmountain
         return Ray(particle.position, d)
     end
 
-    isinair(particle) = isempty(intersect_all(gframe["bvh"], upray(particle)))
+    isinair(particle) = isempty(intersect_all(g_frame["bvh"], upray(particle)))
     cut_frames!(frames, frame -> isinair(frame["proposal_final_state"]))
 end
 

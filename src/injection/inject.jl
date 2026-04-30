@@ -540,26 +540,26 @@ end
 function _setup_injection(frames::TamboFrames, config::Dict, prefix::String, fname::String)
     haskey(config, "nevent") || error("$fname config must contain \"nevent\"")
     _ensure_earth_loaded!(frames)
-    gframe = _get_last_frame(frames, 'G')
-    m_parents = Dict{Char,Frame}('G' => gframe)
+    g_frame = _get_last_frame(frames, 'G')
+    m_parents = Dict{Char,Frame}('G' => g_frame)
     for s in ('C', 'D')
         f = _get_last_frame(frames, s; required=false)
         f !== nothing && (m_parents[s] = f)
     end
-    mframe = Frame('M', Dict{String,Any}(prefix => config), m_parents)
-    push!(frames, mframe)
-    q_parents = Dict{Char,Frame}('M' => mframe)
+    m_frame = Frame('M', Dict{String,Any}(prefix => config), m_parents)
+    push!(frames, m_frame)
+    q_parents = Dict{Char,Frame}('M' => m_frame)
     for s in ('G', 'C', 'D')
         haskey(m_parents, s) && (q_parents[s] = m_parents[s])
     end
     q_frames = Frame[]
     for idx in 1:config["nevent"]
-        qframe = Frame('Q', Dict{String,Any}(), q_parents)
-        qframe["event_id"] = idx
-        push!(q_frames, qframe)
+        q_frame = Frame('Q', Dict{String,Any}(), q_parents)
+        q_frame["event_id"] = idx
+        push!(q_frames, q_frame)
     end
     append!(frames, q_frames)
-    return gframe, mframe, q_frames
+    return g_frame, m_frame, q_frames
 end
 
 """
@@ -576,15 +576,15 @@ function inject!(
     config::Dict;
     prefix::String="injection"
 )
-    gframe, mframe, q_frames = _setup_injection(frames, config, prefix, "inject!")
-    dframe = mframe.dframe
+    g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject!")
+    d_frame = m_frame.d_frame
 
-    prem            = gframe["prem"]
-    bvh             = gframe["bvh"]
-    cs              = gframe["cs"]
-    topography      = gframe["topography"]
-    detector_region = dframe["detector_region"]
-    detector_bvh    = dframe["detector_bvh"]
+    prem            = g_frame["prem"]
+    bvh             = g_frame["bvh"]
+    cs              = g_frame["cs"]
+    topography      = g_frame["topography"]
+    detector_region = d_frame["detector_region"]
+    detector_bvh    = d_frame["detector_bvh"]
 
     pl = UnitfulPowerLawSampler(
         config["gamma"],
@@ -639,13 +639,13 @@ function inject_protons!(
     config::Dict;
     prefix::String="injection"
 )
-    gframe, mframe, q_frames = _setup_injection(frames, config, prefix, "inject_protons!")
-    dframe = mframe.dframe
+    g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_protons!")
+    d_frame = m_frame.d_frame
 
-    bvh             = gframe["bvh"]
-    cs              = gframe["cs"]
-    topography      = gframe["topography"]
-    detector_region = dframe["detector_region"]
+    bvh             = g_frame["bvh"]
+    cs              = g_frame["cs"]
+    topography      = g_frame["topography"]
+    detector_region = d_frame["detector_region"]
 
     pl = UnitfulPowerLawSampler(
         config["gamma"],

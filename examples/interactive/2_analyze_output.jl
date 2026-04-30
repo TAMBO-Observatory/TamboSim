@@ -10,7 +10,7 @@
 # For frame-container and key-inheritance basics, see 1_frame_usage.jl.
 #
 # Topics covered:
-#   1. Filtering to air decays with cut_frames!
+#   1. Filtering to air decays with filter!
 #   2. Computing one-weights (with units!) for physical flux estimates
 #   3. Classifying decay-product flavor (EM / hadronic / muonic)
 
@@ -35,24 +35,22 @@ function decayed_in_air(frame)
 end
 
 # =============================================================================
-# 1. Filtering to air decays with cut_frames!
+# 1. Filtering to air decays with filter!
 # =============================================================================
-# cut_frames!(frames, predicate) keeps Q frames where predicate returns true.
-# G/C/D/M frames are always preserved. Any P (physics) descendants of a cut
-# Q frame cascade out alongside their parent — though that doesn't activate
-# here, since example_output has only M+Q.
+# Tambo extends `Base.filter!` so it operates only on Q frames: a Q frame
+# is kept if the predicate returns true; G/C/D/M frames are always preserved;
+# any P (physics) descendants of a cut Q frame cascade out alongside their
+# parent — though that doesn't activate here, since example_output has only M+Q.
 
 # Note the `!`: in Julia, this notation denotes functions which modify their
 # argument, rather than returning a modified copy.
-
-@doc cut_frames!
 
 # Pre-cut tally:
 @show n_before     = length(frames.q_frames);
 @show n_air_before = count(decayed_in_air, frames.q_frames);
 @show n_rock_before = n_before - n_air_before;
 
-cut_frames!(frames, decayed_in_air)
+filter!(decayed_in_air, frames)
 q_frames = frames.q_frames;
 @show length(q_frames);                  # should match n_air_before
 

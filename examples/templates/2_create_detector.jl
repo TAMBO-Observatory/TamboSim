@@ -72,17 +72,17 @@ isfile(infile) || error(
 )
 
 frames = load_frames(infile)
-gframe = frames.g_frames[end]
-dframe = frames.d_frames[end]
+g_frame = frames.g_frames[end]
+d_frame = frames.d_frames[end]
 
-obbs, obb_bvh = place_detector_units(gframe, dframe; spacing=spacing, max_slope_deg=slope)
+obbs, obb_bvh = place_detector_units(g_frame, d_frame; spacing=spacing, max_slope_deg=slope)
 
 if isempty(obbs)
     error("No detector units survived placement — check --spacing ($(args["spacing"]) m) and --slope ($(slope)°) against your geometry.")
 end
 
-dframe["detector_units"]    = obbs
-dframe["detector_unit_bvh"] = obb_bvh
+d_frame["detector_units"]    = obbs
+d_frame["detector_unit_bvh"] = obb_bvh
 
 save_frames(outfile, frames, streams=('G', 'C', 'D'))
 

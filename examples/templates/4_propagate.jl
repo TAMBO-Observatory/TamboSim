@@ -94,7 +94,7 @@ println("After propagation: $(count(f -> f.stream == 'Q', frames)) Q frames")
 
 if cut_inmountain
     bvh = frames.g_frames[end]["bvh"]
-    cut_frames!(frames, frame -> is_above_topography(frame["proposal_final_state"], bvh))
+    filter!(frame -> is_above_topography(frame["proposal_final_state"], bvh), frames)
 end
 
 println("After in-mountain cut: $(count(f -> f.stream == 'Q', frames)) Q frames")

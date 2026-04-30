@@ -62,26 +62,26 @@ frames_of_stream( frames, 'Q' )
 # =============================================================================
 # Each Frame is a dictionary-like container. getindex resolves keys against
 # own data first, then walks parents in G → C → D → M → Q → P order. The
-# .gframe / .mframe shortcuts give direct access to the immediate parent of
+# .g_frame / .m_frame shortcuts give direct access to the immediate parent of
 # the corresponding stream.
 
-qframe = frames.q_frames[1]
-gframe = qframe.gframe
-mframe = qframe.mframe
+q_frame = frames.q_frames[1]
+g_frame = q_frame.g_frame
+m_frame = q_frame.m_frame
 
 # What's stored on each frame directly:
-sort(collect(keys(qframe.data)))  # injection_*, proposal_*, weight_params, event_id
-sort(collect(keys(mframe.data)))  # injection / proposal config snapshots
-sort(collect(keys(gframe.data)))  # bvh, topography, prem, cs, earth_path, ...
+sort(collect(keys(q_frame.data)))  # injection_*, proposal_*, weight_params, event_id
+sort(collect(keys(m_frame.data)))  # injection / proposal config snapshots
+sort(collect(keys(g_frame.data)))  # bvh, topography, prem, cs, earth_path, ...
 
 # What's reachable from a Q frame via getindex (own + inherited):
-sort(collect(keys(qframe)))
+sort(collect(keys(q_frame)))
 
-qframe["event_id"]                # own data
-qframe["earth_path"]              # inherited from G parent
-qframe["injection"]["nevent"]     # inherited from M parent (the inject! config snapshot)
+q_frame["event_id"]                # own data
+q_frame["earth_path"]              # inherited from G parent
+q_frame["injection"]["nevent"]     # inherited from M parent (the inject! config snapshot)
 
-haskey(qframe, "nonexistent_key") # false — getindex on this would throw KeyError
+haskey(q_frame, "nonexistent_key") # false — getindex on this would throw KeyError
 
 # =============================================================================
 # 4. The config that produced this output
@@ -101,5 +101,5 @@ config["proposal"]                # PROPOSAL settings
 # The M frame carries a snapshot. For this artifact, nevent and pinecone
 # were overridden by make_example_output.jl — see
 # _internal/make_example_output.jl for the producer details.
-mframe["injection"]["nevent"]     # 50 (overridden by the producer)
-mframe["injection"]["pdg"]        # 16 = nu_tau (taken from the TOML)
+m_frame["injection"]["nevent"]     # 50 (overridden by the producer)
+m_frame["injection"]["pdg"]        # 16 = nu_tau (taken from the TOML)

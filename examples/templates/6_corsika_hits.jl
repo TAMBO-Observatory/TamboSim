@@ -86,13 +86,13 @@ corsika_dir   = args["corsika-dir"]
 outfile       = isempty(args["outfile"]) ? infile : args["outfile"]
 
 frames = Tambo.load_frames([geometry_file, infile])
-gframe = frames.g_frames[end]
-dframe = frames.d_frames[end]
+g_frame = frames.g_frames[end]
+d_frame = frames.d_frames[end]
 q_frames = filter(f -> f.stream == 'Q', frames)
 
-cs = gframe["cs"]
+cs = g_frame["cs"]
 
-haskey(dframe, "detector_unit_bvh") || error(
+haskey(d_frame, "detector_unit_bvh") || error(
     """
     D frame does not contain "detector_unit_bvh".
 
@@ -101,7 +101,7 @@ haskey(dframe, "detector_unit_bvh") || error(
     $geometry_file before re-running this script.
     """
 )
-detector_unit_bvh = dframe["detector_unit_bvh"]
+detector_unit_bvh = d_frame["detector_unit_bvh"]
 
 @showprogress for frame in q_frames
     d = "$(corsika_dir)/event_$(lpad(frame["event_id"], 6, "0"))/"

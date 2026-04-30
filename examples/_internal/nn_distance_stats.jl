@@ -32,8 +32,8 @@ println("|------------------|----------:|-----------------:|--------:|")
 for jld2_path in site_files
     site = replace(basename(jld2_path), ".jld2" => "")
     frames = load_frames(jld2_path)
-    dframe = frames.d_frames[end]
-    obbs   = dframe["detector_units"]
+    d_frame = frames.d_frames[end]
+    obbs   = d_frame["detector_units"]
     dists  = nn_distances(obbs)
     @printf("| %-16s |       %3d |           %6.2f |   %5.2f |\n",
             site, length(obbs), mean(dists), std(dists))

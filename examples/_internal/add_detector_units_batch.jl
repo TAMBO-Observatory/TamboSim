@@ -28,18 +28,18 @@ println("Adding detector units to $(length(site_files)) candidate site GCD bundl
 for jld2_path in site_files
     site = replace(basename(jld2_path), ".jld2" => "")
     frames = load_frames(jld2_path)
-    gframe = frames.g_frames[end]
-    dframe = frames.d_frames[end]
+    g_frame = frames.g_frames[end]
+    d_frame = frames.d_frames[end]
 
-    obbs, obb_bvh = place_detector_units(gframe, dframe; spacing=SPACING, max_slope_deg=MAX_SLOPE)
+    obbs, obb_bvh = place_detector_units(g_frame, d_frame; spacing=SPACING, max_slope_deg=MAX_SLOPE)
 
     if isempty(obbs)
         @warn "$site: 0 modules placed (skipping write)"
         continue
     end
 
-    dframe["detector_units"]    = obbs
-    dframe["detector_unit_bvh"] = obb_bvh
+    d_frame["detector_units"]    = obbs
+    d_frame["detector_unit_bvh"] = obb_bvh
 
     save_frames(jld2_path, frames, streams=('G', 'C', 'D'))
 

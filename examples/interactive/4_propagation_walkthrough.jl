@@ -49,7 +49,7 @@ config["proposal"]["pinecone"]  = SEED
 
 frames = load_frames(geometry_file)
 inject!(frames, config["injection"])
-cut_frames!(frames, f -> haskey(f, "injection_final_state"))
+filter!(f -> haskey(f, "injection_final_state"), frames)
 
 @show length(frames.q_frames);      # surviving events after the injection cut
 
@@ -151,8 +151,8 @@ n_skipped    = n_total - n_propagated
 sort(collect(keys(q.data)))         # event_id, injection_*, weight_params, proposal_*
 
 # The M frame also gained a snapshot of the proposal config:
-mframe = frames.m_frames[end]
-sort(collect(keys(mframe.data)))    # ["injection", "proposal"]
+m_frame = frames.m_frames[end]
+sort(collect(keys(m_frame.data)))    # ["injection", "proposal"]
 
 # Continue with 5_corsika_walkthrough.jl to see how the proposal_decay_products
 # get fed into CORSIKA to simulate the resulting air showers.

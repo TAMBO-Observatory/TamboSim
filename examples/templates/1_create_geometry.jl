@@ -321,11 +321,11 @@ println("  Saved → $g_path ($(round(filesize(g_path)/1024^2, digits=1)) MB)")
 
 # Verify round-trip: reload from JLD2 (no HDF5 file needed).
 frames2 = load_frames(g_path)
-gframe2 = frames2.g_frames[end]
-dframe2 = frames2.d_frames[end]
-n_prem   = length(gframe2["prem"])
-n_tris   = length(gframe2["topography"])
-n_det    = length(dframe2["detector_region"])
+g_frame2 = frames2.g_frames[end]
+d_frame2 = frames2.d_frames[end]
+n_prem   = length(g_frame2["prem"])
+n_tris   = length(g_frame2["topography"])
+n_det    = length(d_frame2["detector_region"])
 println("  Reloaded — PREM layers: $n_prem  triangles: $n_tris  detector faces: $n_det")
 
 # --- 2. ASCII PLY (for earth_from_ply) ---

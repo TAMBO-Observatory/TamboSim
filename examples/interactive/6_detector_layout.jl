@@ -38,14 +38,14 @@ geometry_file = joinpath(tambo_path, "resources", "geometry", "colca_valley_3000
 # this walkthrough builds.
 
 frames = load_frames(geometry_file)
-gframe = frames.g_frames[end]
-dframe = frames.d_frames[end]
+g_frame = frames.g_frames[end]
+d_frame = frames.d_frames[end]
 
-sort(collect(keys(dframe.data)))    # ["detector_bvh", "detector_region"]
-haskey(dframe, "detector_units")    # false — confirms we have something to build
+sort(collect(keys(d_frame.data)))    # ["detector_bvh", "detector_region"]
+haskey(d_frame, "detector_units")    # false — confirms we have something to build
 
-cs  = gframe["cs"]                   # local Cartesian coord system
-bvh = dframe["detector_bvh"]
+cs  = g_frame["cs"]                   # local Cartesian coord system
+bvh = d_frame["detector_bvh"]
 det_triangles = bvh.triangles
 @show length(det_triangles);         # number of detector-region triangles
 
@@ -194,10 +194,10 @@ obbs[1]                              # one OBB — center, rotation, half-length
 
 obb_bvh = Tambo.BVHTree(obbs)
 
-dframe["detector_units"]    = obbs
-dframe["detector_unit_bvh"] = obb_bvh
+d_frame["detector_units"]    = obbs
+d_frame["detector_unit_bvh"] = obb_bvh
 
-sort(collect(keys(dframe.data)))    # now includes detector_units + detector_unit_bvh
+sort(collect(keys(d_frame.data)))    # now includes detector_units + detector_unit_bvh
 
 # To make this layout persist beyond the REPL, save the frames:
 #
@@ -205,6 +205,6 @@ sort(collect(keys(dframe.data)))    # now includes detector_units + detector_uni
 #
 # Or just run templates/2_create_detector.jl, which is the same
 # algorithm wrapped as a CLI. Both paths ultimately call the library
-# helper `Tambo.place_detector_units(gframe, dframe; spacing, max_slope_deg)`,
+# helper `Tambo.place_detector_units(g_frame, d_frame; spacing, max_slope_deg)`,
 # which collapses Sections 2–5 into one call and returns the same
 # `(obbs, obb_bvh)` you'd get above.

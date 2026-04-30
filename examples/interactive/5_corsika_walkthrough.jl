@@ -51,8 +51,8 @@ q["proposal_final_state"]            # the lepton at its decay vertex
 q["proposal_decay_products"]         # the daughters tambo_shower will simulate
 
 # The [corsika] config table that the high-level wrapper consumes:
-mframe = frames.m_frames[end]
-keys(mframe.data) |> collect |> sort
+m_frame = frames.m_frames[end]
+keys(m_frame.data) |> collect |> sort
 # Note: this artifact's M frame only has injection + proposal snapshots,
 # since make_example_output.jl skips the CORSIKA stage. The [corsika]
 # table is read from the TOML at runtime (see resources/configuration_examples).

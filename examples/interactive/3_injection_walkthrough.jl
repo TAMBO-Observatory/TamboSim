@@ -77,10 +77,10 @@ frames                              # tree view: M frame + 50 Q frames now prese
 length(frames.q_frames)             # 50
 
 # The M frame carries a snapshot of the config that produced this run:
-mframe = frames.m_frames[end]
-sort(collect(keys(mframe.data)))    # ["injection"]
-mframe["injection"]["nevent"]       # 50 — round-trips from injection_config
-mframe["injection"]["pinecone"]     # 1234
+m_frame = frames.m_frames[end]
+sort(collect(keys(m_frame.data)))    # ["injection"]
+m_frame["injection"]["nevent"]       # 50 — round-trips from injection_config
+m_frame["injection"]["pinecone"]     # 1234
 
 # Each Q frame now has event_id + the per-event physics keys:
 q1 = frames.q_frames[1]
@@ -239,7 +239,7 @@ oneweight = (Tambo.p_phys(wp) / Tambo.p_mc(wp)) / NEVENT
 # *_final_state. Downstream stages need the final state, so the templates
 # cut these frames immediately:
 #
-#     cut_frames!(frames, frame -> haskey(frame, "injection_final_state"))
+#     filter!(frame -> haskey(frame, "injection_final_state"), frames)
 
 n_total  = length(frames.q_frames)
 n_failed = count(f -> !haskey(f, "injection_final_state"), frames.q_frames)

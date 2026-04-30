@@ -37,7 +37,7 @@ config["proposal"]["pinecone"]  = SEED
 
 frames = load_frames(geometry_file)
 inject!(frames, config["injection"])
-cut_frames!(frames, f -> haskey(f, "injection_final_state"))
+filter!(f -> haskey(f, "injection_final_state"), frames)
 
 proposal_propagation!(frames, config["proposal"])
 

@@ -19,8 +19,8 @@ using Printf
 const GEO_DIR   = joinpath(tambo_path, "resources", "geometry")
 const MAX_SLOPE = parse(Float64, get(ENV, "MAX_SLOPE_DEG", "35"))
 
-count_modules(gframe, dframe, spacing; max_slope_deg=MAX_SLOPE) =
-    length(place_detector_units(gframe, dframe; spacing=spacing, max_slope_deg=max_slope_deg)[1])
+count_modules(g_frame, d_frame, spacing; max_slope_deg=MAX_SLOPE) =
+    length(place_detector_units(g_frame, d_frame; spacing=spacing, max_slope_deg=max_slope_deg)[1])
 
 spacings = [150.0u"m", 125.0u"m", 100.0u"m"]
 site_files = sort(filter(f -> startswith(basename(f), "candidate_site_"), readdir(GEO_DIR, join=true)))
@@ -31,10 +31,10 @@ results_nocut = Dict{String, Vector{Int}}()
 for jld2_path in site_files
     site = replace(basename(jld2_path), ".jld2" => "")
     frames = load_frames(jld2_path)
-    gframe = frames.g_frames[end]
-    dframe = frames.d_frames[end]
-    results_cut[site]   = [count_modules(gframe, dframe, s; max_slope_deg=MAX_SLOPE) for s in spacings]
-    results_nocut[site] = [count_modules(gframe, dframe, s; max_slope_deg=90.0)      for s in spacings]
+    g_frame = frames.g_frames[end]
+    d_frame = frames.d_frames[end]
+    results_cut[site]   = [count_modules(g_frame, d_frame, s; max_slope_deg=MAX_SLOPE) for s in spacings]
+    results_nocut[site] = [count_modules(g_frame, d_frame, s; max_slope_deg=90.0)      for s in spacings]
 end
 
 println()

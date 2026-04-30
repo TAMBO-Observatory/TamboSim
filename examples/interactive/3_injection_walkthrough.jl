@@ -18,6 +18,7 @@
 #   4. The three injection states and how the sampling inversion sets them
 #   5. weight_params and p_mc — the bookkeeping that makes flux estimates work
 #   6. Failure mode: when an injected direction doesn't see any rock
+#   7. Variant: inject_protons! for cosmic-ray primaries
 
 using Tambo
 using TOML
@@ -254,3 +255,79 @@ sort(collect(keys(failed_q.data)))  # event_id + weight_params, but no injection
 
 # Continue with 4_propagation_walkthrough.jl to see what proposal_propagation!
 # does with the surviving injection_final_state.
+
+# =============================================================================
+# 7. Variant: inject_protons! for cosmic-ray primaries
+# =============================================================================
+# Cosmic-ray protons are surface-injected: every primary produces a shower
+# by construction, so there's no forced CC interaction, no Earth-propagation
+# cascade, and no cross-section table. inject_protons! shares the same
+# spectrum + angular samplers as inject!, but the per-event work and the
+# resulting Q-frame keys are different.
+
+@doc inject_protons!
+
+proton_config_file = joinpath(tambo_path, "resources", "configuration_examples", "cosmic_ray_proton.toml")
+proton_config = TOML.parsefile(proton_config_file)
+relativize!(proton_config)
+
+proton_injection_config = proton_config["injection"]
+proton_injection_config["nevent"]   = NEVENT
+proton_injection_config["pinecone"] = SEED
+
+# The proton config has no `pdg` (protons are protons), no `xs_location`
+# (no forced interaction), but adds `altitude` — the geodetic altitude at
+# which the primary is sampled along its trajectory before entering the
+# atmosphere.
+@show proton_injection_config["altitude"];                                # km
+@show proton_injection_config["thetamin"], proton_injection_config["thetamax"];  # downgoing
+@show proton_injection_config["gamma"];                                   # CR-flux-shaped (~2.7)
+
+# Run on a fresh frames container so we can compare side-by-side with the
+# neutrino frames above without mutating them.
+proton_frames = load_frames(geometry_file)
+inject_protons!(proton_frames, proton_injection_config)
+
+proton_frames                       # tree view: M frame + NEVENT Q frames
+
+# Per-Q-frame keys: same skeleton as the neutrino case, but
+#   - no `injection_close_state`  (no Earth-propagation cascade)
+#   - new `particle_passes_through_rock`  (Bool: did the proton's trajectory
+#     pass through rock before reaching the atmosphere?)
+proton_q1 = proton_frames.q_frames[1]
+sort(collect(keys(proton_q1.data)))
+
+# initial_state lives at `altitude` km; final_state is at the surface where
+# the shower starts:
+proton_q1["injection_initial_state"].pdg            # 2212 (proton)
+proton_q1["injection_initial_state"].position
+proton_q1["injection_final_state"].position
+
+# weight_params has the same struct shape, but the cross-section / column-
+# depth fields are NaN — the surface-injection path doesn't fill them:
+proton_wp = proton_q1["weight_params"]
+proton_wp
+
+# That NaN is also the discriminator the analysis code uses to pick the
+# right one-weight formula (see TamboMakie.jl/src/plotting/effA.jl::get_p):
+#
+#     if isnan(wp.generated_xs)              # surface-injected
+#         oneweight_per_event = 1 / p_mc_surface(wp)
+#     else                                   # forced interaction
+#         oneweight_per_event = p_phys(wp) / p_mc(wp)
+#     end
+#
+# For protons there is no `p_phys` correction — every primary that gets
+# sampled produces a shower, so the only weight is the inverse generation
+# density. Divide by NEVENT for the per-generated-event normalization:
+
+@doc Tambo.p_mc_surface
+
+@show Tambo.p_mc_surface(proton_wp);
+
+proton_oneweight = 1 / (Tambo.p_mc_surface(proton_wp) * NEVENT)
+@show proton_oneweight;
+
+# Multiplying by a cosmic-ray flux dN/(dE·dA·dt·dΩ) and an exposure time
+# gives the expected proton event count, the same way the neutrino oneweight
+# does for an astrophysical-neutrino flux.

@@ -1,15 +1,27 @@
 # 3_inject.jl
 #
-# Sample neutrino primaries on a Tambo geometry and write the resulting Q
-# frames to disk. Wraps `inject!`, which reads its parameters from the
-# `[injection]` table of a configuration TOML.
+# Sample primaries on a Tambo geometry and write the resulting Q frames
+# to disk. Two modes:
+#
+#   default          neutrino injection via `inject!` — TauRunner Earth
+#                    propagation + forced CC interaction at the detector.
+#                    Reads `[injection]` from a neutrino TOML (default:
+#                    tau_neutrino_cc.toml).
+#
+#   --protons        cosmic-ray proton injection via `inject_protons!` —
+#                    surface injection at a configurable altitude, no
+#                    forced interaction. Reads `[injection]` from a
+#                    proton TOML (default: cosmic_ray_proton.toml). The
+#                    `--pdg` flag is ignored in this mode.
 #
 # Input:
 #   <geometry>.jld2     a GCD bundle from 1_create_geometry.jl (D frame may
 #                       or may not have detector units placed; injection
 #                       does not need them)
 #   <config>.toml       injection settings — energy range, zenith range,
-#                       primary PDG, n events, RNG seed (`pinecone`)
+#                       n events, RNG seed (`pinecone`), and (neutrino only)
+#                       primary PDG + cross-section table location, or
+#                       (proton only) sampling `altitude`.
 #
 # Output:
 #   <outfile>.jld2      Q-frame stream containing one frame per sampled
@@ -39,9 +51,9 @@ function parse_commandline()
 
     @add_arg_table! s begin
         "--config", "-c"
-            help = "Path to configuration TOML file"
+            help = "Path to configuration TOML file (default selected from --protons)"
             arg_type = String
-            default = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
+            default = nothing
         "--geometry", "-g"
             help = "Path to geometry JLD2 file (produced by create_geometry.jl)"
             arg_type = String
@@ -55,9 +67,12 @@ function parse_commandline()
             arg_type = Int
             default = 100000
         "--pdg", "-p"
-            help = "Particle PDG code (e.g., 16 for nutau, 14 for numu)"
+            help = "Particle PDG code (e.g., 16 for nutau, 14 for numu); ignored with --protons"
             arg_type = Int
             default = 16
+        "--protons"
+            help = "Inject downgoing cosmic-ray protons via inject_protons! instead of inject!"
+            action = :store_true
         "--no-cut"
             help = "Disable cutting failed events (where injection region was not visible)"
             action = :store_true
@@ -72,26 +87,40 @@ end
 
 args = parse_commandline()
 
-outfile    = args["outfile"]
-cut_failed = !args["no-cut"]
+outfile        = args["outfile"]
+inject_protons = args["protons"]
+cut_failed     = !args["no-cut"]
 
-config = TOML.parsefile(args["config"])
+default_config = inject_protons ? "cosmic_ray_proton.toml" : "tau_neutrino_cc.toml"
+config_path    = something(args["config"],
+                           "$(tambo_path)/resources/configuration_examples/$default_config")
+
+config = TOML.parsefile(config_path)
 relativize!(config)
 
 injection_config = config["injection"]
 injection_config["nevent"] = args["nevent"]
-injection_config["pdg"]    = args["pdg"]
+if !inject_protons
+    injection_config["pdg"] = args["pdg"]
+end
 if !isnothing(args["seed"])
     injection_config["pinecone"] = args["seed"]
 end
 
 println("Injection settings:")
-println("  primary PDG       : $(injection_config["pdg"])")
+println("  mode              : $(inject_protons ? "cosmic-ray protons" : "neutrinos")")
+if !inject_protons
+    println("  primary PDG       : $(injection_config["pdg"])")
+end
 println("  n events to throw : $(injection_config["nevent"])")
 println("  drop failed events: $cut_failed")
 
 frames = load_frames(args["geometry"])
-inject!(frames, injection_config)
+if inject_protons
+    inject_protons!(frames, injection_config)
+else
+    inject!(frames, injection_config)
+end
 
 if cut_failed
     filter!(frame -> haskey(frame, "injection_final_state"), frames)

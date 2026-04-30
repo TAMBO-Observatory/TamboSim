@@ -5,10 +5,7 @@
 # Designed to be pasted into the REPL section by section.
 #
 # This file targets examples/resources/example_output.jld2 so it runs on a
-# fresh checkout. With only 50 generated events, the resulting statistics
-# (one-weight distribution, rock-vs-air ratios, decay classification) are
-# noisy — for meaningful analysis, re-run after producing a larger output
-# via templates/6_full_pipeline.jl.
+# fresh checkout.
 #
 # For frame-container and key-inheritance basics, see 1_frame_usage.jl.
 #
@@ -72,25 +69,41 @@ q_frames = frames.q_frames;
 # 2. One-weights for physical flux estimates
 # =============================================================================
 # Each Q frame carries weight_params, which inject! populates with the
-# generation density p_mc evaluated at the event's energy and direction.
-# The one-weight w = 1 / (p_mc · n_gen) gives the per-event volume in
-# (energy × area × solid-angle) phase space. Units: GeV · m³ · sr / event.
-# Multiplying by a flux dN/(dE·dA·dt·dΩ) (units 1/(GeV·m²·s·sr)) and an
-# exposure time (s) gives the expected event count.
-
+# generation phase-space + forced-interaction information. Two densities
+# are read off it:
+#
+#   p_mc(wp)     generation density (GeV^-1 · m^-3 · sr^-1) — power-law,
+#                solid angle, area, and the forced-interaction factors
+#                that focused events on the detector.
+#   p_phys(wp)   physical interaction density (m^-1) — the natural rate
+#                at which the close_state would have interacted at the
+#                forced vertex.
+#
+# Forcing interactions inflated each event's MC weight; dividing by p_mc
+# and multiplying by p_phys is the importance-sampling correction that
+# puts you back on the natural physical rate. Per-event normalization is
+# 1 / n_gen:
+#
+#     oneweight = (p_phys(wp) / p_mc(wp)) / n_gen
+#
+# Units come out to GeV · m² · sr / event — the standard "OneWeight"
+# shape. Multiplying by a flux dN/(dE·dA·dt·dΩ) (units 1/(GeV·m²·s·sr))
+# and an exposure time (s) gives the expected event count.
+#
 # Units stay attached throughout — Unitful does the bookkeeping, and the
 # REPL display tells you what you're looking at.
 
 n_gen = n_before  # generated count, before any cuts
 
-wps  = [f["weight_params"] for f in q_frames]
-pmcs = [Tambo.p_mc(wp) for wp in wps]
+wps   = [f["weight_params"] for f in q_frames]
+pmcs  = [Tambo.p_mc(wp)   for wp in wps]
+pphys = [Tambo.p_phys(wp) for wp in wps]
 
 # Filter to events with a finite, positive generation density:
 valid_idx = findall(p -> isfinite(ustrip(p)) && ustrip(p) > 0, pmcs)
 
-oneweights = [1.0 / (pmcs[i] * n_gen) for i in valid_idx]   # GeV · m³ · sr / event
-energies   = [wps[i].generated_initial_e for i in valid_idx] # GeV
+oneweights = [(pphys[i] / pmcs[i]) / n_gen for i in valid_idx]   # GeV · m² · sr / event
+energies   = [wps[i].generated_initial_e for i in valid_idx]      # GeV
 
 @show length(oneweights);
 @show median(oneweights);                # the median one-weight, with units
@@ -131,7 +144,7 @@ Dict(t => count(==(t), decay_types) for t in (:em, :hadronic, :muonic, :no_decay
 
 # A representative event, for poking at:
 f = first(q_frames)
-@show f["event_id"] f["proposal_final_state"].energy
+@show f["event_id"] f["proposal_final_state"].energy;
 f["proposal_decay_products"]
 
 # see TamboMakie.jl for visualization functions that would allow you to plot this event!

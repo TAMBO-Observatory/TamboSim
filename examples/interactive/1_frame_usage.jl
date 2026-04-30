@@ -10,7 +10,7 @@
 #   3. Key lookup and parent inheritance
 #   4. Inspecting the TOML config that produced the output
 
-using Tambo
+using TamboSim
 using TOML
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
@@ -86,7 +86,7 @@ haskey(q_frame, "nonexistent_key") # false — getindex on this would throw KeyE
 # =============================================================================
 # 4. The config that produced this output
 # =============================================================================
-# Tambo simulation configs are TOML files. inject! and proposal_propagation!
+# TamboSim simulation configs are TOML files. inject! and proposal_propagation!
 # each take a sub-table from the parsed config and snapshot it onto the M
 # frame, so the example_output's M frame mirrors what's in the TOML.
 

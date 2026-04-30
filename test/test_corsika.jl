@@ -5,7 +5,7 @@ MultiParquetIterator.
 Uses the example parquet file at test/resources/example_corsika.parquet.
 """
 
-import Tambo: CorsikaEvent, MultiParquetIterator, CoordinateSystem,
+import TamboSim: CorsikaEvent, MultiParquetIterator, CoordinateSystem,
               particle_speed, particle_mass
 
 using Parquet2
@@ -210,7 +210,7 @@ function run_corsika_tests()
                 YAML.write(io, config)
             end
 
-            events = Tambo.read_corsika(tmpdir, cs)
+            events = TamboSim.read_corsika(tmpdir, cs)
             count = 0
             for evt in events
                 count += 1
@@ -239,7 +239,7 @@ function run_corsika_tests()
 
             # Without summary.yaml, read_corsika should skip this shower.
             # With no valid showers, it should error with a clear message.
-            @test_throws ArgumentError Tambo.read_corsika(tmpdir, cs)
+            @test_throws ArgumentError TamboSim.read_corsika(tmpdir, cs)
         end
     end
 

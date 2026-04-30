@@ -272,7 +272,7 @@ function test_multi_geometry_parent_reset()
         ('M', Dict{String,Any}("run" => "run2")),
         ('Q', Dict{String,Any}("event" => 3)),
     ]
-    frames = Tambo._reconstruct_frames(raw)
+    frames = TamboSim._reconstruct_frames(raw)
 
     q_frames = filter(f -> f.stream == 'Q', frames)
     run1_qs = filter(f -> f["event"] <= 2, q_frames)

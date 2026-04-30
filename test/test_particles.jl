@@ -1,11 +1,11 @@
 """
 Tests for the particles module including particle types and particle state.
 
-These tests use the actual Tambo types from src/ to ensure code coverage.
+These tests use the actual TamboSim types from src/ to ensure code coverage.
 """
 
 # Import particle-related types and functions
-import Tambo: ParticleType, Unknown, Gamma, EPlus, EMinus, MuPlus, MuMinus,
+import TamboSim: ParticleType, Unknown, Gamma, EPlus, EMinus, MuPlus, MuMinus,
               TauPlus, TauMinus, NuTau, NuTauBar,
               FitStatus, NotSet, OK, GeneralFailure,
               ParticleShape, Null,
@@ -176,7 +176,7 @@ end
 function test_particle_null_with_id()
     p = Particle(42, Float64)
     @test p.id == 42
-    @test p.pdg == Tambo.Unknown
+    @test p.pdg == TamboSim.Unknown
     @test isnan(ustrip(p.energy))
 end
 

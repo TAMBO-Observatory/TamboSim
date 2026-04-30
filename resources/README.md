@@ -29,7 +29,7 @@ argument defaults to one of these.
 | `tau_neutrino_cc_fine_ecut.toml` | Same physics with tighter PROPOSAL energy cuts; slower but more accurate for low-energy lepton tracking. |
 
 Path entries inside these configs use the `_TAMBOSIM_PATH_` placeholder
-to refer to the package root. `Tambo.relativize!(config)` substitutes
+to refer to the package root. `TamboSim.relativize!(config)` substitutes
 that placeholder (and resolves bare relative paths) at load time.
 
 ## `geometry/`
@@ -59,7 +59,7 @@ the `kiara_examples_overhaul` branch — these will move under
 ## `cross_section_tables/`
 
 `cross_sections.h5` — neutrino-nucleon CC cross-section tables (CSMS),
-loaded by `Tambo.CrossSection` for use during injection. Indexed by
+loaded by `TamboSim.CrossSection` for use during injection. Indexed by
 PDG via group names like `CSMS_nutau`, `CSMS_numu`, etc.
 
 ## `proposal_tables/`

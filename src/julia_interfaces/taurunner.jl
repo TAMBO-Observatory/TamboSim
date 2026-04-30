@@ -70,7 +70,7 @@ function taurunner_interface(
     rng = isnothing(seed) ? Random.default_rng() : Random.MersenneTwister(seed)
 
     # Convert particle to TauRunner format
-    # TauRunner uses eV, Tambo uses GeV with Unitful
+    # TauRunner uses eV, TamboSim uses GeV with Unitful
     energy_eV = ustrip(particle.energy |> u"eV")
     pdg_id = Int(particle.pdg)
     tr_particle_type = TR.ParticleType(pdg_id)
@@ -93,7 +93,7 @@ function taurunner_interface(
         TR.propagate!(tr_particle, track, earth, clp;
                       condition=stopping_condition, rng=rng)
 
-        # Convert back to Tambo format
+        # Convert back to TamboSim format
         # Calculate position based on track exit
         earth_length = TR.length(earth)
         distance_natural = (TR.x_to_d(track, 1.0) - TR.x_to_d(track, tr_particle.position)) * earth_length
@@ -119,7 +119,7 @@ function taurunner_interface(
         for intersection in Iterators.rest(reverse(culled_ixs), 2)
             # Determine if this is rock or air based on normal direction
             is_rock = dot(particle.direction, intersection.normal) > 0 ||
-                      typeof(intersection) == Tambo.SphereIntersection{T}
+                      typeof(intersection) == TamboSim.SphereIntersection{T}
             density = is_rock ? ustrip(u"g/cm^3", ROCK_DENSITY) : ustrip(u"g/cm^3", AIR_DENSITY)
 
             normalized_boundary = ustrip((total_distance - intersection.distance) / total_distance)
@@ -192,7 +192,7 @@ function taurunner_interface(
         # bound to a specific geometry (slab body). Reusing them across events with
         # different layer structures causes memory corruption and segfaults.
 
-        # Convert back to Tambo format
+        # Convert back to TamboSim format
         body_length = TR.length(body)
         distance_natural = TR.x_to_d(track, tr_particle.position) * body_length
         distance = distance_natural / TR.units.meter * u"m"

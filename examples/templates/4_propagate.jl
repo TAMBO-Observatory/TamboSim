@@ -19,14 +19,14 @@
 # Optional `--cut-inmountain` drops events whose `proposal_final_state` ends
 # below the topography surface — i.e. the lepton ranged out inside rock and
 # will not produce an air shower. We delegate the test to
-# `Tambo.is_above_topography`, which shoots a radially-outward ray from the
+# `TamboSim.is_above_topography`, which shoots a radially-outward ray from the
 # particle's position and asks whether the topography BVH sits above it.
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
-using Tambo
+using TamboSim
 using TOML
 
 # =============================================================================

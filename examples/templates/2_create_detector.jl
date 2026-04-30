@@ -3,8 +3,8 @@
 # Place detector units (OBBs) on a single GC bundle and write them back into
 # the D frame. The modules are laid out on a hexagonal grid projected onto
 # the detector surface triangles, with a max-slope filter that skips
-# near-vertical patches. The placement algorithm itself lives in Tambo
-# proper as `Tambo.place_detector_units`; this script is just a thin CLI
+# near-vertical patches. The placement algorithm itself lives in TamboSim
+# proper as `TamboSim.place_detector_units`; this script is just a thin CLI
 # around it.
 #
 # Input: a GC bundle JLD2 produced by 1_create_geometry.jl.
@@ -21,7 +21,7 @@ default_geometry_jld2 = joinpath(tambo_path, "examples", "output", "geometry", "
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
-using Tambo
+using TamboSim
 using Unitful
 
 # =============================================================================

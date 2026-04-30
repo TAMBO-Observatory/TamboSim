@@ -1,5 +1,5 @@
 """
-Injection regression tests for Tambo.
+Injection regression tests for TamboSim.
 
 These tests run full injection events through the Earth model and verify that
 key statistical properties remain consistent across code changes:
@@ -11,7 +11,7 @@ Uses fixed random seeds for deterministic reproducibility.
 Requires HDF5 geometry and cross-section data files.
 """
 
-import Tambo: UnitfulPowerLawSampler, UniformAngularSampler, CoordinateSystem,
+import TamboSim: UnitfulPowerLawSampler, UniformAngularSampler, CoordinateSystem,
               precompute_detector_properties, inject_event, CrossSection,
               null_params, init_proposal, proposal_propagate, is_proposal_available
 
@@ -72,8 +72,8 @@ function run_injection_regression_tests()
     xs_path = get_tambosim_path() * "/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
     frames_geo = load_frames(geometry_path)
-    g_frame = Tambo._get_last_frame(frames_geo, 'G')
-    d_frame = Tambo._get_last_frame(frames_geo, 'D')
+    g_frame = TamboSim._get_last_frame(frames_geo, 'G')
+    d_frame = TamboSim._get_last_frame(frames_geo, 'D')
     prem            = g_frame["prem"]
     bvh             = g_frame["bvh"]
     cs              = g_frame["cs"]

@@ -1,4 +1,4 @@
-module Tambo
+module TamboSim
 
 export Ray,
        Coordinate,
@@ -69,7 +69,7 @@ include("geometry_queries.jl")
 """
     __init__()
 
-Initializes the Tambo module.
+Initializes the TamboSim module.
 """
 function __init__()
 
@@ -108,7 +108,7 @@ function __init__()
     end
 end
 
-# Custom display methods for Tambo types (must be at end after all types are defined)
+# Custom display methods for TamboSim types (must be at end after all types are defined)
 include("display.jl")
 
 # Precompilation workloads to reduce time-to-first-use latency

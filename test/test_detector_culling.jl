@@ -6,7 +6,7 @@ and the geometric triangle weighting used in injection.
 """
 
 # Import detector culling functions
-import Tambo: faces_forward, compute_occlusion, occlusion_mask_to_faces,
+import TamboSim: faces_forward, compute_occlusion, occlusion_mask_to_faces,
               geometric_triangle_weight, triangles_to_mesh
 
 # ============================================================================

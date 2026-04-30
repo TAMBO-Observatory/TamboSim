@@ -1,11 +1,11 @@
 """
 Tests for the BVH (Bounding Volume Hierarchy) tree structure.
 
-These tests use the actual Tambo types from src/ to ensure code coverage.
+These tests use the actual TamboSim types from src/ to ensure code coverage.
 """
 
 # Import BVH-related functions
-import Tambo: merge, surface_area, center
+import TamboSim: merge, surface_area, center
 
 # ============================================================================
 # Test functions
@@ -247,8 +247,8 @@ function test_obb_world_to_local()
     obb = OBB(Coordinate([5.0u"m", 0.0u"m", 0.0u"m"], cs),
               AngleAxis(0.0, 1.0, 0.0, 0.0),
               [1.0u"m", 1.0u"m", 1.0u"m"])
-    lp = Tambo.world_to_local(obb, Coordinate([6.0u"m", 0.0u"m", 0.0u"m"], cs))
+    lp = TamboSim.world_to_local(obb, Coordinate([6.0u"m", 0.0u"m", 0.0u"m"], cs))
     @test length(lp) == 3
-    ld = Tambo.world_to_local(obb, Direction([0.0, 0.0, 1.0], cs))
+    ld = TamboSim.world_to_local(obb, Direction([0.0, 0.0, 1.0], cs))
     @test length(ld) == 3
 end

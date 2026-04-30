@@ -1,12 +1,12 @@
 """
-Sampler statistics tests for Tambo.
+Sampler statistics tests for TamboSim.
 
 Verifies that samplers produce correct statistical distributions and that
 results are reproducible with fixed seeds. Also covers numerical stability
 at extreme parameter values.
 """
 
-import Tambo: UnitfulPowerLawSampler, UniformAngularSampler, pl_norm, probability,
+import TamboSim: UnitfulPowerLawSampler, UniformAngularSampler, pl_norm, probability,
               sph_to_cart, cart_to_sph
 
 function run_sampler_statistics_tests()

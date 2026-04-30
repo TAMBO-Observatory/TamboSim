@@ -11,7 +11,7 @@ end
 """
     get_git_commit_hash() -> Union{String, Nothing}
 
-Retrieves the Git commit hash of the Tambo repository.
+Retrieves the Git commit hash of the TamboSim repository.
 """
 function get_git_commit_hash()::Union{String, Nothing}
     try
@@ -25,10 +25,10 @@ end
 """
     get_version_string() -> String
 
-Returns the Tambo package version string as recorded in its `Project.toml`.
+Returns the TamboSim package version string as recorded in its `Project.toml`.
 """
 function get_version_string()
-    string(pkgversion(Tambo))
+    string(pkgversion(TamboSim))
 end
 
 """

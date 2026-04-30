@@ -2,7 +2,7 @@
 Tests for the geometry module including CoordinateSystem, Coordinate, Direction,
 Triangle, Sphere, OBB, Plane, and related utilities.
 
-These tests use the actual Tambo types from src/ to ensure code coverage.
+These tests use the actual TamboSim types from src/ to ensure code coverage.
 """
 
 # ============================================================================
@@ -447,7 +447,7 @@ end
 function test_upwards_ray_at_coordinate()
     cs  = ecefcoordinates
     pos = Coordinate([0.0u"m", 0.0u"m", 1.0u"m"], cs)   # on the +z axis
-    ray = Tambo.upwards_ray_at(pos)
+    ray = TamboSim.upwards_ray_at(pos)
 
     @test ray isa Ray
     @test ray.origin === pos
@@ -461,8 +461,8 @@ function test_upwards_ray_at_particle()
     p   = Particle(NuTau, 1.0u"GeV", pos, Direction([1.0, 0.0, 0.0], cs))
     # The Particle overload should match the Coordinate overload, regardless
     # of the particle's direction (which is irrelevant — only position matters).
-    @test Tambo.upwards_ray_at(p).direction.point ==
-          Tambo.upwards_ray_at(pos).direction.point
+    @test TamboSim.upwards_ray_at(p).direction.point ==
+          TamboSim.upwards_ray_at(pos).direction.point
 end
 
 # Construct a single horizontal triangle 5 m above the +z axis,
@@ -483,7 +483,7 @@ function test_is_above_topography_below()
     bvh = _topography_bvh_above()
     pos = Coordinate([0.0u"m", 0.0u"m", 1.0u"m"], cs)   # below the triangle
     # Upwards ray from pos heads to +z and hits the triangle at z = 5 m.
-    @test Tambo.is_above_topography(pos, bvh) == false
+    @test TamboSim.is_above_topography(pos, bvh) == false
 end
 
 function test_is_above_topography_above()
@@ -491,7 +491,7 @@ function test_is_above_topography_above()
     bvh = _topography_bvh_above()
     pos = Coordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)  # above the triangle
     # Upwards ray from pos still heads to +z, never re-intersecting the triangle.
-    @test Tambo.is_above_topography(pos, bvh) == true
+    @test TamboSim.is_above_topography(pos, bvh) == true
 end
 
 function test_is_above_topography_particle_overload()
@@ -499,7 +499,7 @@ function test_is_above_topography_particle_overload()
     bvh = _topography_bvh_above()
     pos = Coordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)
     p   = Particle(NuTau, 1.0u"GeV", pos, Direction([0.0, 0.0, -1.0], cs))
-    @test Tambo.is_above_topography(p, bvh) == Tambo.is_above_topography(pos, bvh)
+    @test TamboSim.is_above_topography(p, bvh) == TamboSim.is_above_topography(pos, bvh)
 end
 
 # Detector-layout tests
@@ -523,9 +523,9 @@ end
 
 function test_place_detector_units_basic()
     g_frame, d_frame = _flat_detector_frames()
-    obbs, obb_bvh = Tambo.place_detector_units(g_frame, d_frame)
+    obbs, obb_bvh = TamboSim.place_detector_units(g_frame, d_frame)
 
-    @test obbs isa Vector{<:Tambo.OBB}
+    @test obbs isa Vector{<:TamboSim.OBB}
     @test obb_bvh isa BVHTree
     @test length(obbs) > 0                                # at least one module on a flat 600 m triangle
     @test length(obb_bvh.triangles) > 0                   # BVH has the OBB faces
@@ -539,14 +539,14 @@ function test_place_detector_units_slope_filter()
     # filter `ψ > max_slope_rad` reject every grid point. With nothing
     # placed, the function should return an empty OBB list and nothing
     # for the BVH (since BVHTree refuses an empty input).
-    obbs, obb_bvh = Tambo.place_detector_units(g_frame, d_frame; max_slope_deg=-1.0)
+    obbs, obb_bvh = TamboSim.place_detector_units(g_frame, d_frame; max_slope_deg=-1.0)
     @test isempty(obbs)
     @test obb_bvh === nothing
 end
 
 function test_place_detector_units_spacing()
     g_frame, d_frame = _flat_detector_frames()
-    obbs_coarse, _ = Tambo.place_detector_units(g_frame, d_frame; spacing=200.0u"m")
-    obbs_fine,   _ = Tambo.place_detector_units(g_frame, d_frame; spacing=100.0u"m")
+    obbs_coarse, _ = TamboSim.place_detector_units(g_frame, d_frame; spacing=200.0u"m")
+    obbs_fine,   _ = TamboSim.place_detector_units(g_frame, d_frame; spacing=100.0u"m")
     @test length(obbs_fine) > length(obbs_coarse)         # smaller spacing → more modules
 end

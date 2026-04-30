@@ -1,11 +1,11 @@
 """
 Tests for the weighting module including weight parameters and calculations.
 
-These tests use the actual Tambo types from src/ to ensure code coverage.
+These tests use the actual TamboSim types from src/ to ensure code coverage.
 """
 
 # Import weighting-related types and functions
-import Tambo: null_params
+import TamboSim: null_params
 
 # ============================================================================
 # Weighting helper functions for testing

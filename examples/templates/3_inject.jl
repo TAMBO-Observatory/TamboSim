@@ -1,6 +1,6 @@
 # 3_inject.jl
 #
-# Sample primaries on a Tambo geometry and write the resulting Q frames
+# Sample primaries on a TamboSim geometry and write the resulting Q frames
 # to disk. Two modes:
 #
 #   default          neutrino injection via `inject!` — TauRunner Earth
@@ -37,7 +37,7 @@ tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
-using Tambo
+using TamboSim
 using TOML
 
 # =============================================================================

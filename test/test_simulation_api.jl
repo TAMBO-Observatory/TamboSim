@@ -78,7 +78,7 @@ function test_inject_config_stored_under_prefix()
     config = _injection_config(nevent=3)
     inject!(frames, config)
 
-    m_frame = Tambo._get_last_frame(frames, 'M')
+    m_frame = TamboSim._get_last_frame(frames, 'M')
     @test haskey(m_frame.data, "injection")
     @test m_frame.data["injection"]["nevent"] == 3
 end
@@ -87,8 +87,8 @@ function test_inject_q_frame_parents()
     frames = load_frames(GEOMETRY_PATH)
     inject!(frames, _injection_config(nevent=3))
 
-    g_frame = Tambo._get_last_frame(frames, 'G')
-    m_frame = Tambo._get_last_frame(frames, 'M')
+    g_frame = TamboSim._get_last_frame(frames, 'G')
+    m_frame = TamboSim._get_last_frame(frames, 'M')
     q_frames = filter(f -> f.stream == 'Q', frames)
 
     for qf in q_frames
@@ -101,7 +101,7 @@ function test_inject_custom_prefix()
     frames = load_frames(GEOMETRY_PATH)
     inject!(frames, _injection_config(nevent=2); prefix="nu_injection")
 
-    m_frame = Tambo._get_last_frame(frames, 'M')
+    m_frame = TamboSim._get_last_frame(frames, 'M')
     @test haskey(m_frame.data, "nu_injection")
 
     q_frames = filter(f -> f.stream == 'Q', frames)
@@ -138,7 +138,7 @@ function test_proposal_config_stored()
     )
     proposal_propagation!(frames, proposal_config)
 
-    m_frame = Tambo._get_last_frame(frames, 'M')
+    m_frame = TamboSim._get_last_frame(frames, 'M')
     @test haskey(m_frame.data, "proposal")
     @test m_frame.data["proposal"]["vcut"] == 0.05
 end
@@ -249,7 +249,7 @@ end
 function test_save_geometry_self_contained()
     # G frame saved with streams=('G',) should reload without needing the source file
     frames = load_frames(GEOMETRY_PATH)
-    g_frame = Tambo._get_last_frame(frames, 'G')
+    g_frame = TamboSim._get_last_frame(frames, 'G')
 
     path = tempname() * ".jld2"
     save_frames(path, frames, streams=('G',))
@@ -257,7 +257,7 @@ function test_save_geometry_self_contained()
     rm(path)
 
     @test count(f -> f.stream == 'G', loaded) == 1
-    lg = Tambo._get_last_frame(loaded, 'G')
+    lg = TamboSim._get_last_frame(loaded, 'G')
     @test length(lg["topography"]) == length(g_frame["topography"])
     @test lg["earth_path"] == g_frame["earth_path"]
 end

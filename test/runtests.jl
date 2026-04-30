@@ -8,11 +8,11 @@ using StatsBase
 using Random
 using ProgressMeter
 
-# Import the Tambo module to test actual source code
-using Tambo
+# Import the TamboSim module to test actual source code
+using TamboSim
 
 # Import internal types and functions not exported by default
-import Tambo: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
+import TamboSim: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
               Triangle, Sphere, Plane, OBB, Ray,
               AABB, BVHNode, BVHTree,
               normal, area, centroid, longlat_to_cart, cart_to_longlat, sph_to_cart, cart_to_sph,
@@ -59,7 +59,7 @@ include("test_propagation_decay_fraction.jl")
 include("test_corsika.jl")
 include("test_proton_injection.jl")
 
-@testset "Tambo.jl" begin
+@testset "TamboSim.jl" begin
     @testset "Geometry" begin
         run_geometry_tests()
     end

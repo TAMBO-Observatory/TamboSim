@@ -1,5 +1,5 @@
 """
-Display and utility tests for Tambo.
+Display and utility tests for TamboSim.
 
 Tests the show/display methods for all public types and a small set of
 module-level utilities (llama progress bar, relativize!).
@@ -155,7 +155,7 @@ function run_display_tests()
             "path"   => "_TAMBOSIM_PATH_/data",
             "nested" => Dict{String,Any}("p" => "_TAMBOSIM_PATH_/x")
         )
-        Tambo.relativize!(rd)
+        TamboSim.relativize!(rd)
         @test !occursin("_TAMBOSIM_PATH_", rd["path"])
         @test !occursin("_TAMBOSIM_PATH_", rd["nested"]["p"])
     end

@@ -17,7 +17,7 @@ examples/
 ├── templates/      edit constants, run as a script or CLI
 ├── resources/      small precomputed assets (committed)
 ├── output/         where templates write results (gitignored)
-└── _internal/      Tambo-collab batch ops; not curated examples
+└── _internal/      TamboSim-collab batch ops; not curated examples
 ```
 
 Both subdirectories are numbered by concept complexity
@@ -73,7 +73,7 @@ don't have a site yet, templates 1 and 2 will build one for you.
 
 | File | Role |
 |---|---|
-| [`1_create_geometry.jl`](templates/1_create_geometry.jl) | build a Tambo geometry HDF5 + PLY + GCD-bundle JLD2 from a flat-square placeholder terrain. Replace `build_terrain_patch` with a DEM-interpolating function for real topography |
+| [`1_create_geometry.jl`](templates/1_create_geometry.jl) | build a TamboSim geometry HDF5 + PLY + GCD-bundle JLD2 from a flat-square placeholder terrain. Replace `build_terrain_patch` with a DEM-interpolating function for real topography |
 | [`2_create_detector.jl`](templates/2_create_detector.jl) | place detector OBBs on a single GC bundle (hex grid + slope filter), write back to the D frame |
 | [`3_inject.jl`](templates/3_inject.jl) | wraps `inject!`. Loads geometry + `[injection]` config, samples primaries, writes Q frames with injection states + weight_params |
 | [`4_propagate.jl`](templates/4_propagate.jl) | wraps `proposal_propagation!`. Loads inject output, propagates leptons through PROPOSAL, optionally drops events that range out inside the mountain |
@@ -104,7 +104,7 @@ shared `resources/`, not under `examples/`. It's the default
 - **The CORSIKA binary itself.** `templates/5_run_corsika.jl` won't do
   anything until `tambo_shower` is built — see
   `resources/corsika/src/BUILD.md` for the build instructions.
-- **The `_internal/` directory.** These are scripts the Tambo
+- **The `_internal/` directory.** These are scripts the TamboSim
   collaboration uses for batch geometry surveys and example-artifact
   regeneration. They aren't curated examples, so feel free to ignore
   them unless you specifically need one.

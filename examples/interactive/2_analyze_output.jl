@@ -15,7 +15,7 @@
 #   3. Classifying decay-product flavor (EM / hadronic / muonic)
 
 using Statistics
-using Tambo
+using TamboSim
 using Unitful: ustrip, @u_str
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
@@ -27,7 +27,7 @@ frames = load_frames([geometry_file, example_file])
 
 # A tau decay is "in air" if a ray shot radially outward from the decay
 # vertex never re-intersects the topography (BVH stored on the G frame).
-# `Tambo.is_above_topography` is the library helper for exactly this query.
+# `TamboSim.is_above_topography` is the library helper for exactly this query.
 
 function decayed_in_air(frame)
     haskey(frame, "proposal_final_state") || return false
@@ -37,7 +37,7 @@ end
 # =============================================================================
 # 1. Filtering to air decays with filter!
 # =============================================================================
-# Tambo extends `Base.filter!` so it operates only on Q frames: a Q frame
+# TamboSim extends `Base.filter!` so it operates only on Q frames: a Q frame
 # is kept if the predicate returns true; G/C/D/M frames are always preserved;
 # any P (physics) descendants of a cut Q frame cascade out alongside their
 # parent — though that doesn't activate here, since example_output has only M+Q.
@@ -85,8 +85,8 @@ q_frames = frames.q_frames;
 n_gen = n_before  # generated count, before any cuts
 
 wps   = [f["weight_params"] for f in q_frames]
-pmcs  = [Tambo.p_mc(wp)   for wp in wps]
-pphys = [Tambo.p_phys(wp) for wp in wps]
+pmcs  = [TamboSim.p_mc(wp)   for wp in wps]
+pphys = [TamboSim.p_phys(wp) for wp in wps]
 
 # Filter to events with a finite, positive generation density:
 valid_idx = findall(p -> isfinite(ustrip(p)) && ustrip(p) > 0, pmcs)

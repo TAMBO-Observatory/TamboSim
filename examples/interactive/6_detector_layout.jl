@@ -20,7 +20,7 @@
 
 using LinearAlgebra
 using Rotations
-using Tambo
+using TamboSim
 using Unitful: ustrip, @u_str
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
@@ -50,7 +50,7 @@ det_triangles = bvh.triangles
 @show length(det_triangles);         # number of detector-region triangles
 
 # Module dimensions — half-lengths in (x, y, z) of the local OBB frame.
-# Default ~2 m × 2 m × 0.25 m panels, matched to current Tambo prototypes.
+# Default ~2 m × 2 m × 0.25 m panels, matched to current TamboSim prototypes.
 const HALF_LENGTHS = [1.0u"m", 1.0u"m", 0.125u"m"]
 
 # =============================================================================
@@ -63,10 +63,10 @@ const HALF_LENGTHS = [1.0u"m", 1.0u"m", 0.125u"m"]
 # Larger triangles count more; spurious tiny triangles can't drag the
 # anchor or normal much.
 
-areas     = Tambo.area.(det_triangles)                                       # Quantity{m²}
+areas     = TamboSim.area.(det_triangles)                                       # Quantity{m²}
 centroids = [(t.v1.point + t.v2.point + t.v3.point) ./ 3                     # Quantity{m}, 3-vectors
              for t in det_triangles]
-normals   = [Tambo.normal(t).point for t in det_triangles]                   # unit-vectors (unitless)
+normals   = [TamboSim.normal(t).point for t in det_triangles]                   # unit-vectors (unitless)
 
 total_area = sum(areas)
 @show total_area;                    # total detector-region surface area (m²)
@@ -77,10 +77,10 @@ total_area = sum(areas)
 wc = sum(a .* c for (a, c) in zip(areas, centroids)) ./ total_area
 wn = sum((a / total_area) .* n for (a, n) in zip(areas, normals))
 
-point     = Tambo.Coordinate(wc, cs)
-direction = Tambo.Direction(wn, cs)
-plane     = Tambo.Plane(point, direction)
-up        = Tambo.Direction([0.0, 0.0, 1.0], cs)
+point     = TamboSim.Coordinate(wc, cs)
+direction = TamboSim.Direction(wn, cs)
+plane     = TamboSim.Plane(point, direction)
+up        = TamboSim.Direction([0.0, 0.0, 1.0], cs)
 
 @show plane.point.point;             # anchor of the local tangent plane
 @show plane.normal.point;            # mean unit normal in CS coords (nx, ny, nz)
@@ -138,14 +138,14 @@ base_ys = collect(y_lo:Δy_grid:y_hi)
 # triangular-lattice neighbour structure (six neighbours at distance
 # ≈ spacing).
 
-ps = Tambo.Coordinate[]
+ps = TamboSim.Coordinate[]
 for (idx, y) in enumerate(base_ys)
     xoffset = mod(idx, 2) == 0 ? 0.0u"m" : Δx / 2
     xs = base_xs .+ xoffset
-    coords = [Tambo.Coordinate(x, y, 0.0u"m", cs) for x in xs]
-    rays   = Tambo.Ray.(coords, Ref(up))
+    coords = [TamboSim.Coordinate(x, y, 0.0u"m", cs) for x in xs]
+    rays   = TamboSim.Ray.(coords, Ref(up))
     for ray in rays
-        isempty(Tambo.intersect_all(bvh, ray)) && continue
+        isempty(TamboSim.intersect_all(bvh, ray)) && continue
         push!(ps, ray.origin)
     end
 end
@@ -164,17 +164,17 @@ end
 # greater than max_slope_rad with vertical. Steep cliffs and overhangs
 # are usually unsuitable for module placement anyway.
 
-obbs = Tambo.OBB{Float64}[]
+obbs = TamboSim.OBB{Float64}[]
 for p in ps
-    ray = Tambo.Ray(p, up)
-    ixs = Tambo.intersect_all(bvh, ray)
+    ray = TamboSim.Ray(p, up)
+    ixs = TamboSim.intersect_all(bvh, ray)
     isempty(ixs) && continue
     n̂ = cross(up, ixs[1].normal)
     ψ = acos(clamp(dot(ixs[1].normal, up), -1.0, 1.0))
     ψ > max_slope_rad && continue
     rot    = AngleAxis(ψ, n̂...)
     center = ixs[1].point
-    push!(obbs, Tambo.OBB(center, rot, HALF_LENGTHS))
+    push!(obbs, TamboSim.OBB(center, rot, HALF_LENGTHS))
 end
 
 @show length(obbs);                  # final placed-module count
@@ -192,7 +192,7 @@ obbs[1]                              # one OBB — center, rotation, half-length
 # `detector_unit_bvh` is what 6_corsika_hits.jl looks for — without it,
 # that script errors with a pointer back to this placement step.
 
-obb_bvh = Tambo.BVHTree(obbs)
+obb_bvh = TamboSim.BVHTree(obbs)
 
 d_frame["detector_units"]    = obbs
 d_frame["detector_unit_bvh"] = obb_bvh
@@ -205,6 +205,6 @@ sort(collect(keys(d_frame.data)))    # now includes detector_units + detector_un
 #
 # Or just run templates/2_create_detector.jl, which is the same
 # algorithm wrapped as a CLI. Both paths ultimately call the library
-# helper `Tambo.place_detector_units(g_frame, d_frame; spacing, max_slope_deg)`,
+# helper `TamboSim.place_detector_units(g_frame, d_frame; spacing, max_slope_deg)`,
 # which collapses Sections 2–5 into one call and returns the same
 # `(obbs, obb_bvh)` you'd get above.

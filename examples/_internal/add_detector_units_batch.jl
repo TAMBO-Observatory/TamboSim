@@ -1,8 +1,8 @@
 # add_detector_units_batch.jl
 #
-# Tambo-collab batch op: for each candidate_site_*.jld2 in resources/geometry/,
+# TamboSim-collab batch op: for each candidate_site_*.jld2 in resources/geometry/,
 # place detector units (OBBs) and write them back into the D frame in place.
-# Thin wrapper around `Tambo.place_detector_units` over a list of sites.
+# Thin wrapper around `TamboSim.place_detector_units` over a list of sites.
 #
 # For single-site placement (external-user / per-site workflow) see the
 # template at examples/templates/2_create_detector.jl.
@@ -14,7 +14,7 @@
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
-using Tambo
+using TamboSim
 using Unitful
 
 const GEO_DIR   = joinpath(tambo_path, "resources", "geometry")

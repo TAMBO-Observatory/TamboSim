@@ -1,6 +1,6 @@
 # 1_create_geometry.jl
 #
-# Build a self-contained Tambo geometry bundle for a site. Writes five files
+# Build a self-contained TamboSim geometry bundle for a site. Writes five files
 # under `<outdir>/`, all stemmed by `<name>`:
 #
 #   <name>.h5                  HDF5 source — terrain mesh, PREM radii, site
@@ -10,7 +10,7 @@
 #   <name>_terrain.ply         Binary PLY for CORSIKA's tambo_shower
 #   <name>_obs_surface.ply     Binary PLY for CORSIKA, detector region only
 #   <name>.jld2                Self-contained GCD bundle, loaded directly by
-#                              downstream Tambo simulation runs
+#                              downstream TamboSim simulation runs
 #
 # HDF5 schema, written under the group `<name>`:
 #   location   - [lon, lat] in degrees
@@ -37,7 +37,7 @@ using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
 using HDF5
 using LinearAlgebra
-using Tambo
+using TamboSim
 
 # PREM model radii (km → m)
 const PREM_RADII_KM = [1221.5, 3480.0, 3630.0, 5600.0, 5701.0, 5771.0,
@@ -69,7 +69,7 @@ function build_terrain_patch(
     lat_rad   = deg2rad(lat_deg)
     r_surface = PREM_RADII_KM[end] * 1_000.0 + elevation_m
 
-    up    = Tambo.longlat_to_cart(lon_rad, lat_rad)
+    up    = TamboSim.longlat_to_cart(lon_rad, lat_rad)
     east  = normalize([-sin(lon_rad), cos(lon_rad), 0.0])
     north = normalize(cross(up, east))
 
@@ -242,7 +242,7 @@ end
 
 function parse_commandline()
     s = ArgParseSettings(
-        description = "Build a Tambo geometry HDF5 + PLY + JLD2 bundle for a custom site"
+        description = "Build a TamboSim geometry HDF5 + PLY + JLD2 bundle for a custom site"
     )
 
     @add_arg_table! s begin
@@ -315,7 +315,7 @@ vertices, faces, detector_indices = write_geometry_h5(
 # Saving with streams=('G','C','D') produces a self-contained JLD2 — downstream
 # simulation runs use load_frames(g_path) and never touch the HDF5.
 println("\nBuilding GCD bundle and saving to JLD2...")
-frames = Tambo.build_gcd_bundle("$h5_path:$groupname", "detector1")
+frames = TamboSim.build_gcd_bundle("$h5_path:$groupname", "detector1")
 save_frames(g_path, frames, streams=('G', 'C', 'D'))
 println("  Saved → $g_path ($(round(filesize(g_path)/1024^2, digits=1)) MB)")
 

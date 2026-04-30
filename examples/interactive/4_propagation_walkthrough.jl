@@ -20,7 +20,7 @@
 #   5. The 106 MeV skip threshold and its effect on the surviving frames
 #   6. Diff against post-injection: which keys are new
 
-using Tambo
+using TamboSim
 using TOML
 using Unitful: ustrip, @u_str
 
@@ -67,7 +67,7 @@ proposal_config["pinecone"]         # RNG seed (already overridden above)
 # are cheap. proposal_propagation! calls init_proposal for you, but you
 # can call it eagerly if you want to inspect or warm the cache.
 
-@doc Tambo.init_proposal
+@doc TamboSim.init_proposal
 
 # =============================================================================
 # 3. Per-event call: proposal_propagate
@@ -79,7 +79,7 @@ proposal_config["pinecone"]         # RNG seed (already overridden above)
 # then steps PROPOSAL through each segment with the appropriate medium
 # (rock or air) and accumulates losses, secondaries, and the final state.
 
-@doc Tambo.proposal_propagate
+@doc TamboSim.proposal_propagate
 
 # Run the high-level wrapper now — this is the point at which Q frames
 # gain their proposal_* keys.

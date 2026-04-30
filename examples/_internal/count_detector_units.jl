@@ -1,18 +1,18 @@
 # count_detector_units.jl
 #
-# Tambo-collab site survey: for each candidate_site_*.jld2 in
+# TamboSim-collab site survey: for each candidate_site_*.jld2 in
 # resources/geometry/, count how many detector OBBs would be placed at
 # each of several module spacings, both with and without the standard
 # slope filter. Print a per-site table.
 #
-# Wraps `Tambo.place_detector_units` and reports `length(obbs)`. The full
+# Wraps `TamboSim.place_detector_units` and reports `length(obbs)`. The full
 # OBB list is built and discarded for each (site, spacing) pair — fine
 # for an offline survey, not what you want in a hot loop.
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
-using Tambo
+using TamboSim
 using Unitful
 using Printf
 

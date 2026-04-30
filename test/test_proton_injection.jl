@@ -6,7 +6,7 @@ Covers:
 - inject_protons!: verifies frames get injection_initial_state key
 """
 
-import Tambo: CoordinateSystem, precompute_detector_properties,
+import TamboSim: CoordinateSystem, precompute_detector_properties,
               inject_proton_event, PPlus
 
 using Unitful
@@ -36,7 +36,7 @@ end
 
 function test_proton_altitude()
     frames = make_test_frames()
-    g_frame = Tambo._get_last_frame(frames, 'G'); d_frame = Tambo._get_last_frame(frames, 'D')
+    g_frame = TamboSim._get_last_frame(frames, 'G'); d_frame = TamboSim._get_last_frame(frames, 'D')
     bvh = g_frame["bvh"]; cs = g_frame["cs"]
     topography = g_frame["topography"]; detector_region = d_frame["detector_region"]
 
@@ -73,7 +73,7 @@ end
 
 function test_proton_particle_type()
     frames = make_test_frames()
-    g_frame = Tambo._get_last_frame(frames, 'G'); d_frame = Tambo._get_last_frame(frames, 'D')
+    g_frame = TamboSim._get_last_frame(frames, 'G'); d_frame = TamboSim._get_last_frame(frames, 'D')
     bvh = g_frame["bvh"]; cs = g_frame["cs"]
     topography = g_frame["topography"]; detector_region = d_frame["detector_region"]
     pl = UnitfulPowerLawSampler(2.7, 1e3u"GeV", 1e7u"GeV")
@@ -92,7 +92,7 @@ end
 
 function test_proton_energy_in_range()
     frames = make_test_frames()
-    g_frame = Tambo._get_last_frame(frames, 'G'); d_frame = Tambo._get_last_frame(frames, 'D')
+    g_frame = TamboSim._get_last_frame(frames, 'G'); d_frame = TamboSim._get_last_frame(frames, 'D')
     bvh = g_frame["bvh"]; cs = g_frame["cs"]
     topography = g_frame["topography"]; detector_region = d_frame["detector_region"]
     emin, emax = 1e3u"GeV", 1e7u"GeV"
@@ -113,7 +113,7 @@ end
 
 function test_proton_returns_visible_areas()
     frames = make_test_frames()
-    g_frame = Tambo._get_last_frame(frames, 'G'); d_frame = Tambo._get_last_frame(frames, 'D')
+    g_frame = TamboSim._get_last_frame(frames, 'G'); d_frame = TamboSim._get_last_frame(frames, 'D')
     bvh = g_frame["bvh"]; cs = g_frame["cs"]
     topography = g_frame["topography"]; detector_region = d_frame["detector_region"]
     pl = UnitfulPowerLawSampler(2.7, 1e3u"GeV", 1e7u"GeV")

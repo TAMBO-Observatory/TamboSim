@@ -17,7 +17,7 @@ tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using HDF5
-using Tambo
+using TamboSim
 
 h5_path  = "$(tambo_path)/resources/candidate_sites.h5"
 out_dir  = "$(tambo_path)/resources/geometry"
@@ -31,7 +31,7 @@ for site in site_keys
     earth_path = "$(h5_path):$(site)"
     jld2_path  = "$(out_dir)/candidate_$(site).jld2"
 
-    frames = Tambo.build_gcd_bundle(earth_path, "detector1")
+    frames = TamboSim.build_gcd_bundle(earth_path, "detector1")
     save_frames(jld2_path, frames, streams=('G', 'C', 'D'))
 
     g_frame  = frames.g_frames[end]

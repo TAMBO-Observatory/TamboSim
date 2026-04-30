@@ -20,7 +20,7 @@
 #   6. Failure mode: when an injected direction doesn't see any rock
 #   7. Variant: inject_protons! for cosmic-ray primaries
 
-using Tambo
+using TamboSim
 using TOML
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
@@ -102,12 +102,12 @@ sort(collect(keys(q1.data)))        # event_id, injection_*_state, weight_params
 # them we re-construct a copy here — these are the same constructors inject! uses
 # internally.
 
-@doc Tambo.UnitfulPowerLawSampler
+@doc TamboSim.UnitfulPowerLawSampler
 
-@doc Tambo.UniformAngularSampler
+@doc TamboSim.UniformAngularSampler
 
 # The cross-section table that ships with the canonical config:
-xs = Tambo.CrossSection(injection_config["xs_location"])
+xs = TamboSim.CrossSection(injection_config["xs_location"])
 xs                                  # struct fields show the energy grid + σ values
 
 # =============================================================================
@@ -217,14 +217,14 @@ wp                                  # struct fields display
 # shape. Multiplying by a flux dN/(dE·dA·dt·dΩ) (units 1/(GeV·m²·s·sr))
 # and an exposure time (s) gives the expected event count.
 
-@doc Tambo.p_mc
+@doc TamboSim.p_mc
 
-@doc Tambo.p_phys
+@doc TamboSim.p_phys
 
-@show Tambo.p_mc(wp);
-@show Tambo.p_phys(wp);
+@show TamboSim.p_mc(wp);
+@show TamboSim.p_phys(wp);
 
-oneweight = (Tambo.p_phys(wp) / Tambo.p_mc(wp)) / NEVENT
+oneweight = (TamboSim.p_phys(wp) / TamboSim.p_mc(wp)) / NEVENT
 @show oneweight;                            
 
 # Note: surface-injected primaries (cosmic-ray protons, atmospheric muons)
@@ -321,11 +321,11 @@ proton_wp
 # sampled produces a shower, so the only weight is the inverse generation
 # density. Divide by NEVENT for the per-generated-event normalization:
 
-@doc Tambo.p_mc_surface
+@doc TamboSim.p_mc_surface
 
-@show Tambo.p_mc_surface(proton_wp);
+@show TamboSim.p_mc_surface(proton_wp);
 
-proton_oneweight = 1 / (Tambo.p_mc_surface(proton_wp) * NEVENT)
+proton_oneweight = 1 / (TamboSim.p_mc_surface(proton_wp) * NEVENT)
 @show proton_oneweight;
 
 # Multiplying by a cosmic-ray flux dN/(dE·dA·dt·dΩ) and an exposure time

@@ -1,7 +1,7 @@
 
 # Hola y bienvenidos!
 
-Welcome to TamboSim! This is the main simulation code for the Tambo Collaboration, and is (thus far) capable of:
+Welcome to TamboSim! This is the main simulation code for the TamboSim Collaboration, and is (thus far) capable of:
 - Injecting (and forcing the interaction of) neutrinos, protons, in a realistic canyon geometry
 - Propagating charged leptonic secondaries through rock and air with PROPOSAL,
 - Passing particles to CORSIKA to simulate air shower propagation in a realistic canyon topography,
@@ -13,11 +13,11 @@ We welcome new users of TamboSim! If you have any questions or concerns, please 
 
 ## Basics
 
-The output of any stage of TamboSim simulation is a `Tambo.TamboFrames` collection — a vector of `Tambo.Frame` objects representing the events and their per-stage metadata. A Frame is a hierarchical, dictionary-like container that stores simulation data and can reference parent Frames, enabling transparent key lookup up the chain across processing stages. Frames are organized into streams (`G` geometry → `C` detector configuration → `D` detector layout → `M` simulation metadata → `Q` per-event → `P` per-particle), and the Frame objects implemented here are inspired by the similar data structures used in the IceTray software of the IceCube Collaboration.
+The output of any stage of TamboSim simulation is a `TamboSim.TamboFrames` collection — a vector of `TamboSim.Frame` objects representing the events and their per-stage metadata. A Frame is a hierarchical, dictionary-like container that stores simulation data and can reference parent Frames, enabling transparent key lookup up the chain across processing stages. Frames are organized into streams (`G` geometry → `C` detector configuration → `D` detector layout → `M` simulation metadata → `Q` per-event → `P` per-particle), and the Frame objects implemented here are inspired by the similar data structures used in the IceTray software of the IceCube Collaboration.
 
 `TamboFrames` are stored in `.jld2` files written in the native Julia binary format [`JLD2`](https://juliapackages.com/p/jld2), and `load_frames` reconstructs the parent chain from stream order on read. For example:
 ```julia
-julia> using Tambo
+julia> using TamboSim
 
 julia> frames = load_frames("examples/resources/example_output.jld2")
 TamboFrames (1 M, 29 Q)
@@ -49,7 +49,7 @@ The simulation's configuration lives on the `M` frame under the `injection`, `pr
 For a guided tour of `TamboFrames` and the rest of the simulation framework, see [`examples/`](examples/).
 
 ## Related Packages
-- [TAMBOSim-pipeline](https://github.com/TAMBO-Observatory/TAMBOSim-pipeline): Scripts for mass producing simulation, for the Tambo Collaboration.
+- [TAMBOSim-pipeline](https://github.com/TAMBO-Observatory/TAMBOSim-pipeline): Scripts for mass producing simulation, for the TamboSim Collaboration.
 - [TamboMakie](https://github.com/TAMBO-Observatory/TamboMakie.jl): Plotting and visualization software, built on top of TamboSim.
 
 ## Getting Started
@@ -97,7 +97,7 @@ The shared CORSIKA installation on the Harvard research computing cluster can be
 ```
 [Kiara Carloni](mailto:kcarloni@g.harvard.edu) and [Will Thompson](mailto:will_thompson@g.harvard.edu) are responsible for maintaining this shared resource; if you run into any issues, please contact them. 
 
-Your final step before running your own simulations is to compile your copy of Tambo's `tambo_shower` executable. The source code for this ships natively with TAMBOSim and can be found at `TAMBOSim/src/corsika/corsika_cpp/src/tambo_shower.cpp`. Instructions for compiling this against the provided CORSIKA library can be found in this README: 
+Your final step before running your own simulations is to compile your copy of TamboSim's `tambo_shower` executable. The source code for this ships natively with TAMBOSim and can be found at `TAMBOSim/src/corsika/corsika_cpp/src/tambo_shower.cpp`. Instructions for compiling this against the provided CORSIKA library can be found in this README: 
 ```
 /n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika/README.md
 ```

@@ -4,8 +4,8 @@ HDF5 = "f67ccb44-e63f-5c2f-98bd-6dc0ccc4ba2f"
 JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
 ProgressMeter = "92933f4c-e287-5a05-a399-4b506db050ca"
 Rotations = "6038ab10-8711-5258-84ad-4b1120ba62dc"
-Tambo = "d9a96183-4919-46da-8188-64ea4e10e0ed"
+TamboSim = "d9a96183-4919-46da-8188-64ea4e10e0ed"
 Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 
 [sources]
-Tambo = {path = ".."}
+TamboSim = {path = ".."}

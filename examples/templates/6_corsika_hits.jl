@@ -15,7 +15,7 @@
 #                       Q frame's `event_id` matches a `<corsika-dir>/event_<id>/`
 #                       directory
 #   <corsika-dir>/      directory of per-event tambo_shower output read via
-#                       `Tambo.read_corsika`
+#                       `TamboSim.read_corsika`
 #
 # Output:
 #   <outfile>.jld2      the same Q-frame stream with a new key
@@ -36,13 +36,13 @@ tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
 using ProgressMeter
-using Tambo
+using TamboSim
 
 function intersect_module_signed(event, bvh)
-    ray = Tambo.Ray(event.particle)
-    ixs = Tambo.intersect_all(bvh, reverse(ray))
+    ray = TamboSim.Ray(event.particle)
+    ixs = TamboSim.intersect_all(bvh, reverse(ray))
     length(ixs)==0 || return (last(ixs), -1)
-    ixs = Tambo.intersect_all(bvh, ray)
+    ixs = TamboSim.intersect_all(bvh, ray)
     length(ixs)==0 || return (first(ixs), +1)
     return nothing
 end
@@ -85,7 +85,7 @@ infile        = args["infile"]
 corsika_dir   = args["corsika-dir"]
 outfile       = isempty(args["outfile"]) ? infile : args["outfile"]
 
-frames = Tambo.load_frames([geometry_file, infile])
+frames = TamboSim.load_frames([geometry_file, infile])
 g_frame = frames.g_frames[end]
 d_frame = frames.d_frames[end]
 q_frames = filter(f -> f.stream == 'Q', frames)
@@ -105,10 +105,10 @@ detector_unit_bvh = d_frame["detector_unit_bvh"]
 
 @showprogress for frame in q_frames
     d = "$(corsika_dir)/event_$(lpad(frame["event_id"], 6, "0"))/"
-    q = NamedTuple{(:particle, :module_index, :weight), Tuple{Tambo.Particle{Float64}, Int, Float64}}[]
+    q = NamedTuple{(:particle, :module_index, :weight), Tuple{TamboSim.Particle{Float64}, Int, Float64}}[]
     events = nothing
     try
-        events = Tambo.read_corsika(d, cs)
+        events = TamboSim.read_corsika(d, cs)
     catch
         continue
     end
@@ -119,12 +119,12 @@ detector_unit_bvh = d_frame["detector_unit_bvh"]
         ix, sign = result
         p = event.particle
         corrected_time = p.time + sign * ix.distance / p.speed
-        corrected_particle = Tambo.Particle(p.pdg, p.energy, ix.point, p.direction, corrected_time, p.speed)
+        corrected_particle = TamboSim.Particle(p.pdg, p.energy, ix.point, p.direction, corrected_time, p.speed)
         push!(q, (particle=corrected_particle, module_index=ix.index, weight=event.weight))
     end
     frame["corsika_hits"] = q
 end
 
 mkpath(dirname(outfile))
-Tambo.save_frames(outfile, frames)
+TamboSim.save_frames(outfile, frames)
 println("Saved → $outfile")

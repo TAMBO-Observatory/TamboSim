@@ -1,11 +1,11 @@
 """
 Tests for the samplers module including power law sampler and angular sampler.
 
-These tests use the actual Tambo types from src/ to ensure code coverage.
+These tests use the actual TamboSim types from src/ to ensure code coverage.
 """
 
 # Import probability function
-import Tambo: probability, pl_norm, find_trim_idxs
+import TamboSim: probability, pl_norm, find_trim_idxs
 
 # ============================================================================
 # Test functions
@@ -170,7 +170,7 @@ function test_angular_sampler_with_coordinate_system()
     sampler = UniformAngularSampler(θmin, θmax, ϕmin, ϕmax)
     cs = ecefcoordinates
 
-    # Sample direction using actual Tambo function
+    # Sample direction using actual TamboSim function
     direction = rand(sampler, cs)
 
     @test direction isa Direction

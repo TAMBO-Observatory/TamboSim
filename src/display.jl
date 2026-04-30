@@ -1,5 +1,5 @@
-# Custom display methods for Tambo types
-# These provide nice, descriptive output when printing Tambo structures
+# Custom display methods for TamboSim types
+# These provide nice, descriptive output when printing TamboSim structures
 
 # ============================================================================
 # Geometry Types

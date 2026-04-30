@@ -22,7 +22,7 @@
 #   6. Reading the output back with read_corsika
 
 using LinearAlgebra
-using Tambo
+using TamboSim
 using Unitful: ustrip, @u_str
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
@@ -40,7 +40,7 @@ frames = load_frames([geometry_file, example_file])
 # energy + position + direction + time) sitting at the lepton's decay
 # vertex. Those daughters are what tambo_shower actually showers.
 
-@doc Tambo.corsika_run
+@doc TamboSim.corsika_run
 
 q = first(filter(f -> haskey(f, "proposal_decay_products") &&
                       !isempty(f["proposal_decay_products"]),
@@ -112,13 +112,13 @@ base_outdir = joinpath(tambo_path, "examples", "output", "corsika")
 topography         = q["topography"]        # inherited from G parent
 detector_region    = q["detector_region"]   # inherited from D parent
 detector_triangles = topography[detector_region]
-detector_bvh       = Tambo.BVHTree(detector_triangles)
+detector_bvh       = TamboSim.BVHTree(detector_triangles)
 
 shower = first(shower_particles)
 @show shower.pdg shower.energy;
 
-ray  = Tambo.Ray(shower)
-isect = Tambo.find_intersect(ray, detector_bvh)
+ray  = TamboSim.Ray(shower)
+isect = TamboSim.find_intersect(ray, detector_bvh)
 @show isect;                          # nothing if the trajectory misses the detector
 
 # When isect is `nothing`, the wrapper warns and skips that shower —
@@ -167,12 +167,12 @@ end
 # =============================================================================
 # 6. Reading the output back
 # =============================================================================
-# Tambo.read_corsika scans <basedir>/shower_*/particles/ for completed
+# TamboSim.read_corsika scans <basedir>/shower_*/particles/ for completed
 # shower dirs and yields CorsikaEvent objects (one per particle crossing
 # the obs mesh). 6_corsika_hits.jl uses this iterator to drive its
 # detector-OBB intersection loop.
 
-@doc Tambo.read_corsika
+@doc TamboSim.read_corsika
 
 # To exercise read_corsika and the OBB-projection step you need actual
 # tambo_shower output. The templates pipeline that produces it is:

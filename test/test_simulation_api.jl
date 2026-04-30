@@ -56,6 +56,9 @@ function run_simulation_api_tests()
         test_relativize_non_path_string_untouched()
         test_relativize_nested_dict()
         test_relativize_non_string_value_untouched()
+        test_relativize_tambo_data_path_placeholder()
+        test_relativize_tambo_corsika_and_flupro_placeholders()
+        test_relativize_env_placeholder_unset_yields_empty()
     end
 end
 
@@ -310,4 +313,59 @@ function test_relativize_non_string_value_untouched()
     @test d["gamma"] === 2.7
     @test d["nevent"] === 1000
     @test d["flag"] === true
+end
+
+function _with_env(pairs::Pair{String,String}...; f)
+    saved = Dict{String,Union{String,Nothing}}()
+    for (k, _) in pairs
+        saved[k] = haskey(ENV, k) ? ENV[k] : nothing
+    end
+    try
+        for (k, v) in pairs
+            ENV[k] = v
+        end
+        f()
+    finally
+        for (k, v) in saved
+            v === nothing ? delete!(ENV, k) : (ENV[k] = v)
+        end
+    end
+end
+
+function test_relativize_tambo_data_path_placeholder()
+    _with_env("TAMBO_DATA_PATH" => "/host/data"; f = () -> begin
+        d = Dict{String,Any}("out" => "_TAMBO_DATA_PATH_/run_001/triggered.jld2")
+        relativize!(d)
+        @test d["out"] == "/host/data/run_001/triggered.jld2"
+    end)
+end
+
+function test_relativize_tambo_corsika_and_flupro_placeholders()
+    _with_env(
+        "TAMBO_CORSIKA_PATH" => "/usr/local/bin/tambo_shower",
+        "TAMBO_FLUPRO_PATH"  => "/opt/fluka";
+        f = () -> begin
+            d = Dict{String,Any}(
+                "corsika_path" => "_TAMBO_CORSIKA_PATH_",
+                "FLUPRO"       => "_TAMBO_FLUPRO_PATH_",
+            )
+            relativize!(d)
+            @test d["corsika_path"] == "/usr/local/bin/tambo_shower"
+            @test d["FLUPRO"] == "/opt/fluka"
+        end,
+    )
+end
+
+function test_relativize_env_placeholder_unset_yields_empty()
+    # When the env var is unset, the placeholder substitutes to "" — leaving
+    # any surrounding path with the empty prefix. Documents the contract.
+    saved = haskey(ENV, "TAMBO_DATA_PATH") ? ENV["TAMBO_DATA_PATH"] : nothing
+    delete!(ENV, "TAMBO_DATA_PATH")
+    try
+        d = Dict{String,Any}("out" => "_TAMBO_DATA_PATH_/run_001/triggered.jld2")
+        relativize!(d)
+        @test d["out"] == "/run_001/triggered.jld2"
+    finally
+        saved === nothing || (ENV["TAMBO_DATA_PATH"] = saved)
+    end
 end

@@ -123,11 +123,7 @@ products = q["proposal_decay_products"]
 # whose injection_final_state has total energy ≤ rest energy
 # (`particle_mass(pdg) * c²`). PROPOSAL is never called for those frames
 # and none of the four proposal_* keys get written; the skip emits an
-# `@warn` (capped at 5 messages per call). The threshold is per-PDG
-# (e±: 0.511 MeV, μ±: 105.66 MeV, τ±: 1776.86 MeV), so the same call
-# correctly handles electron, muon, and tau injections — at TAMBO
-# energies muons and taus essentially never trip it; electrons would
-# only trip near vacuum.
+# `@warn` (capped at 5 messages per call).
 
 n_total      = length(frames.q_frames)
 n_propagated = count(f -> haskey(f, "proposal_final_state"), frames.q_frames)

@@ -169,9 +169,11 @@ contain `inkey` and writing four new keys per event:
 - `inkey::String`: which Q-frame key carries the input lepton state.
   Default `"injection_final_state"`.
 
-Q frames whose `inkey` particle has energy below 106 MeV (just above
-muon rest mass) are skipped silently — see
-`examples/interactive/4_propagation_walkthrough.jl` Section 5.
+Q frames whose `inkey` particle has total energy at or below the
+particle's rest energy (`particle_mass(pdg) * c²`) are skipped with a
+warning: PROPOSAL requires kinetic energy > 0. The threshold is
+per-PDG, so the same call can correctly handle electron, muon, and
+tau injections.
 """
 function proposal_propagation!(
     frames::TamboFrames,
@@ -200,7 +202,11 @@ function proposal_propagation!(
     @llama_showprogress "Propagating" for frame in q_frames
         haskey(frame, inkey) || continue
         final_state = frame[inkey]
-        final_state.energy < 106u"MeV" && continue
+        rest_energy = particle_mass(final_state.pdg) * speedoflight^2
+        if final_state.energy <= rest_energy
+            @warn "Skipping Q frame: $(final_state.pdg) energy $(final_state.energy) ≤ rest energy $(rest_energy)" maxlog=5
+            continue
+        end
         ls, contls, decay_products, propped_state = proposal_propagate(
             final_state, prem, bvh, rand(Int32)
         )

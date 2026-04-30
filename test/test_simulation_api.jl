@@ -40,6 +40,7 @@ function run_simulation_api_tests()
     @testset "proposal_propagation!" begin
         test_proposal_config_stored()
         test_proposal_output_keys()
+        test_proposal_skips_below_rest_energy()
     end
 
     @testset "save_frames / load_frames" begin
@@ -174,6 +175,48 @@ function test_proposal_output_keys()
     @test haskey(qf, "proposal_decay_products")
     @test haskey(qf, "proposal_stochastic_losses")
     @test haskey(qf, "proposal_continuous_losses")
+end
+
+function test_proposal_skips_below_rest_energy()
+    is_proposal_available() || return
+
+    frames = load_frames(GEOMETRY_PATH)
+    inject!(frames, _injection_config(nevent=10))
+    filter!(f -> haskey(f, "injection_final_state"), frames)
+    q_frames = filter(f -> f.stream == 'Q', frames)
+    isempty(q_frames) && return
+
+    # Replace one Q frame's injection_final_state with a sub-rest-energy
+    # electron (0.1 MeV total energy < 0.511 MeV rest energy). The guard
+    # should skip it with a warning while leaving normal-energy frames
+    # propagated as usual.
+    target = first(q_frames)
+    orig = target["injection_final_state"]
+    target["injection_final_state"] = Particle(EMinus, 0.1u"MeV", orig.position, orig.direction)
+
+    proposal_config = Dict{String,Any}(
+        "pinecone"        => 7,
+        "ecut"            => -1,
+        "vcut"            => 0.05,
+        "do_interpolate"  => true,
+        "do_continuous"   => true,
+        "tablespath"      => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
+                                      "resources", "proposal_tables"),
+    )
+
+    @test_logs (:warn, r"rest energy") match_mode=:any proposal_propagation!(frames, proposal_config)
+
+    # The mutated low-energy Q frame must not gain proposal output keys.
+    @test !haskey(target, "proposal_final_state")
+    @test !haskey(target, "proposal_decay_products")
+    @test !haskey(target, "proposal_stochastic_losses")
+    @test !haskey(target, "proposal_continuous_losses")
+
+    # At least one of the unmodified Q frames should have propagated.
+    others = [f for f in q_frames if f !== target]
+    if !isempty(others)
+        @test any(haskey(f, "proposal_final_state") for f in others)
+    end
 end
 
 # =============================================================================

@@ -17,7 +17,7 @@
 #   3. The per-event call: proposal_propagate(particle, prem, bvh, seed)
 #   4. Inspecting one event's outputs: losses, continuous_e, decay products,
 #      final state
-#   5. The 106 MeV skip threshold and its effect on the surviving frames
+#   5. The per-PDG rest-energy skip and its effect on the surviving frames
 #   6. Diff against post-injection: which keys are new
 
 using TamboSim
@@ -117,18 +117,17 @@ products = q["proposal_decay_products"]
 @show length(products);             # nonzero if the tau decayed in flight
 
 # =============================================================================
-# 5. The 106 MeV skip threshold
+# 5. The per-PDG rest-energy skip
 # =============================================================================
-# proposal_propagation! has a hardcoded guard at propagation.jl:177:
-# frames whose injection_final_state energy falls below 106 MeV are
-# silently skipped — proposal_propagate is never called and none of the
-# four proposal_* keys get written. 106 MeV is just above muon rest mass
-# (105.66 MeV), so it works as a low-energy floor for muon and tau
-# tracking; both species effectively never hit it at TAMBO energies.
-#
-# We're not tracking electrons with PROPOSAL at this time; if that
-# changes, this guard will need to be revisited (106 MeV is far above
-# the regime where electron propagation should still matter).
+# proposal_propagation! requires kinetic energy > 0, so it skips Q frames
+# whose injection_final_state has total energy ≤ rest energy
+# (`particle_mass(pdg) * c²`). PROPOSAL is never called for those frames
+# and none of the four proposal_* keys get written; the skip emits an
+# `@warn` (capped at 5 messages per call). The threshold is per-PDG
+# (e±: 0.511 MeV, μ±: 105.66 MeV, τ±: 1776.86 MeV), so the same call
+# correctly handles electron, muon, and tau injections — at TAMBO
+# energies muons and taus essentially never trip it; electrons would
+# only trip near vacuum.
 
 n_total      = length(frames.q_frames)
 n_propagated = count(f -> haskey(f, "proposal_final_state"), frames.q_frames)

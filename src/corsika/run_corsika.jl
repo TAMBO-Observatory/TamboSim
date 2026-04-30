@@ -122,9 +122,34 @@ end
         store_paths=true
     )
 
-Runs CORSIKA for the decay products of events in `frames`. Stores `config` in
-the existing C frame under `prefix`, then operates on all Q frames that contain
-`inkey`.
+Run CORSIKA 8 (`tambo_shower`) on the decay products from PROPOSAL,
+producing one output directory per (event, decay-product) pair under
+`base_outdir`. Mutates `frames` by snapshotting `config` onto the
+existing M frame under `prefix`. For each Q frame containing `inkey`,
+loops over its `<inkey>` particles (skipping neutrinos by PDG) and
+dispatches the per-particle method below.
+
+# Arguments
+- `frames::TamboFrames`: must already have an M frame and at least one
+  Q frame with `inkey` populated (typically run after
+  `proposal_propagation!`).
+- `config::Dict`: parsed `[corsika]` TOML table. Consults
+  `"corsika_path"`, `"obs_mesh_path"`, `"terrain_mesh_path"` (optional),
+  `"em_ecut"`, `"mu_ecut"`, `"hadron_ecut"`, `"hadron_model"` (optional,
+  default "SIBYLL-2.3d"), `"thinning"` (optional, default 1e-6),
+  `"pinecone"` (RNG seed), and `"sbatch_command"` (only when
+  `parallelize=true`).
+- `base_outdir`: directory under which per-event output dirs
+  (`event_<id>/shower_<idx>/`) are created.
+
+# Keyword arguments
+- `prefix::String`: namespace for the config snapshot. Default `"corsika"`.
+- `inkey::String`: Q-frame key carrying the particles to shower.
+  Default `"proposal_decay_products"`.
+- `parallelize::Bool`: if `true`, prefix the binary invocation with
+  `config["sbatch_command"]` for cluster submission.
+- `store_paths::Bool`: if `true`, write a `"corsika_directories"` key on
+  each Q frame listing every shower output dir dispatched for that event.
 """
 function corsika_run(
     frames::TamboFrames,

@@ -565,11 +565,37 @@ end
 """
     inject!(frames::TamboFrames, config::Dict; prefix::String="injection")
 
-Injects neutrino events into the simulation. Creates a C frame from `config`,
-appends it and `config["nevent"]` Q frames to `frames`, then populates each Q
-frame with injection states. `config` must contain `"nevent"`.
+Inject neutrino primaries into a TamboFrames container. Mutates `frames`
+in place by:
 
-The config is stored in the C frame under `prefix` for provenance.
+1. Appending one new M frame, with the parsed `config` snapshotted on it
+   under `prefix` (default `"injection"`) for provenance.
+2. Appending `config["nevent"]` empty Q frames, each tagged with a
+   sequential `event_id` and parented to the new M frame.
+3. For every Q frame, sampling a primary `(energy, direction)` from
+   `config`'s power-law and angular ranges, tracing it through the
+   geometry, and writing the resulting injection states + weight
+   parameters back onto the frame:
+
+   - `<prefix>_initial_state` — the hypothetical primary at the
+     detector-surface sampling point with source-spectrum energy.
+   - `<prefix>_close_state`   — TauRunner's output: the actual neutrino
+     reaching that point after Earth absorption / regeneration.
+   - `<prefix>_final_state`   — the forced CC interaction vertex inside
+     rock (omitted when no rock crossing is found along the trajectory).
+   - `weight_params`          — generation phase-space + forced-interaction
+     parameters consumed downstream by `p_mc` / `p_phys`.
+
+# Arguments
+- `frames::TamboFrames`: the container to mutate. Must already contain G,
+  C, and D frames (typically loaded from a GCD bundle).
+- `config::Dict`: parsed `[injection]` TOML table. Must contain `"nevent"`;
+  consults `"pdg"`, `"emin"`, `"emax"`, `"gamma"`, `"thetamin/max"`,
+  `"phimin/max"`, `"xs_location"`, and `"pinecone"` (RNG seed).
+
+# Keyword arguments
+- `prefix::String`: namespace under which states and the config snapshot
+  are stored. Default `"injection"`.
 """
 function inject!(
     frames::TamboFrames,
@@ -628,11 +654,22 @@ end
 """
     inject_protons!(frames::TamboFrames, config::Dict; prefix::String="injection")
 
-Injects downgoing cosmic ray protons. Creates a C frame from `config`, appends
-it and `config["nevent"]` Q frames to `frames`, then runs proton injection.
-`config` must contain `"nevent"`.
+Inject downgoing cosmic-ray protons onto the detector surface. Mutates
+`frames` by appending one new M frame (with `config` snapshotted under
+`prefix` for provenance) and `config["nevent"]` Q frames, each carrying
+a sampled proton `<prefix>_initial_state` plus `weight_params`.
 
-The config is stored in the C frame under `prefix` for provenance.
+Unlike [`inject!`](@ref), this does not force a CC interaction — every
+sampled proton produces a shower at its sampled position by construction,
+so the close- and final-state machinery is not needed.
+
+# Arguments
+- `frames::TamboFrames`: container to mutate; must already contain G, C, D.
+- `config::Dict`: parsed config table. Must contain `"nevent"`.
+
+# Keyword arguments
+- `prefix::String`: namespace for the config snapshot and per-Q-frame
+  state keys. Default `"injection"`.
 """
 function inject_protons!(
     frames::TamboFrames,

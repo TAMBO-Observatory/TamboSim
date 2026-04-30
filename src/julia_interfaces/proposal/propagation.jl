@@ -143,9 +143,35 @@ end
         inkey::String="injection_final_state"
     )
 
-Propagates particles through the Earth model using PROPOSAL. Stores `config`
-in the existing C frame under `prefix`, then operates on all Q frames in
-`frames` that contain `inkey`.
+Propagate the leptons produced by `inject!` through PREM + topography
+using PROPOSAL. Mutates `frames` by snapshotting `config` onto the
+existing M frame under `prefix`, then iterating over Q frames that
+contain `inkey` and writing four new keys per event:
+
+- `<prefix>_stochastic_losses`   — `Vector{Particle}` of discrete losses
+  (bremsstrahlung, pair-production, hadronic, decay-tagged).
+- `<prefix>_continuous_losses`   — total continuous (ionization) energy.
+- `<prefix>_decay_products`      — `Vector{Particle}` of daughters from
+  decay; empty if the lepton ranged out without decaying.
+- `<prefix>_final_state`         — the lepton at the end of its tracked
+  path (decay vertex or trajectory exit).
+
+# Arguments
+- `frames::TamboFrames`: must already have an M frame (run `inject!`
+  first).
+- `config::Dict`: parsed `[proposal]` TOML table. Consults
+  `"pinecone"` (RNG seed) and any cross-section / parametrization
+  settings that `init_proposal` knows about.
+
+# Keyword arguments
+- `prefix::String`: namespace for the config snapshot and per-Q-frame
+  output keys. Default `"proposal"`.
+- `inkey::String`: which Q-frame key carries the input lepton state.
+  Default `"injection_final_state"`.
+
+Q frames whose `inkey` particle has energy below 106 MeV (just above
+muon rest mass) are skipped silently — see
+`examples/interactive/4_propagation_walkthrough.jl` Section 5.
 """
 function proposal_propagation!(
     frames::TamboFrames,

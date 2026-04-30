@@ -34,23 +34,23 @@ end
 """
     relativize!(d::Dict)
 
-Recursively resolves relative path strings in a dictionary against the package root directory.
-Strings containing `/` but not starting with `/` are treated as relative paths.
-Also handles the legacy `_TAMBOSIM_PATH_` placeholder for backward compatibility.
+Recursively resolve path-string entries in a parsed config dictionary
+against the TamboSim package directory.
 
-This function modifies the dictionary in-place.
+For every string-valued entry (including nested dicts):
+
+- The placeholder `_TAMBOSIM_PATH_` is substituted with the TamboSim
+  package root (see `get_tambosim_path`).
+- A string with no placeholder that contains `/` and does not start with
+  `/` is treated as a relative path and joined to the package root.
+
+Modifies `d` in place.
 """
 function relativize!(d::Dict)
-    pkg_root = dirname(@__DIR__)
-    tambo_data_path = get(ENV, "TAMBO_DATA_PATH", "")
-    tambo_corsika_path = get(ENV, "TAMBO_CORSIKA_PATH", "")
-    tambo_flupro_path = get(ENV, "TAMBO_FLUPRO_PATH", "")
+    pkg_root = get_tambosim_path()
     for (k, v) in pairs(d)
         if isa(v, String)
             v_new = replace(v, "_TAMBOSIM_PATH_" => pkg_root)
-            v_new = replace(v_new, "_TAMBO_DATA_PATH_" => tambo_data_path)
-            v_new = replace(v_new, "_TAMBO_CORSIKA_PATH_" => tambo_corsika_path)
-            v_new = replace(v_new, "_TAMBO_FLUPRO_PATH_" => tambo_flupro_path)
             if v_new == v && contains(v, '/') && !startswith(v, '/')
                 v_new = joinpath(pkg_root, v)
             end

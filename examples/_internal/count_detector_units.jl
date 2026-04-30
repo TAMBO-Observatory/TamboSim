@@ -12,9 +12,9 @@ const HALF_LENGTHS = [1.0u"m", 1.0u"m", 0.125u"m"]
 const GRID_MARGIN  = 500.0u"m"
 const MAX_SLOPE    = parse(Float64, get(ENV, "MAX_SLOPE_DEG", "35"))
 
-function count_modules(g_frame::Frame, d_frame::Frame, Δy::typeof(1.0u"m"); max_slope_deg=MAX_SLOPE)
-    cs  = g_frame["cs"]
-    bvh = d_frame["detector_bvh"]
+function count_modules(gframe::Frame, dframe::Frame, Δy::typeof(1.0u"m"); max_slope_deg=MAX_SLOPE)
+    cs  = gframe["cs"]
+    bvh = dframe["detector_bvh"]
     det_triangles = bvh.triangles
 
     areas     = ustrip.(u"m^2", Tambo.area.(det_triangles))
@@ -69,10 +69,10 @@ results_nocut = Dict{String, Vector{Int}}()
 for jld2_path in site_files
     site = replace(basename(jld2_path), ".jld2" => "")
     frames = load_frames(jld2_path)
-    g_frame = Tambo._get_last_frame(frames, 'G')
-    d_frame = Tambo._get_last_frame(frames, 'D')
-    results_cut[site]   = [count_modules(g_frame, d_frame, s; max_slope_deg=MAX_SLOPE) for s in spacings]
-    results_nocut[site] = [count_modules(g_frame, d_frame, s; max_slope_deg=90.0)      for s in spacings]
+    gframe = frames.g_frames[end]
+    dframe = frames.d_frames[end]
+    results_cut[site]   = [count_modules(gframe, dframe, s; max_slope_deg=MAX_SLOPE) for s in spacings]
+    results_nocut[site] = [count_modules(gframe, dframe, s; max_slope_deg=90.0)      for s in spacings]
 end
 
 println()

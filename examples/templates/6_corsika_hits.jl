@@ -86,8 +86,8 @@ corsika_dir   = args["corsika-dir"]
 outfile       = isempty(args["outfile"]) ? infile : args["outfile"]
 
 frames = Tambo.load_frames([geometry_file, infile])
-gframe = Tambo._get_last_frame(frames, 'G')
-dframe = Tambo._get_last_frame(frames, 'D')
+gframe = frames.g_frames[end]
+dframe = frames.d_frames[end]
 q_frames = filter(f -> f.stream == 'Q', frames)
 
 cs = gframe["cs"]

@@ -13,48 +13,40 @@ We welcome new users of TamboSim! If you have any questions or concerns, please 
 
 ## Basics
 
-The output of any stage of TamboSim simulation is a `Tambo.Simulation` object, which is composed of a configuration dictionary and a vector of `Tambo.Frame` objects representing the simulated events. A Frame is a hierarchical, dictionary-like container that stores simulation data and can reference a parent Frame, enabling transparent key lookup up the chain across processing stages. The Frame objects implemented here are inspired by the similar data structures used in the IceTray software of the IceCube Collaboration. 
+The output of any stage of TamboSim simulation is a `Tambo.TamboFrames` collection — a vector of `Tambo.Frame` objects representing the events and their per-stage metadata. A Frame is a hierarchical, dictionary-like container that stores simulation data and can reference parent Frames, enabling transparent key lookup up the chain across processing stages. Frames are organized into streams (`G` geometry → `C` detector configuration → `D` detector layout → `M` simulation metadata → `Q` per-event → `P` per-particle), and the Frame objects implemented here are inspired by the similar data structures used in the IceTray software of the IceCube Collaboration.
 
-Simulation objects are stored in `.jld2` files written in the native Julia binary format [`JLD2`](https://juliapackages.com/p/jld2). For example:
+`TamboFrames` are stored in `.jld2` files written in the native Julia binary format [`JLD2`](https://juliapackages.com/p/jld2), and `load_frames` reconstructs the parent chain from stream order on read. For example:
 ```julia
-julia> sim = Tambo.load(`examples/.jld2`)
-Simulation:
-  events: 745
-  configuration sections:
-    injection (12 params)
-    proposal (7 params)
-    geometry (2 params)
-    detector_bvh => BVHTree{Float64}(947 objects)
-    corsika (14 params)
+julia> using Tambo
 
-julia> frames = sim.results
-745-element Vector{Tambo.Frame}:
- Frame(10 keys)
- Frame(10 keys)
- ⋮
- Frame(10 keys)
- Frame(10 keys)
-
-julia> frame = frames[1]
-Frame:
-  type: 'T'
-  keys (10):
-    corsika_hits => Vector{@NamedTuple{particle::Tambo.Particle{Float64}, module_index::Int64, weight::Float64, hit_time::Quantity{Float64, 𝐓, FreeUnits{(s,), 𝐓, nothing}}}}
-    event_id => Int64
-    injection_close_state => Tambo.Particle{Float64}
-    injection_final_state => Tambo.Particle{Float64}
-    injection_initial_state => Tambo.Particle{Float64}
-    proposal_continuous_losses => Quantity{Float64, 𝐋² 𝐌 𝐓⁻², FreeUnits{(kg, m², s⁻²), 𝐋² 𝐌 𝐓⁻², nothing}}
-    proposal_decay_products => Vector{Tambo.Particle{Float64}}
-    proposal_final_state => Tambo.Particle{Float64}
-    proposal_stochastic_losses => Vector{Tambo.Particle{Float64}}
-    weight_params => Tambo.WeightParameters{Float64}
-
-julia> frame.parent
-
-julia> frame.type
-'T': ASCII/Unicode U+0054 (category Lu: Letter, uppercase)
+julia> frames = load_frames("examples/resources/example_output.jld2")
+TamboFrames (1 M, 29 Q)
+└─ M → Q × 29
 ```
+The header line summarizes per-stream counts; the tree below shows the parent/child structure, with long runs of single-child stream collapsed into a horizontal `A → B × N` chain. Each stream is also exposed as a property on the collection — `frames.m_frames`, `frames.q_frames`, etc. — for direct access:
+```julia
+julia> qf = frames.q_frames[1]
+Frame (stream='Q', parents: M)
+  keys (9):
+    event_id
+    injection_close_state
+    injection_final_state
+    injection_initial_state
+    proposal_continuous_losses
+    proposal_decay_products
+    proposal_final_state
+    proposal_stochastic_losses
+    weight_params
+
+julia> frames.m_frames[1]
+Frame (stream='M', no parents)
+  keys (2):
+    injection
+    proposal
+```
+The simulation's configuration lives on the `M` frame under the `injection`, `proposal`, and (where applicable) `corsika` keys; per-event payloads live on the `Q` frame and inherit from `M` via the parent chain, so `qf["injection"]` resolves up to the M-frame configuration without the user having to walk the hierarchy.
+
+For a guided tour of `TamboFrames` and the rest of the simulation framework, see [`examples/`](examples/).
 
 ## Related Packages
 - [TAMBOSim-pipeline](https://github.com/TAMBO-Observatory/TAMBOSim-pipeline): Scripts for mass producing simulation, for the Tambo Collaboration.

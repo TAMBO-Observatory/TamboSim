@@ -161,7 +161,7 @@ function test_inject_protons_produces_frames()
     n_primary = count(f -> haskey(f, "injection_initial_state"), q_frames)
     @test n_primary > 0
 
-    cut_frames!(frames, f -> haskey(f, "injection_initial_state"))
+    filter!(f -> haskey(f, "injection_initial_state"), frames)
     q_frames = filter(f -> f.stream == 'Q', frames)
     @test all(f -> haskey(f, "injection_initial_state"), q_frames)
     @test all(f -> haskey(f, "injection_final_state"), q_frames)

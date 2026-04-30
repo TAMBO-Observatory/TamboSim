@@ -65,7 +65,7 @@ frames = load_frames(args["geometry"])
 inject!(frames, injection_config)
 
 if cut_failed
-    cut_frames!(frames, frame -> haskey(frame, "injection_final_state"))
+    filter!(frame -> haskey(frame, "injection_final_state"), frames)
 end
 
 mkpath(dirname(outfile))

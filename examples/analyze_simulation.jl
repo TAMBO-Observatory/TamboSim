@@ -51,8 +51,8 @@ end
 # 2. Cutting events that did not pass injection
 # =============================================================================
 n_before = length(q_frames)
-cut_frames!(frames, frame -> haskey(frame, "injection_final_state"))
-cut_frames!(frames, frame -> haskey(frame, "proposal_final_state"))
+filter!(frame -> haskey(frame, "injection_final_state"), frames)
+filter!(frame -> haskey(frame, "proposal_final_state"), frames)
 q_frames = filter(f -> f.stream == 'Q', frames)
 println("\nAfter cuts: $(length(q_frames)) / $n_before events pass")
 

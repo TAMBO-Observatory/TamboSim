@@ -213,7 +213,7 @@ function test_cut_frames_q_only()
         push!(frames, Frame('Q', Dict{String,Any}("value" => v), q_parents))
     end
 
-    cut_frames!(frames, f -> f["value"] > 25)
+    filter!(f -> f["value"] > 25, frames)
 
     surviving_q = filter(f -> f.stream == 'Q', frames)
     @test length(surviving_q) == 3
@@ -231,7 +231,7 @@ function test_cut_frames_preserves_gc()
         Frame('Q', Dict{String,Any}("value" => 50), q_parents),
     ])
 
-    cut_frames!(frames, f -> f["value"] > 25)
+    filter!(f -> f["value"] > 25, frames)
 
     @test length(frames) == 3
     @test frames[1].stream == 'G'
@@ -250,7 +250,7 @@ function test_cut_frames_cascades_to_descendants()
     p_cut  = Frame('P', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame, 'Q' => q_cut))
     frames = TamboFrames(Frame[g_frame, m_frame, q_keep, p_keep, q_cut, p_cut])
 
-    cut_frames!(frames, f -> f["value"] > 25)
+    filter!(f -> f["value"] > 25, frames)
 
     @test length(frames) == 4
     @test q_cut ∉ frames

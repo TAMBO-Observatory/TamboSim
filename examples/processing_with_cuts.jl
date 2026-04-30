@@ -28,7 +28,7 @@ injection_config["nevent"] = 500  # override for quick example run
 geometry_file = "$(tambo_path)/resources/geometry/colca_valley_3000.jld2"
 frames = load_frames(geometry_file)
 inject!(frames, injection_config)
-cut_frames!(frames, frame -> haskey(frame, "injection_final_state"))
+filter!(frame -> haskey(frame, "injection_final_state"), frames)
 println("After injection cut: $(count(f -> f.stream == 'Q', frames)) events remaining")
 
 save_frames(injection_outfile, frames)
@@ -56,7 +56,7 @@ function upray(particle)
 end
 
 isinair(particle) = isempty(intersect_all(g_frame["bvh"], upray(particle)))
-cut_frames!(frames, frame -> isinair(frame["proposal_final_state"]))
+filter!(frame -> isinair(frame["proposal_final_state"]), frames)
 println("After in-air cut: $(count(f -> f.stream == 'Q', frames)) events remaining")
 
 save_frames(propagation_outfile, frames)

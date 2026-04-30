@@ -16,19 +16,29 @@ function _get_last_frame(frames::AbstractVector{Frame}, stream::Char; required::
 end
 
 """
-    cut_frames!(frames::TamboFrames, fxn::Function)
+    filter!(pred, frames::TamboFrames) -> TamboFrames
 
-Removes Q-stream frames for which `fxn` returns `false`, plus any descendants
-of those Q frames (typically P). Frames of other stream types (G, C, D, M) are
-left in place — `fxn` is only consulted for Q frames.
+Extends `Base.filter!` to remove Q-stream frames for which `pred` returns
+`false`, plus any descendants of those Q frames (typically P). Frames of
+other stream types (G, C, D, M) are left in place — `pred` is only
+consulted for Q frames.
 
 Cascade is delegated to `deleteat!(tf, inds; remove_children=true)`, which
-walks the parent map to find every frame whose ancestry references a deleted Q.
+walks the parent map to find every frame whose ancestry references a
+deleted Q frame.
+
+# Arguments
+- `pred`: a function `Frame -> Bool`. Q frames where `pred(q)` is `true`
+  are kept; the rest are removed along with their P descendants.
+- `frames::TamboFrames`: the container to filter in place.
+
+# Returns
+- `frames`, mutated.
 """
-function cut_frames!(frames::TamboFrames, fxn::Function)
+function Base.filter!(pred, frames::TamboFrames)
     indices = Int[]
     for (i, f) in enumerate(frames)
-        if f.stream == 'Q' && !fxn(f)
+        if f.stream == 'Q' && !pred(f)
             push!(indices, i)
         end
     end

@@ -76,7 +76,7 @@ if cut_inmountain
     end
 
     isinair(particle) = isempty(intersect_all(g_frame["bvh"], upray(particle)))
-    cut_frames!(frames, frame -> isinair(frame["proposal_final_state"]))
+    filter!(frame -> isinair(frame["proposal_final_state"]), frames)
 end
 
 @show count(f -> f.stream == 'Q', frames)

@@ -125,7 +125,7 @@ function test_proposal_config_stored()
 
     frames = load_frames(GEOMETRY_PATH)
     inject!(frames, _injection_config(nevent=5))
-    cut_frames!(frames, f -> haskey(f, "injection_final_state"))
+    filter!(f -> haskey(f, "injection_final_state"), frames)
 
     proposal_config = Dict{String,Any}(
         "pinecone"        => 7,
@@ -148,7 +148,7 @@ function test_proposal_output_keys()
 
     frames = load_frames(GEOMETRY_PATH)
     inject!(frames, _injection_config(nevent=20))
-    cut_frames!(frames, f -> haskey(f, "injection_final_state"))
+    filter!(f -> haskey(f, "injection_final_state"), frames)
     count(f -> f.stream == 'Q', frames) > 0 || return
 
     proposal_config = Dict{String,Any}(

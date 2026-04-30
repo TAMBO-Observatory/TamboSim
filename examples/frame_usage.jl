@@ -107,11 +107,12 @@ println("Triangles in BVH:  ", length(bvh.triangles))
 # =============================================================================
 # 6. Filtering and cutting event frames
 # =============================================================================
-# cut_frames! removes Q frames for which the predicate returns false.
-# G and C frames are always preserved regardless of the predicate.
+# Tambo extends `Base.filter!` so it operates only on Q frames: a Q frame
+# is kept when the predicate returns true and removed otherwise (along with
+# any P descendants). G/C/D/M frames are always preserved.
 
 n_before = count(f -> f.stream == 'Q', frames2)
-cut_frames!(frames2, f -> haskey(f, "injection_final_state"))
+filter!(f -> haskey(f, "injection_final_state"), frames2)
 n_after = count(f -> f.stream == 'Q', frames2)
 
 println("\nQ frames before cut: $n_before")

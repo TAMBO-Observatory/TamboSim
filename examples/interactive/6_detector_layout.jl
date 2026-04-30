@@ -203,5 +203,8 @@ sort(collect(keys(dframe.data)))    # now includes detector_units + detector_uni
 #
 #     save_frames("custom_site_with_units.jld2", frames, streams=('G','C','D'))
 #
-# Or just run templates/2_create_detector.jl, which is exactly this
-# algorithm wrapped as a CLI.
+# Or just run templates/2_create_detector.jl, which is the same
+# algorithm wrapped as a CLI. Both paths ultimately call the library
+# helper `Tambo.place_detector_units(gframe, dframe; spacing, max_slope_deg)`,
+# which collapses Sections 2–5 into one call and returns the same
+# `(obbs, obb_bvh)` you'd get above.

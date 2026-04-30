@@ -1,64 +1,26 @@
+# count_detector_units.jl
+#
+# Tambo-collab site survey: for each candidate_site_*.jld2 in
+# resources/geometry/, count how many detector OBBs would be placed at
+# each of several module spacings, both with and without the standard
+# slope filter. Print a per-site table.
+#
+# Wraps `Tambo.place_detector_units` and reports `length(obbs)`. The full
+# OBB list is built and discarded for each (site, spacing) pair — fine
+# for an offline survey, not what you want in a hot loop.
+
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
-using LinearAlgebra
-using Rotations
 using Tambo
 using Unitful
 using Printf
 
-const GEO_DIR      = joinpath(tambo_path, "resources", "geometry")
-const HALF_LENGTHS = [1.0u"m", 1.0u"m", 0.125u"m"]
-const GRID_MARGIN  = 500.0u"m"
-const MAX_SLOPE    = parse(Float64, get(ENV, "MAX_SLOPE_DEG", "35"))
+const GEO_DIR   = joinpath(tambo_path, "resources", "geometry")
+const MAX_SLOPE = parse(Float64, get(ENV, "MAX_SLOPE_DEG", "35"))
 
-function count_modules(gframe::Frame, dframe::Frame, Δy::typeof(1.0u"m"); max_slope_deg=MAX_SLOPE)
-    cs  = gframe["cs"]
-    bvh = dframe["detector_bvh"]
-    det_triangles = bvh.triangles
-
-    areas     = ustrip.(u"m^2", Tambo.area.(det_triangles))
-    centroids = [ustrip.(u"m", (t.v1.point + t.v2.point + t.v3.point) ./ 3)
-                 for t in det_triangles]
-    normals   = [Tambo.normal(t).point for t in det_triangles]
-    total_a   = sum(areas)
-    wn = sum(a .* n for (a, n) in zip(areas, normals))
-
-    direction = Tambo.Direction(wn, cs)
-    n_vec = direction.point
-    nx, ny, nz = n_vec[1], n_vec[2], n_vec[3]
-    Δx      = (nz / sqrt(nx^2 + nz^2)) * Δy
-    Δy_grid = (nz / sqrt(ny^2 + nz^2)) * Δy * sqrt(3) / 2
-
-    up = Tambo.Direction([0.0, 0.0, 1.0], cs)
-
-    xs_raw = [c[1] for c in centroids] .* u"m"
-    ys_raw = [c[2] for c in centroids] .* u"m"
-    x_lo = minimum(xs_raw) - GRID_MARGIN
-    x_hi = maximum(xs_raw) + GRID_MARGIN
-    y_lo = minimum(ys_raw) - GRID_MARGIN
-    y_hi = maximum(ys_raw) + GRID_MARGIN
-
-    base_xs = collect(x_lo:Δx:x_hi)
-    base_ys = collect(y_lo:Δy_grid:y_hi)
-
-    max_slope_rad = deg2rad(max_slope_deg)
-    count = 0
-    for (idx, y) in enumerate(base_ys)
-        xoffset = mod(idx, 2) == 0 ? 0.0u"m" : Δx / 2
-        xs = base_xs .+ xoffset
-        coords = [Tambo.Coordinate(x, y, 0.0u"m", cs) for x in xs]
-        rays   = Tambo.Ray.(coords, Ref(up))
-        for ray in rays
-            ixs = Tambo.intersect_all(bvh, ray)
-            isempty(ixs) && continue
-            ψ = acos(clamp(dot(ixs[1].normal, up), -1.0, 1.0))
-            ψ > max_slope_rad && continue
-            count += 1
-        end
-    end
-    return count
-end
+count_modules(gframe, dframe, spacing; max_slope_deg=MAX_SLOPE) =
+    length(place_detector_units(gframe, dframe; spacing=spacing, max_slope_deg=max_slope_deg)[1])
 
 spacings = [150.0u"m", 125.0u"m", 100.0u"m"]
 site_files = sort(filter(f -> startswith(basename(f), "candidate_site_"), readdir(GEO_DIR, join=true)))

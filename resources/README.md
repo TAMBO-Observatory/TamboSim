@@ -27,10 +27,19 @@ argument defaults to one of these.
 |---|---|
 | `tau_neutrino_cc.toml` | The standard nu_tau CC configuration for the Colca Valley site, used for the TAMBO sensitivity paper. |
 | `tau_neutrino_cc_fine_ecut.toml` | Same physics with tighter PROPOSAL energy cuts; slower but more accurate for low-energy lepton tracking. |
+| `cosmic_ray_proton.toml` | Cosmic-ray proton injection variant; consumed by `inject_protons!` (and selected by `templates/3_inject.jl --protons`). |
 
-Path entries inside these configs use the `_TAMBOSIM_PATH_` placeholder
-to refer to the package root. `TamboSim.relativize!(config)` substitutes
-that placeholder (and resolves bare relative paths) at load time.
+Path entries inside these configs use placeholders that
+`TamboSim.relativize!(config)` substitutes at load time:
+
+- `_TAMBOSIM_PATH_` — the TamboSim package root.
+- `_TAMBO_DATA_PATH_`, `_TAMBO_CORSIKA_PATH_`, `_TAMBO_FLUPRO_PATH_` —
+  values of the corresponding `TAMBO_DATA_PATH` / `TAMBO_CORSIKA_PATH` /
+  `TAMBO_FLUPRO_PATH` environment variables, used by OSG production
+  configs to defer cluster-specific paths to runtime.
+
+`relativize!` also resolves bare relative paths against the package
+root.
 
 ## `geometry/`
 
@@ -45,16 +54,17 @@ because different parts of the pipeline consume different ones:
 | `<site>_<resolution>.jld2` | JLD2 | TamboSim runtime (loaded directly via `load_frames`) |
 
 The currently-shipped site is **Colca Valley**:
-- `colca_valley.h5` — HDF5 source, multiple resolutions stored as named
-  groups (e.g. `colca_valley_30000` for the 30 000-triangle mesh).
-- `colca_valley_3000.jld2` — pre-built GCD bundle at 3 000 triangles,
-  used as the default `--geometry` input for every template script.
+- `colca_valley.h5` — HDF5 source. Multiple resolutions are stored as
+  named groups; the suffix is the radial-sample count, not the triangle
+  count (e.g. `colca_valley_30000` is the 30 000-sample build, which
+  meshes to 179 996 triangles).
+- `colca_valley_3000.jld2` — pre-built GCD bundle from the
+  `colca_valley_3000` group, used as the default `--geometry` input for
+  every template script.
 - `colca_valley_terrain.ply` and `colca_valley_obs_surface.ply` — the
-  CORSIKA-side meshes for the 30 000-triangle build.
+  CORSIKA-side meshes built from the `colca_valley_30000` group.
 
-To add a new site, run `examples/templates/1_create_geometry.jl` (on
-the `kiara_examples_overhaul` branch — these will move under
-`examples/templates/` once that branch lands).
+To add a new site, run [`examples/templates/1_create_geometry.jl`](../examples/templates/1_create_geometry.jl).
 
 ## `cross_section_tables/`
 

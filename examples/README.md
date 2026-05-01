@@ -103,7 +103,8 @@ shared `resources/`, not under `examples/`. It's the default
 
 - **The CORSIKA binary itself.** `templates/5_run_corsika.jl` won't do
   anything until `tambo_shower` is built — see
-  `resources/corsika/src/BUILD.md` for the build instructions.
+  [`src/corsika/tambo_shower/src/README.md`](../src/corsika/tambo_shower/src/README.md)
+  for the build instructions.
 - **The `_internal/` directory.** These are scripts the TamboSim
   collaboration uses for batch geometry surveys and example-artifact
   regeneration. They aren't curated examples, so feel free to ignore

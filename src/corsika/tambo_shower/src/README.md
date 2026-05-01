@@ -1,77 +1,90 @@
 # Building tambo_shower against CORSIKA 8
 
-## Prerequisites
-
-- A built and installed CORSIKA 8 installation (see below)
-- cmake 3.14+
-- A C++17-capable compiler (GCC 9+ or Clang 10+)
-- Conan 2 (used by CORSIKA 8 to manage dependencies)
-
 ## Step 1: Build and install CORSIKA 8
 
-`tambo_shower` requires the `mesh-bvh-geometry-framework` branch of CORSIKA 8,
-which provides `TriangularMesh`, `ObservationMesh`, and PLY mesh loading. These
-features are not yet in the CORSIKA 8 mainline.
+> **On Harvard FAS RC**: a shared CORSIKA install already lives at
+> `/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika`.
+> Unless you are actively developing CORSIKA itself, skip this step and link
+> `tambo_shower` against it per the on-cluster README at
+> `/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika/README.md`,
+> then continue with Step 3 below.
 
-Clone the upstream repository (or use an existing local copy):
+`tambo_shower` requires the `mesh-bvh-geometry-framework` branch of CORSIKA 8
+developed by Jeff Lazar, which provides `TriangularMesh`, `ObservationMesh`,
+and PLY mesh loading. These features are not yet in the CORSIKA 8 mainline.
 
-```bash
-git clone --branch mesh-bvh-geometry-framework \
-  https://gitlab.iap.kit.edu/AirShowerPhysics/corsika.git corsika
-cd corsika
-pip install conan
-conan install . --output-folder=build --build=missing
-cd build
-cmake .. -DCMAKE_INSTALL_PREFIX=$HOME/.local \
-         -DCMAKE_BUILD_TYPE=Release \
-         -DCMAKE_TOOLCHAIN_FILE=conan_toolchain.cmake
-cmake --build . -j8
-cmake --install .
-```
+The general instructions for installing CORSIKA 8 [can be found here](https://gitlab.iap.kit.edu/AirShowerPhysics/corsika);
+the steps below are based on that resource and use CORSIKA 8's own
+`conan-install.sh` and `corsika-cmake.sh` wrappers.
 
-The install step places headers under `$HOME/.local/include/corsika/` and the
-CORSIKA 8 cmake package into `$HOME/.local/lib/cmake/corsika/`.
+1. Clone the `mesh-bvh-geometry-framework` branch of CORSIKA:
+    ```shell
+    git clone --recursive --branch mesh-bvh-geometry-framework \
+      https://gitlab.iap.kit.edu/AirShowerPhysics/corsika.git corsika
+    ```
 
-If you are on a shared cluster (e.g. Harvard FAS RC) that memory-limits login
-nodes, use `-j1` or submit the build as a job.
+2. CORSIKA uses Conan to manage its C++ dependencies, so you will need to
+   install Conan via python. If you don't already have a copy of Conan, we
+   suggest setting up a dedicated python virtual environment and installing
+   via pip.
 
-### Harvard FAS RC
+3. Optionally, ensure you have a copy of FLUKA, which is one of two packages
+   that can be used for the low-energy hadronic interactions in CORSIKA. FLUKA
+   is not strictly required, but it is significantly faster than the
+   alternative. To install FLUKA, register for an account [on the FLUKA
+   website](http://www.fluka.eu/Fluka/www/html/fluka.php?). To then compile
+   CORSIKA with FLUKA, provide the runtime environment variables `FLUPRO`,
+   pointing to the directory containing the executable `flupro`, and `FLUFOR`,
+   pointing to the fortran executable used to compile FLUKA.
 
-CORSIKA 8 requires GCC 13 and cmake 3.14+, neither of which are in the default
-environment.  Load them **at build time only** — the resulting binary embeds
-the GCC runtime path (RPATH) and runs without any module loaded:
+4. Use Conan to install and precompile all the C++ packages CORSIKA depends on:
+    ```shell
+    mkdir -p "${CORSIKA_PREFIX}/corsika-build"
+    cd "${CORSIKA_PREFIX}/corsika-build"
 
-```bash
-module load gcc/13.2.0-fasrc01 cmake/3.31.6-fasrc01
-```
+    # 4a: install conan dependencies (generates conan_cmake/ with conan_toolchain.cmake)
+    ../corsika/conan-install.sh --source-directory ../corsika --release-with-debug
 
-The Conan toolchain file at `~/corsika/build/conan_toolchain.cmake` must be
-passed to cmake (see Step 2).
+    # 4b: configure (conan-install.sh generates corsika-cmake.sh in the corsika/ dir)
+    ../corsika/corsika-cmake.sh -c "-DWITH_FLUKA=ON -DCMAKE_INSTALL_PREFIX=../corsika-install"
+    ```
+
+5. Compile and install CORSIKA:
+    ```shell
+    make -j4
+    make install
+    ```
+    The install step places headers under `${CORSIKA_PREFIX}/corsika-install/include/corsika/`
+    and the CORSIKA 8 cmake package under `${CORSIKA_PREFIX}/corsika-install/lib/cmake/corsika/`.
+    On any shared cluster with memory-limited login nodes, use `-j1` or submit
+    the build as a job.
 
 ## Step 2: Build the application
 
-```bash
-cd src/corsika/tambo_shower/src
-cmake -S . -B ../build \
-  -DCMAKE_TOOLCHAIN_FILE=$HOME/corsika/build/conan_toolchain.cmake \
-  -DCMAKE_PREFIX_PATH=$HOME/corsika/build \
-  -Dcorsika_DIR=$HOME/corsika/build \
-  -DCMAKE_BUILD_TYPE=Release
-cmake --build ../build
-```
-
-To build with FLUKA as the low-energy hadronic model instead of UrQMD, add
-`-DWITH_FLUKA=ON` (requires FLUKA support in your CORSIKA 8 installation):
+Given a TamboSim checkout at `TAMBOSIM_DIR`, the following commands compile
+`${TAMBOSIM_DIR}/src/corsika/tambo_shower/src/tambo_shower.cpp` against the
+CORSIKA 8 installation produced in Step 1:
 
 ```bash
-cmake -S . -B ../build \
-  -DCMAKE_TOOLCHAIN_FILE=$HOME/corsika/build/conan_toolchain.cmake \
-  -DCMAKE_PREFIX_PATH=$HOME/corsika/build \
-  -Dcorsika_DIR=$HOME/corsika/build \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DWITH_FLUKA=ON
-cmake --build ../build -j4
+export CONAN_DEPENDENCIES=${CORSIKA_PREFIX}/corsika-install/lib/cmake/dependencies
+
+cd "${TAMBOSIM_DIR}/src/corsika/tambo_shower/src/"
+mkdir -p build
+
+cmake -DCMAKE_TOOLCHAIN_FILE=${CONAN_DEPENDENCIES}/conan_toolchain.cmake \
+      -DCMAKE_PREFIX_PATH=${CONAN_DEPENDENCIES} \
+      -Dcorsika_DIR=${CORSIKA_PREFIX}/corsika-install/lib/cmake/corsika \
+      -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+      -DWITH_FLUKA=ON \
+      -S . \
+      -B build
+
+cmake --build build
 ```
+
+Drop `-DWITH_FLUKA=ON` if you compiled CORSIKA without FLUKA support. With
+FLUKA, `FLUPRO` and `FLUFOR` must be set in the environment at compile time
+(see Step 1.3). The resulting binary is `build/tambo_shower`.
 
 The `CMakeLists.txt` automatically detects the GCC runtime library directory
 from `${CMAKE_CXX_COMPILER}` and embeds it as an RPATH, so the binary runs
@@ -101,11 +114,12 @@ A proton shower at 10^8 GeV injected from directly above the detector:
 ```
 
 In normal use the injection and intercept coordinates are computed by the Julia
-`corsika_run(particle, earth, ...)` wrapper, which traces the particle trajectory
-to the detector region of the `Earth` struct and converts both endpoints to ECEF.
+`corsika_run(particle, topography, detector_region, ...)` wrapper, which
+intersects the particle trajectory with the triangulated detector region and
+converts both endpoints to ECEF.
 
 The PLY mesh files (`colca_valley_obs_surface.ply`, `colca_valley_terrain.ply`) are
-in `resources/` in this repository.
+in `resources/geometry/` in this repository.
 
 **Note:** the output directory must not already exist. Remove it before re-running:
 ```bash

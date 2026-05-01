@@ -85,9 +85,9 @@ end
     precompute_cs_transform(cs_from::CoordinateSystem, cs_to::CoordinateSystem)
 
 Precomputes the composed rotation and translation for converting coordinates
-from `cs_from` to `cs_to`. Returns `(dir_rot, coord_rot, coord_offset)` where:
-- `dir_rot`: rotation matrix for directions (rotation-only, no translation)
-- `coord_rot`: same as `dir_rot` (used for coordinate rotation step)
+from `cs_from` to `cs_to`. Returns `(dir_rot, coord_offset)` where:
+- `dir_rot`: rotation matrix for directions (rotation-only, no translation);
+  also reused as the rotation step of the coordinate transform
 - `coord_offset`: translation vector to apply before rotation
 
 This avoids reconstructing `LinearMap`, `RotMatrix`, `Translation`, and their

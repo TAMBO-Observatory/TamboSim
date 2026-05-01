@@ -1,7 +1,7 @@
 """
     get_tambosim_path() -> String
 
-Returns the TAMBO-MC repository root path. Uses the `TAMBOSIM_PATH` environment variable
+Returns the TamboSim package root path. Uses the `TAMBOSIM_PATH` environment variable
 if set, otherwise infers the path from the location of this source file.
 """
 function get_tambosim_path()

@@ -298,7 +298,11 @@ end
 """
     inject_event(
         pdg::Int,
-        earth::Earth,
+        prem,
+        bvh::BVHTree{T},
+        cs::CoordinateSystem{T},
+        detector_region,
+        topography::Vector{Triangle{T}},
         as::UniformAngularSampler,
         pl::UnitfulPowerLawSampler,
         xs::CrossSection;
@@ -310,7 +314,7 @@ end
         tr_seed=nothing
     ) -> Tuple{Particle, Particle, Particle, WeightParameters}
 
-Simulates the injection and initial interaction of a particle (e.g., neutrino) into the Earth model.
+Simulates the injection and initial interaction of a neutrino into the Earth.
 
 This function performs several steps:
 1. Samples a neutrino trajectory based on `as` and determines the detector element it targets.
@@ -323,11 +327,15 @@ This function performs several steps:
 
 # Arguments
 - `pdg::Int`: The PDG ID of the injected particle (e.g., neutrino).
-- `earth::Earth`: The Earth model, including topography and material densities.
+- `prem`: PREM-style radial density model used by the propagation interface.
+- `bvh::BVHTree{T}`: BVH over the full topography mesh, used for trajectory ↔ surface intersection.
+- `cs::CoordinateSystem{T}`: ECEF-anchored coordinate system the geometry lives in.
+- `detector_region`: indices of the topography triangles that make up the detector surface.
+- `topography::Vector{Triangle{T}}`: full triangulated terrain mesh.
 - `as::UniformAngularSampler`: Sampler for the angular distribution of injected particles.
 - `pl::UnitfulPowerLawSampler`: Sampler for the energy distribution of injected particles.
 - `xs::CrossSection`: Cross-section data for particle interactions.
-- `detector_triangles::Union{Vector{Triangle{T}}, Nothing}`: Optional pre-computed detector triangles. If `nothing`, derived from `earth`.
+- `detector_triangles::Union{Vector{Triangle{T}}, Nothing}`: Optional pre-computed detector triangles. If `nothing`, derived from `topography[detector_region]`.
 - `detector_normals::Union{Vector{Direction{T}}, Nothing}`: Optional pre-computed detector normals. If `nothing`, computed from `detector_triangles`.
 - `detector_bvh::Union{BVHTree{T}, Nothing}`: Optional pre-computed BVH for detector triangles. If `nothing`, built from `detector_triangles`.
 - `detector_areas::Union{Vector{Quantity{T,ldim^2,typeof(u"m^2")}}, Nothing}`: Optional pre-computed detector areas. If `nothing`, computed from `detector_triangles`.
@@ -385,7 +393,10 @@ end
 """
     inject_event(
         pdg::Int,
-        earth::Earth,
+        prem,
+        bvh::BVHTree{T},
+        cs::CoordinateSystem{T},
+        detector_region,
         as::UniformAngularSampler,
         pl::UnitfulPowerLawSampler,
         xs::CrossSection,
@@ -396,16 +407,16 @@ end
 
 Simulates injection using pre-computed detector properties.
 
-This is the recommended method for batch injection as it avoids recomputing
-detector geometry for each event.
+This is the recommended method for batch injection: detector geometry
+(triangles, normals, BVH, areas) is built once via [`precompute_detector_properties`](@ref)
+and reused across events.
 
 # Example
 ```julia
-earth = Earth(...)
-detector_props = precompute_detector_properties(earth)
+detector_props = precompute_detector_properties(topography, detector_region)
 
 for i in 1:n_events
-    result = inject_event(pdg, earth, as, pl, xs, detector_props)
+    result = inject_event(pdg, prem, bvh, cs, detector_region, as, pl, xs, detector_props)
 end
 ```
 """
@@ -432,7 +443,9 @@ end
 
 """
     inject_proton_event(
-        earth::Earth,
+        bvh::BVHTree{T},
+        cs::CoordinateSystem{T},
+        detector_region,
         as::UniformAngularSampler,
         pl::UnitfulPowerLawSampler,
         detector_props::DetectorProperties{T};
@@ -454,7 +467,9 @@ direction.
 4. Samples energy from the power-law sampler.
 
 # Arguments
-- `earth::Earth`: The Earth model containing detector geometry.
+- `bvh::BVHTree{T}`: BVH over the full topography mesh.
+- `cs::CoordinateSystem{T}`: ECEF-anchored coordinate system.
+- `detector_region`: indices of the topography triangles forming the detector surface.
 - `as::UniformAngularSampler`: Sampler for the angular distribution.
 - `pl::UnitfulPowerLawSampler`: Sampler for the energy distribution.
 - `detector_props::DetectorProperties{T}`: Pre-computed detector properties.
@@ -656,12 +671,24 @@ end
 
 Inject downgoing cosmic-ray protons onto the detector surface. Mutates
 `frames` by appending one new M frame (with `config` snapshotted under
-`prefix` for provenance) and `config["nevent"]` Q frames, each carrying
-a sampled proton `<prefix>_initial_state` plus `weight_params`.
+`prefix` for provenance) and `config["nevent"]` Q frames. Each Q frame
+carries:
+
+- `<prefix>_initial_state` — proton at the sampled point on the detector surface
+- `<prefix>_final_state` — proton backtraced to `config["altitude"]` above
+  Earth, ready for CORSIKA injection
+- `particle_passes_through_rock::Bool` — whether the back-traced ray clipped
+  the topography on its way up
+- `weight_params::WeightParameters` — surface-injection weight bookkeeping.
+  `generated_xs` is set to `NaN` as the downstream sentinel that distinguishes
+  proton (surface-injection) events from neutrino events in the weighting code.
+
+Q frames where the angular sampler hit no visible detector triangles are
+silently skipped and have none of the above keys written.
 
 Unlike [`inject!`](@ref), this does not force a CC interaction — every
 sampled proton produces a shower at its sampled position by construction,
-so the close- and final-state machinery is not needed.
+so the close- and final-state-of-the-CC-vertex machinery is not needed.
 
 # Arguments
 - `frames::TamboFrames`: container to mutate; must already contain G, C, D.

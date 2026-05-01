@@ -9,6 +9,7 @@
         corsika_path::String,
         outdir::String,
         seed::Int64;
+        thinning::Float64=1e-6,
         nevent::Int=1,
         hadron_model::String="SIBYLL-2.3d",
         sbatch_command=""

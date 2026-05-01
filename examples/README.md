@@ -48,7 +48,7 @@ having to regenerate any artifacts first.
 | [`1_frame_usage.jl`](interactive/1_frame_usage.jl) | load + explore a TamboFrames; G/M/Q hierarchy, key inheritance, the TOML config that produced it |
 | [`2_analyze_output.jl`](interactive/2_analyze_output.jl) | filter to air decays, compute one-weights with `(p_phys/p_mc)/n_gen`, classify decay-product flavor |
 | [`3_injection_walkthrough.jl`](interactive/3_injection_walkthrough.jl) | what `inject!` does: samplers + cross section, the sampling-inversion trick, the three injection states, weight_params + p_mc + p_phys |
-| [`4_propagation_walkthrough.jl`](interactive/4_propagation_walkthrough.jl) | what `proposal_propagation!` does: PROPOSAL backend init, per-event call, the four output keys, the 106 MeV skip threshold |
+| [`4_propagation_walkthrough.jl`](interactive/4_propagation_walkthrough.jl) | what `proposal_propagation!` does: PROPOSAL backend init, per-event call, the four output keys, the per-PDG rest-energy guard |
 | [`5_corsika_walkthrough.jl`](interactive/5_corsika_walkthrough.jl) | what `corsika_run` does: per-event work, trajectory→detector intersect, the `tambo_shower` CLI shape (read-only — does not invoke the binary) |
 | [`6_detector_layout.jl`](interactive/6_detector_layout.jl) | how `templates/2_create_detector.jl` places OBBs: area-weighted plane, hex grid with tilt correction, vertical projection, per-point OBB construction with slope filter |
 

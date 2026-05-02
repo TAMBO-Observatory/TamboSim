@@ -1,6 +1,6 @@
 # Weighting refactor — design notes
 
-**Status:** draft, pre-implementation. Brainstorm between Kiara and Claude on 2026-05-01. Open for Jeff's review.
+**Status:** design finalised 2026-05-02. Reviewed by Jeff. Ready for implementation.
 **Branch:** `weights-refactor` (off `v1-staging`).
 **Goal:** a single, coherent in-package weighting interface so consumers don't reimplement the one-weight formula and so it remains correct under reweighting, multi-injection-config, and multi-site workflows.
 
@@ -187,9 +187,22 @@ The existing per-Q-frame keys (`injection_initial_state`, `injection_close_state
 
 The vectorized `oneweights(tf)` should precompute the phase space functors via `phase_space(m)` before batch-processing the Q frames. Correctness already lives in the dispatch + functors.
 
-## 4. Open questions for Jeff
+## 4. Resolved design decisions
 
-- **`p_phys` as a public helper.** Is it worth keeping `p_phys(pt::ForcedNeutrinoInteractionPoint)` as the one-arg function it is today? Inputs (`cd`, `density`, `diff_xs`) all live on the Point, so it's well-defined; it could be useful for diagnostics?
-- **Failed / null events.** Plan is for them to carry no `phase_space_point` key, with `oneweight` skipping them — does that match what you'd expect, or should they have a typed null sentinel?
-- **`hasmethod` filter caching for `oneweights`.** The vectorized form could pre-compute a `(typeof(pt), m)` → bool table once and reuse per event; worth doing eagerly, or only once it shows up in profiles?
-- **On-disk format for `PhaseSpacePoint`.** Typed JLD2 struct (fast, fragile under field renames) or a stable Dict / NamedTuple serialization (slower, robust)?
+- **`p_phys` as a public helper.** Kept but marked internal (`@doc false`). Available
+  for diagnostics and cross-checks without being part of the stable public API surface.
+  Consumers should go through `oneweight`, not `p_phys` directly.
+
+- **Failed / null events.** `oneweight` returns `0.0u"GeV*m^2*sr"` when
+  `phase_space_point` is absent. This keeps the output vector aligned with `tf`
+  (no index mismatches), and weight 0 is physically correct — failed events
+  contribute nothing to any analysis. Cannot distinguish a failed injection from a
+  missing-point bug from the return value alone; add a log warning inside `oneweight`
+  when the key is absent to aid debugging.
+
+- **`hasmethod` filter caching.** Plain per-event type-system lookup — no precomputed
+  cache. Revisit only if profiling shows it is a bottleneck. With `M ≤ 5` M frames
+  this is negligible.
+
+- **On-disk format for `PhaseSpacePoint`.** Typed JLD2 struct serialization directly.
+  Field-layout migrations handled with `rconvert` if needed.

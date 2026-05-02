@@ -37,6 +37,7 @@ using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
 using HDF5
 using LinearAlgebra
+using Statistics
 using TamboSim
 
 # PREM model radii (km → m)
@@ -227,6 +228,92 @@ function write_corsika_ply(path::String, vertices::Matrix{Float64}, faces::Matri
     println("Binary PLY: wrote $path")
 end
 
+"""
+    make_watertight(vertices, faces; depth_m=10_000.0)
+
+Close an open surface mesh to form a watertight volume.
+
+Projects each boundary vertex toward Earth's center by `depth_m` to create a
+bottom ring, stitches side-wall quads between the top and bottom rings, then
+caps the bottom with a fan from a single center point.
+
+Required for CORSIKA terrain meshes used as `HomogeneousMedium` volumes, where
+`TriangularMesh::contains()` uses odd-even ray casting and needs a closed surface.
+"""
+function make_watertight(
+    vertices :: Matrix{Float64},
+    faces    :: Matrix{Int};
+    depth_m  :: Real = 10_000.0
+)
+    # Find boundary edges: edges that belong to exactly one triangle.
+    edge_count = Dict{Tuple{Int,Int}, Int}()
+    for i in axes(faces, 1)
+        for (a, b) in ((faces[i,1], faces[i,2]),
+                       (faces[i,2], faces[i,3]),
+                       (faces[i,3], faces[i,1]))
+            key = minmax(a, b)
+            edge_count[key] = get(edge_count, key, 0) + 1
+        end
+    end
+    boundary_edges = [k for (k, v) in edge_count if v == 1]
+    isempty(boundary_edges) && return vertices, faces  # already closed
+
+    # Walk boundary edges into an ordered loop.
+    adj = Dict{Int, Vector{Int}}()
+    for (a, b) in boundary_edges
+        push!(get!(adj, a, Int[]), b)
+        push!(get!(adj, b, Int[]), a)
+    end
+    start = minimum(keys(adj))
+    loop  = [start]
+    prev  = -1
+    cur   = start
+    while true
+        nbrs = adj[cur]
+        nxt  = nbrs[1] == prev ? nbrs[2] : nbrs[1]
+        nxt == start && break
+        push!(loop, nxt)
+        prev, cur = cur, nxt
+    end
+    n_loop = length(loop)
+
+    # Project each boundary vertex toward Earth's center by depth_m.
+    n_old = size(vertices, 1)
+    bot_verts = Matrix{Float64}(undef, n_loop, 3)
+    for (i, vi) in enumerate(loop)
+        v = vertices[vi, :]
+        r = norm(v)
+        bot_verts[i, :] = v .* ((r - depth_m) / r)
+    end
+    bot_center = vec(mean(bot_verts, dims=1))
+
+    new_verts = vcat(vertices, bot_verts, bot_center')
+    bot_ring_start  = n_old + 1
+    bot_center_idx  = n_old + n_loop + 1
+
+    # Side walls: two triangles per boundary edge forming a quad
+    # (top_a, top_b, bot_b, bot_a).
+    side = Matrix{Int}(undef, 2 * n_loop, 3)
+    for i in 1:n_loop
+        a     = loop[i]
+        b     = loop[mod1(i + 1, n_loop)]
+        a_bot = bot_ring_start + i - 1
+        b_bot = bot_ring_start + mod(i, n_loop)  # wraps: i=n_loop → bot_ring_start+0
+        side[2i-1, :] = [a, a_bot, b_bot]
+        side[2i,   :] = [a, b_bot, b    ]
+    end
+
+    # Bottom cap: fan from bot_center to each bottom-ring edge.
+    bot_cap = Matrix{Int}(undef, n_loop, 3)
+    for i in 1:n_loop
+        a_bot = bot_ring_start + i - 1
+        b_bot = bot_ring_start + mod(i, n_loop)
+        bot_cap[i, :] = [a_bot, b_bot, bot_center_idx]
+    end
+
+    return new_verts, vcat(faces, side, bot_cap)
+end
+
 function detector_subset(vertices::Matrix{Float64}, faces::Matrix{Int}, detector_indices::Vector{Int})
     det_faces = faces[detector_indices, :]
     used      = sort(unique(vec(det_faces)))
@@ -332,7 +419,13 @@ println("  Reloaded — PREM layers: $n_prem  triangles: $n_tris  detector faces
 write_geometry_ply(ply_path, vertices, faces, detector_indices, PREM_RADII_KM .* 1_000.0)
 
 # --- 3. Binary PLY for CORSIKA ---
-write_corsika_ply(corsika_terrain, vertices, faces)
+# The terrain mesh must be watertight for CORSIKA to use it as a rock volume
+# (TriangularMesh::contains() requires a closed surface for correct ray casting).
+# The obs mesh is a face-subset of the original vertices so it lies exactly on
+# the terrain surface and does not need closing.
+terrain_verts_wt, terrain_faces_wt = make_watertight(vertices, faces)
+println("Terrain mesh: $(size(faces,1)) → $(size(terrain_faces_wt,1)) faces after closing")
+write_corsika_ply(corsika_terrain, terrain_verts_wt, terrain_faces_wt)
 
 sub_verts, sub_faces = detector_subset(vertices, faces, detector_indices)
 write_corsika_ply(corsika_obs, sub_verts, sub_faces)

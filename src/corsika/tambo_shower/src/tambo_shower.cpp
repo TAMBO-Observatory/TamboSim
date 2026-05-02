@@ -5,7 +5,7 @@
  * Valley, Peru. Two triangular meshes in ECEF coordinates drive the geometry:
  *
  *   obs_surface.ply  -  valley floor observation surface
- *   terrain.ply      -  surrounding terrain absorber (optional)
+ *   terrain.ply      -  surrounding terrain rock volume (optional)
  *
  * The shower trajectory is specified by two ECEF points passed on the command
  * line: the injection point (--inject-x/y/z, upstream, ~112 km altitude) and
@@ -432,8 +432,41 @@ int main(int argc, char** argv) {
                      terrainMeshPtr->getVertexCount(),
                      terrainMeshPtr->getTriangleCount());
   } else if (!terrainMeshPath.empty()) {
-    CORSIKA_LOG_WARN("Terrain mesh not found: {} -- terrain absorber disabled",
+    CORSIKA_LOG_WARN("Terrain mesh not found: {} -- terrain rock volume disabled",
                      terrainMeshPath);
+  }
+
+  if (useTerrainMesh) {
+    // Check that every obs-mesh vertex has a matching vertex in the terrain mesh
+    // within 1 mm. This confirms the two files were generated from the same geometry.
+    constexpr double kTolM = 1e-3;
+    size_t nMismatched = 0;
+    double maxMinDist = 0.0;
+    for (size_t oi = 0; oi < obsMesh.getVertexCount(); ++oi) {
+      auto const oc = obsMesh.getVertex(oi).getCoordinates(rootCS);
+      double minDist2 = std::numeric_limits<double>::infinity();
+      for (size_t ti = 0; ti < terrainMeshPtr->getVertexCount(); ++ti) {
+        auto const tc = terrainMeshPtr->getVertex(ti).getCoordinates(rootCS);
+        double const dx = (oc.getX() - tc.getX()) / 1_m;
+        double const dy = (oc.getY() - tc.getY()) / 1_m;
+        double const dz = (oc.getZ() - tc.getZ()) / 1_m;
+        minDist2 = std::min(minDist2, dx * dx + dy * dy + dz * dz);
+      }
+      double const minDist = std::sqrt(minDist2);
+      maxMinDist = std::max(maxMinDist, minDist);
+      if (minDist > kTolM) ++nMismatched;
+    }
+    if (nMismatched > 0) {
+      CORSIKA_LOG_WARN(
+          "Obs/terrain mesh mismatch: {} of {} obs vertices have no matching terrain "
+          "vertex within {:.1f} mm (max gap = {:.3f} mm). The two PLY files may not "
+          "have been generated from the same geometry -- particles at the observation "
+          "surface may propagate through air instead of rock.",
+          nMismatched, obsMesh.getVertexCount(), kTolM * 1e3, maxMinDist * 1e3);
+    } else {
+      CORSIKA_LOG_INFO("Obs/terrain mesh alignment check passed (max vertex gap = {:.4f} mm).",
+                       maxMinDist * 1e3);
+    }
   }
 
   /* === INTERCEPT POINT AND ENU FRAME ===
@@ -455,8 +488,8 @@ int main(int argc, char** argv) {
    * area-weighted centroid of the observation mesh (i.e. normal = upHat).
    * "Lowest" is measured as the minimum projection of obs-mesh vertices
    * onto upHat, which is the vertical distance from Earth centre.
-   * Absorbing: particles that escape the obs mesh and terrain are recorded
-   * and removed here instead of propagating indefinitely.
+   * Absorbing: particles that escape the obs mesh are recorded and removed
+   * here instead of propagating indefinitely.
    */
   double minVertProj = std::numeric_limits<double>::infinity();
   for (size_t vi = 0; vi < obsMesh.getVertexCount(); ++vi) {
@@ -509,6 +542,52 @@ int main(int argc, char** argv) {
   create_5layer_colca_atmosphere<EnvironmentInterface, MyExtraEnv>(
       env, earthCenter, 1.000327, earthSurface,
       media::Medium::AirDry1Atm, obsField);
+
+  /* === TERRAIN ROCK VOLUME ===
+   * The terrain mesh is registered as a HomogeneousMedium (standard rock,
+   * 2.65 g/cm³, SiO2 composition) in the environment so that particles
+   * propagate through it with correct physics rather than being absorbed at
+   * the surface.  No readout is attached; particles that enter rock are
+   * tracked by CORSIKA until they stop or escape.
+   *
+   * The rock volume boundary is shifted 0.1 mm toward Earth's center relative
+   * to the terrain mesh surface.  This guarantees that the obs mesh (which is
+   * coplanar with the terrain surface) lies in air above the rock boundary.
+   * Particles traveling downward from air are absorbed by the obs mesh before
+   * they ever reach the rock volume.  The PLY files are unchanged; this is a
+   * CORSIKA-side adjustment only.
+   */
+  if (useTerrainMesh) {
+    constexpr double kInsetM = 1e-4; // 0.1 mm below terrain surface
+    std::vector<Point> insetVertices;
+    insetVertices.reserve(terrainMeshPtr->getVertexCount());
+    for (size_t vi = 0; vi < terrainMeshPtr->getVertexCount(); ++vi) {
+      auto const c = terrainMeshPtr->getVertex(vi).getCoordinates(rootCS);
+      double const x = c.getX() / 1_m;
+      double const y = c.getY() / 1_m;
+      double const z = c.getZ() / 1_m;
+      double const r = std::sqrt(x * x + y * y + z * z);
+      double const scale = (r - kInsetM) / r;
+      insetVertices.emplace_back(rootCS, scale * x * 1_m, scale * y * 1_m, scale * z * 1_m);
+    }
+    std::vector<std::array<size_t, 3>> faces;
+    faces.reserve(terrainMeshPtr->getTriangleCount());
+    for (size_t ti = 0; ti < terrainMeshPtr->getTriangleCount(); ++ti)
+      faces.push_back(terrainMeshPtr->getTriangle(ti).getVertexIndices());
+
+    static media::NuclearComposition const rockComposition{
+        {Code::Oxygen, Code::Silicon}, {0.533, 0.467}};
+    auto rockNode = EnvType::createNode<TriangularMesh>(std::move(insetVertices), faces);
+    rockNode->setModelProperties<MyExtraEnv<HomogeneousMedium<EnvironmentInterface>>>(
+        1.000327, earthSurface,
+        media::Medium::StandardRock,
+        obsField,
+        2.65_g / (1_cm * 1_cm * 1_cm),
+        rockComposition);
+    env.getUniverse()->addChild(std::move(rockNode));
+    CORSIKA_LOG_INFO("Terrain mesh registered as standard rock volume (2.65 g/cm3, {:.2f} mm inset)",
+                     kInsetM * 1e3);
+  }
 
   /* === PRIMARY PARTICLE ID === */
   Code beamCode;
@@ -781,26 +860,14 @@ int main(int argc, char** argv) {
     }
   };
 
-  // terrainLevel must outlive output.endOfLibrary() since output holds a reference to it.
-  std::optional<ObservationMesh<TrackingType, ParticleWriterParquet>> terrainLevel;
-  if (useTerrainMesh) {
-    terrainLevel.emplace(*terrainMeshPtr, true, 1e-6_m);
-    output.add("terrain", *terrainLevel);
-  }
-
   output.startOfLibrary();
   for (int i = 1; i <= nev; ++i) {
     PowerLawDistribution<HEPEnergyType> plRng(eSlope, eMin, eMax);
     HEPEnergyType const E = (eMax == eMin)
         ? eMin
         : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
-    if (useTerrainMesh) {
-      auto obsMeshSequence = make_sequence(observationLevel, *terrainLevel, escapeLevel);
-      runOneShower(obsMeshSequence, i, E);
-    } else {
-      auto obsMeshSequence = make_sequence(observationLevel, escapeLevel);
-      runOneShower(obsMeshSequence, i, E);
-    }
+    auto obsMeshSequence = make_sequence(observationLevel, escapeLevel);
+    runOneShower(obsMeshSequence, i, E);
   }
 
   output.endOfLibrary();

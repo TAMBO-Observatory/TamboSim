@@ -31,6 +31,10 @@ and `--intercept-x/y/z` (intercept on detector region), both in ECEF metres.
 - `thinning::Float64`: EM thinning fraction (passed as `--emthin`). Default `1e-6`.
 - `nevent::Int`: Number of showers to simulate. Default 1.
 - `hadron_model::String`: High-energy hadronic model name. Default `"SIBYLL-2.3d"`.
+- `box_padding_km::Union{Nothing,Real}`: If set, passed to `tambo_shower_box`
+  via `--box-padding-km` to enable the one-way absorbing box hugging the
+  obs mesh by this many km on each face. `nothing` (default) omits the flag,
+  and the executable runs with no box.
 - `sbatch_command`: Optional sbatch prefix for cluster submission.
 """
 function corsika_run(
@@ -45,6 +49,7 @@ function corsika_run(
     thinning::Float64=1e-6,
     nevent::Int=1,
     hadron_model::String="SIBYLL-2.3d",
+    box_padding_km::Union{Nothing,Real}=nothing,
     sbatch_command=""
 ) where {T}
 
@@ -100,6 +105,9 @@ function corsika_run(
     ]
     if !isempty(terrain_mesh_path)
         append!(cmd_parts, ["--terrain-mesh", terrain_mesh_path])
+    end
+    if !isnothing(box_padding_km)
+        append!(cmd_parts, ["--box-padding-km", string(box_padding_km)])
     end
 
     if isempty(sbatch_command)

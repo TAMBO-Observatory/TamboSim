@@ -510,13 +510,13 @@ int main(int argc, char** argv) {
   CORSIKA_LOG_INFO("Escape plane distance from Earth centre: {:.1f} m  ({:.1f} mm below lowest obs vertex)",
                    escapePlaneDist, 1.0);
 
-  /* === FLAT OBSERVATION PLANE at 20 km altitude ===
-   * Plane center is at 20 km altitude along the local vertical (upHat).
+  /* === FLAT OBSERVATION PLANE at 10 km altitude ===
+   * Plane center is at 10 km altitude along the local vertical (upHat).
    * The normal points downward (-upHat); this only affects the coordinate
    * system used for output, not which particles are absorbed.
    * Absorption is one-directional: see directionalAlt below.
    */
-  constexpr double altKm = 20.0;
+  constexpr double altKm = 10.0;
   double const altPlaneDist = constants::EarthRadius::Mean / 1_m + altKm * 1e3;
   Point const altPlaneCenter{rootCS,
       altPlaneDist * upHat[0] * 1_m,
@@ -730,14 +730,14 @@ int main(int argc, char** argv) {
     };
   output.add("particles", observationLevel);
 
-  /* === FLAT OBSERVATION PLANE at 20 km: absorbs and records upward-going particles ===
+  /* === FLAT OBSERVATION PLANE at 10 km: absorbs and records upward-going particles ===
    * Downward-going particles pass through unaffected via the NullModel branch.
    * UpwardFilter returns true (→ altLevel) when particle direction · upHat > 0,
    * i.e. particle is moving upward in local ENU coordinates.
    */
   ObservationPlane<TrackingType, ParticleWriterParquet> altLevel{
       altPlane, escapeRefDir, true, 1e-6_m};
-  output.add("flat_plane_20km", altLevel);
+  output.add("flat_plane_10km", altLevel);
 
   auto directionalAlt = make_select(UpwardFilter{upHat}, altLevel, NullModel{});
 

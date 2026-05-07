@@ -1,6 +1,16 @@
 module TamboSim
 
-export Ray,
+export PhaseSpace,
+       PhaseSpacePoint,
+       NeutrinoInjectionPS,
+       ForcedNeutrinoInteractionPoint,
+       UpstreamNeutrinoInteractionPoint,
+       CosmicRayInjectionPS,
+       SurfaceCRPoint,
+       oneweight,
+       oneweights,
+       oneweights!,
+       Ray,
        Coordinate,
        Direction,
        intersect_all,

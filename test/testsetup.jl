@@ -14,7 +14,8 @@ using ProgressMeter
 using TamboSim
 
 # Import internal types and functions not exported by default
-import TamboSim: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
+import TamboSim: p_mc_surface,
+              CoordinateSystem, ecefcoordinates, Coordinate, Direction,
               Triangle, Sphere, Plane, OBB, Ray,
               AABB, BVHNode, BVHTree,
               normal, area, centroid, longlat_to_cart, cart_to_longlat, sph_to_cart, cart_to_sph,

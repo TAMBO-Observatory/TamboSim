@@ -130,36 +130,28 @@ xs                                  # struct fields show the energy grid + σ va
 #
 # The three saved states correspond to steps (3), (4), (5):
 #
-#   injection_initial_state   the bookkeeping anchor: position p,
-#                             direction d, energy drawn from the
-#                             *source-side* power-law spectrum — i.e.
-#                             "what would we be sampling at p if Earth
-#                             weren't in the way?" A source-side number
-#                             attached to a detector-side location.
+#   injection_close_state     the *physical* state arriving at p with
+#                             direction d, with meaningful position, direction,
+#                             and energy. in a tau neutrino injection, 
+#                             this state is returned by TauRunner and can be 
+#                             either a neutrino (typically) or a tau. 
+#
+#   injection_initial_state   same position p and direction d, but the
+#                             energy is a draw from the *source-side*
+#                             power-law spectrum — i.e. "what would we be
+#                             sampling at p if Earth weren't in the way?"
+#                             This is a source-side number attached to a
+#                             detector-side location, and it's what makes
+#                             the sampling-inversion bookkeeping work.
 #                             Used for the weight calculation, not as a
 #                             physical state.
 #
-#   injection_close_state     whatever TauRunner reports at the end of
-#                             propagating along the back-traced
-#                             trajectory. Usually a surviving neutrino
-#                             at p (energy reduced by absorption), but
-#                             can also be a tau if TauRunner ran a
-#                             CC + decay → nu_tau regeneration cascade
-#                             in-flight. Position is p only when
-#                             propagation reached the end of the
-#                             trajectory; if TauRunner stopped early
-#                             the position is offset along the track.
-#
-#   injection_final_state     when close_state is a neutrino, this is
-#                             the forced CC interaction vertex inside
-#                             rock — a physically distinct point along
-#                             the trajectory leading to p, where
-#                             close_state is forced to interact, with
-#                             the outgoing tau living at that vertex.
-#                             When close_state is *already* a tau,
-#                             inject_event skips the forced interaction
-#                             and stores final_state === close_state
-#                             (see the demo at the bottom of this section).
+#   injection_final_state     if a neutrino interaction had to be forced,
+#                             this state corresponds to the forced CC 
+#                             interaction vertex inside rock — a physically 
+#                             distinct point along the trajectory leading to p, 
+#                             where close_state is forced to interact. Otherwise
+#                             this is just final_state === close_state.
 #
 # Frames whose sampling step (2) found no visible detector triangle, or
 # whose back-traced trajectory failed to validate, lack *_final_state —
@@ -194,11 +186,6 @@ q1["injection_initial_state"].position == q1["injection_close_state"].position
 # final lives elsewhere — at the point the neutrino interaction was 
 # forced inside rock
 q1["injection_final_state"].position
-
-# While the scenario that TauRunner returns a tau neutrino is the most
-# common, remember that it is also possible that it returns a tau. In
-# that case, inject_event skips the forced interaction step and just
-# copies close → final:
 
 
 # =============================================================================

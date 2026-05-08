@@ -22,6 +22,7 @@
 
 using TamboSim
 using TOML
+using Unitful: @u_str
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
@@ -117,9 +118,9 @@ xs                                  # struct fields show the energy grid + σ va
 # detector. Rather than throwing primaries on a sphere far from the
 # mountain (most would miss), it:
 #
-#   (1) draws a direction d from the angular box,
+#   (1) draws a direction d from the specified angular range,
 #   (2) samples a point p on the detector-region surface (weighted by
-#       triangle area + visibility along d),
+#       triangle area and its visibility along d),
 #   (3) ray-traces the *reverse* direction back through PREM + topography
 #       to find the trajectory that would arrive at p, d,
 #   (4) hands that trajectory to TauRunner, which propagates a virtual
@@ -129,60 +130,76 @@ xs                                  # struct fields show the energy grid + σ va
 #
 # The three saved states correspond to steps (3), (4), (5):
 #
-#   injection_close_state     the *physical* neutrino arriving at p with
-#                             direction d. Position, direction, and energy
-#                             are all real: TauRunner sampled the cascade
-#                             through Earth (CC interactions, tau decay →
-#                             nu_tau regeneration, etc.) and reports what
-#                             actually survives at the detector face.
-#
-#   injection_initial_state   same position p and direction d, but the
-#                             energy is a draw from the *source-side*
-#                             power-law spectrum — i.e. "what would we be
-#                             sampling at p if Earth weren't in the way?"
-#                             This is a source-side number attached to a
-#                             detector-side location, and it's what makes
-#                             the sampling-inversion bookkeeping work.
+#   injection_initial_state   the bookkeeping anchor: position p,
+#                             direction d, energy drawn from the
+#                             *source-side* power-law spectrum — i.e.
+#                             "what would we be sampling at p if Earth
+#                             weren't in the way?" A source-side number
+#                             attached to a detector-side location.
 #                             Used for the weight calculation, not as a
 #                             physical state.
 #
-#   injection_final_state     the forced CC interaction vertex inside
+#   injection_close_state     whatever TauRunner reports at the end of
+#                             propagating along the back-traced
+#                             trajectory. Usually a surviving neutrino
+#                             at p (energy reduced by absorption), but
+#                             can also be a tau if TauRunner ran a
+#                             CC + decay → nu_tau regeneration cascade
+#                             in-flight. Position is p only when
+#                             propagation reached the end of the
+#                             trajectory; if TauRunner stopped early
+#                             the position is offset along the track.
+#
+#   injection_final_state     when close_state is a neutrino, this is
+#                             the forced CC interaction vertex inside
 #                             rock — a physically distinct point along
-#                             the trajectory leading to p, where close_state
-#                             is forced to interact. The outgoing tau
-#                             lives here, and its energy/PDG feed PROPOSAL
-#                             in the next stage.
+#                             the trajectory leading to p, where
+#                             close_state is forced to interact, with
+#                             the outgoing tau living at that vertex.
+#                             When close_state is *already* a tau,
+#                             inject_event skips the forced interaction
+#                             and stores final_state === close_state
+#                             (see the demo at the bottom of this section).
 #
 # Frames whose sampling step (2) found no visible detector triangle, or
 # whose back-traced trajectory failed to validate, lack *_final_state —
 # see Section 6.
 
-q1["injection_close_state"]         # physical: real neutrino arriving at p
 q1["injection_initial_state"]       # bookkeeping: source-side energy attached to p
-q1["injection_final_state"]         # interior CC vertex; the input to PROPOSAL
+q1["injection_close_state"]         # TauRunner output; usually a neutrino at p
+q1["injection_final_state"]         # forced CC vertex (or === close_state if tau out)
 
-# initial and close share position+direction by construction — the only
-# thing that differs between them is the energy. That energy gap is the
-# Earth-absorption cascade: at PeV energies the CC mean free path through
-# rock is short, so most of the source-side energy is lost in the
-# integrated column depth before anything reaches p. TauRunner samples
-# that loss; (initial.energy / close.energy) gives the per-event suppression.
+# For events where TauRunner returns a neutrino that survived the full
+# trajectory, initial and close share position+direction; the only
+# difference is the energy. That energy gap is the Earth-absorption
+# cascade: at PeV+ the CC mean free path through rock is short, so much
+# of the source-side energy is lost in the integrated column depth.
+# TauRunner samples that loss; (initial.energy / close.energy) gives
+# the per-event suppression.
 q1["injection_initial_state"].energy |> u"PeV"
 q1["injection_close_state"].energy |> u"PeV"
 
-# The forced close → final interaction conserves energy approximately
-# (Bjorken-y is small at high E), so close and final energies are similar.
+# close → final is a CC interaction: final.energy = (1 - y) * close.energy
+# where y is the Bjorken inelasticity (typically tens of percent at PeV).
 q1["injection_final_state"].energy |> u"PeV"
 
 q1["injection_initial_state"].pdg    # 16 (nu_tau)
-q1["injection_close_state"].pdg      # still nu_tau if it survived as a neutrino
-q1["injection_final_state"].pdg      # 15 (tau) — outgoing charged lepton from the CC
+q1["injection_close_state"].pdg      # 16 if it survived as a neutrino; ±15 if regenerated as a tau
+q1["injection_final_state"].pdg      # 15 (tau) — either the forced-CC outgoing tau or === close_state
 
-# initial and close share position by construction:
-q1["injection_initial_state"].position == q1["injection_close_state"].position    # true
+# In this event, TauRunner ran all the way to p and returned a neutrino,
+# so the initial and close positions are the same.
+q1["injection_initial_state"].position == q1["injection_close_state"].position
 
-# final lives elsewhere — at the actual interaction vertex inside rock:
+# final lives elsewhere — at the point the neutrino interaction was 
+# forced inside rock
 q1["injection_final_state"].position
+
+# While the scenario that TauRunner returns a tau neutrino is the most
+# common, remember that it is also possible that it returns a tau. In
+# that case, inject_event skips the forced interaction step and just
+# copies close → final:
+
 
 # =============================================================================
 # 5. weight_params, p_mc, p_phys, and one-weights

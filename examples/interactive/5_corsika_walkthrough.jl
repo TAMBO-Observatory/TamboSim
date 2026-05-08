@@ -148,11 +148,6 @@ end
 #     -f <outdir>
 #     [--terrain-mesh <path>]
 #
-# It is dispatched either as run(Cmd(cmd_parts)) (local) or as a
-# sbatch submission if config["sbatch_command"] is set. For real-scale
-# work you almost always want the sbatch path — the local path is mainly
-# useful for one-off test showers.
-#
 # tambo_shower itself writes a structured output tree:
 #
 #   <outdir>/

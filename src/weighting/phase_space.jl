@@ -67,11 +67,16 @@ end
 # =============================================================================
 
 function _compatible(ps::PhaseSpace, pt::PhaseSpacePoint)
+    if !haskey(ps.g_frame, "geometry_hash") || !haskey(pt.g_frame, "geometry_hash")
+        error("_compatible: G frame is missing `geometry_hash`. Old JLD2 files predating the geometry-hash plumbing must be re-saved through `build_gcd_bundle` / `load_earth!` before they can be weighted.")
+    end
     ps.g_frame["geometry_hash"] != pt.g_frame["geometry_hash"] && return false
-    ps.pdg != pt.pdg                                            && return false
-    !(ps.emin     <= pt.E     <= ps.emax)     && return false
-    !(ps.thetamin <= pt.theta <= ps.thetamax) && return false
-    !(ps.phimin   <= pt.phi   <= ps.phimax)   && return false
+    ps.pdg != pt.pdg         && return false
+    # Half-open intervals on the upper bound: adjacent campaigns sharing
+    # a boundary value are disjoint, not double-counted.
+    !(ps.emin     <= pt.E     < ps.emax)     && return false
+    !(ps.thetamin <= pt.theta < ps.thetamax) && return false
+    !(ps.phimin   <= pt.phi   < ps.phimax)   && return false
     return true
 end
 

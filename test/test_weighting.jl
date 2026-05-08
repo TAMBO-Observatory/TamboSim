@@ -135,11 +135,13 @@ function run_weighting_tests()
         test_cr_functor_matches_old_formula()
         test_compatibility_pdg_mismatch()
         test_compatibility_geometry_mismatch()
+        test_compatibility_missing_geometry_hash()
         test_compatibility_energy_out_of_bounds()
     end
 
     @testset "Multi-campaign oneweight" begin
         test_disjoint_phase_spaces()
+        test_boundary_disjoint_phase_spaces()
         test_overlapping_phase_spaces()
     end
 end
@@ -288,13 +290,14 @@ end
 function test_forced_neutrino_functor_matches_old_formula()
     g  = _mock_g_frame()
     ps = _test_neutrino_ps(g)
-    pt = ForcedNeutrinoInteractionPoint(g, 16, 1e4, π/4, 1.0, 500.0, 100.0, 2.65, 1e-36, 1e-37)
+    # Distinct sigma vs dsigma so a swap between the two would actually fail.
+    pt = ForcedNeutrinoInteractionPoint(g, 16, 1e4, π/4, 1.0, 500.0, 100.0, 2.65, 2e-36, 7e-38)
 
     result = ps(pt)
 
     mc   = p_mc(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π,
-                1e4u"GeV", 100.0u"g/cm^2", 2.65u"g/cm^3", 1e-36u"cm^2", 1e-37u"cm^2")
-    phys = p_phys(100.0u"g/cm^2", 2.65u"g/cm^3", 1e-37u"cm^2")
+                1e4u"GeV", 100.0u"g/cm^2", 2.65u"g/cm^3", 2e-36u"cm^2", 7e-38u"cm^2")
+    phys = p_phys(100.0u"g/cm^2", 2.65u"g/cm^3", 7e-38u"cm^2")
     expected = uconvert(u"GeV^-1 * m^-2 * sr^-1", mc / phys)
 
     @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈ ustrip(u"GeV^-1 * m^-2 * sr^-1", expected)
@@ -350,6 +353,16 @@ function test_compatibility_geometry_mismatch()
     @test ps(pt) == 0.0u"GeV^-1 * m^-2 * sr^-1"
 end
 
+function test_compatibility_missing_geometry_hash()
+    # Old JLD2 files predate `geometry_hash`; `_compatible` must error loudly
+    # rather than silently zeroing out every event in the run.
+    g_with    = _mock_g_frame()
+    g_without = Frame('G', Dict{String,Any}())
+    ps = _test_cr_ps(g_with)
+    pt = SurfaceCRPoint(g_without, 2212, 1e4, π/4, 1.0, 500.0)
+    @test_throws ErrorException ps(pt)
+end
+
 function test_compatibility_energy_out_of_bounds()
     g  = _mock_g_frame()
     ps = _test_cr_ps(g; emin=1e3, emax=1e5)
@@ -384,6 +397,25 @@ function test_disjoint_phase_spaces()
     ow_combined2 = _oneweight_from_ps(q_high, PhaseSpace[ps1, ps2])
     ow_single2   = _oneweight_from_ps(q_high, PhaseSpace[ps2])
     @test ustrip(u"GeV*m^2*sr", ow_combined2) ≈ ustrip(u"GeV*m^2*sr", ow_single2)
+end
+
+function test_boundary_disjoint_phase_spaces()
+    # Adjacent campaigns sharing a boundary energy: with half-open intervals
+    # (`emin <= E < emax`), an event at exactly E == emax_PS1 == emin_PS2 must
+    # belong to PS2 only — never both. Catches regressions to inclusive `<=`.
+    g   = _mock_g_frame()
+    ps1 = _test_cr_ps(g; emin=1e3, emax=1e5, nevent=1000)
+    ps2 = _test_cr_ps(g; emin=1e5, emax=1e7, nevent=1000)
+
+    pt_boundary = SurfaceCRPoint(g, 2212, 1e5, π/4, 1.0, 500.0)
+    q_boundary  = _make_q_frame_with_point(pt_boundary)
+
+    ow_combined = _oneweight_from_ps(q_boundary, PhaseSpace[ps1, ps2])
+    ow_only_ps2 = _oneweight_from_ps(q_boundary, PhaseSpace[ps2])
+    @test ustrip(u"GeV*m^2*sr", ow_combined) ≈ ustrip(u"GeV*m^2*sr", ow_only_ps2)
+
+    # PS1 alone must reject the boundary event (zero contribution → infinite ow → _zero_ow sentinel).
+    @test ps1(pt_boundary) == 0.0u"GeV^-1 * m^-2 * sr^-1"
 end
 
 function test_overlapping_phase_spaces()

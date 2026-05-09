@@ -16,7 +16,7 @@
 #   2. Run inject! and survey the result (M frame + Q frames + new keys)
 #   3. The samplers and cross section that did the per-event work
 #   4. The three injection states and how the sampling inversion sets them
-#   5. weight_params and p_mc — the bookkeeping that makes flux estimates work
+#   5. phase_space_point — the per-event handoff to the weighting walkthrough
 #   6. Failure mode: when an injected direction doesn't see any rock
 #   7. Variant: inject_protons! for cosmic-ray primaries
 
@@ -69,7 +69,7 @@ injection_config["pinecone"] = SEED
 #       "injection" key, plus `nevent` empty Q frames each tagged with a
 #       sequential event_id;
 #   (b) loops over those Q frames, sampling and tracing each event, and
-#       writes injection_*_state + weight_params onto each frame.
+#       writes injection_*_state + phase_space_point onto each frame.
 # Sections 3–5 unpack what (b) put where; this section just runs the
 # call and shows the resulting shape.
 
@@ -87,7 +87,7 @@ m_frame["injection"]["pinecone"]     # 1234
 # Each Q frame now has event_id + the per-event physics keys:
 q1 = frames.q_frames[1]
 q1["event_id"]                      # 1
-sort(collect(keys(q1.data)))        # event_id, injection_*_state, weight_params
+sort(collect(keys(q1.data)))        # event_id, injection_*_state, phase_space_point
 
 # =============================================================================
 # 3. The samplers and cross section that did the per-event work
@@ -189,60 +189,27 @@ q1["injection_final_state"].position
 
 
 # =============================================================================
-# 5. weight_params, p_mc, p_phys, and one-weights
+# 5. phase_space_point — the per-event handoff to the weighting walkthrough
 # =============================================================================
-# inject_event also filled weight_params on every Q frame (whether or
-# not the event survived). These hold the generation phase-space + forced-
-# interaction information needed to assign each event a flux-independent
-# one-weight.
-
-wp = q1["weight_params"]
-wp                                  # struct fields display
-
-# Two probability densities are computed from weight_params:
+# Successful events also receive a `phase_space_point` key — a small struct
+# carrying the per-event coordinates (E, θ, φ, area, and for forced-CC
+# events the column depth, density, and cross sections) that the weighting
+# layer needs to assign each event a flux-independent one-weight.
 #
-#   p_mc(wp)     the *generation* density — power-law energy term, solid
-#                angle, area, AND the forced-interaction factors (column
-#                depth and diff_xs/xs) that inject_event applied to focus
-#                events on the detector. Units: GeV^-1 · m^-3 · sr^-1.
-#
-#   p_phys(wp)   the *physical* interaction probability density at the
-#                forced vertex (no spectrum, no solid angle — just the
-#                natural rate of interaction per unit length). Units: m^-1.
-#
-# The forced sampling boosted each event's MC weight artificially. The
-# importance-sampling correction p_phys / p_mc removes that boost and
-# replaces it with the natural physical rate. Dividing by n_gen normalizes
-# per generated event:
-#
-#     oneweight = (p_phys(wp) / p_mc(wp)) / n_gen     # forced neutrino
-#
-# Units come out to GeV · m² · sr / event — the standard "OneWeight"
-# shape. Multiplying by a flux dN/(dE·dA·dt·dΩ) (units 1/(GeV·m²·s·sr))
-# and an exposure time (s) gives the expected event count.
+# The shape of that struct, the campaign-level metadata it pairs with, and
+# the formula `oneweights(tf)` applies are covered in 5_weighting_walkthrough.jl.
+# Here we just confirm the key is present:
 
-@doc TamboSim.p_mc
-
-@doc TamboSim.p_phys
-
-@show TamboSim.p_mc(wp);
-@show TamboSim.p_phys(wp);
-
-oneweight = (TamboSim.p_phys(wp) / TamboSim.p_mc(wp)) / NEVENT
-@show oneweight;                            
-
-# Note: surface-injected primaries (cosmic-ray protons, atmospheric muons)
-# are NOT forced to interact — every primary produces a shower. Those use
-# `p_mc_surface(wp)` and skip the p_phys correction.
+q1["phase_space_point"]             # struct fields display
 
 # =============================================================================
 # 6. Failure mode: directions that miss the detector region
 # =============================================================================
 # Some sampled directions never see the detector region at all (they go
 # off into space without hitting rock that contains it). For those frames
-# inject_event still wrote weight_params (for accounting), but skipped
-# *_final_state. Downstream stages need the final state, so the templates
-# cut these frames immediately:
+# inject_event skipped *_final_state and phase_space_point — only event_id
+# remains. Downstream stages need the final state, so the templates cut
+# these frames immediately:
 #
 #     filter!(frame -> haskey(frame, "injection_final_state"), frames)
 
@@ -255,7 +222,7 @@ n_air    = n_total - n_failed
 # This walkthrough stops short of the cut so you can still inspect a
 # failed frame side-by-side with a successful one:
 failed_q = first(filter(f -> !haskey(f, "injection_final_state"), frames.q_frames))
-sort(collect(keys(failed_q.data)))  # event_id + weight_params, but no injection_*_state
+sort(collect(keys(failed_q.data)))  # event_id alone — no injection_*_state, no phase_space_point
 
 # Continue with 4_propagation_walkthrough.jl to see what proposal_propagation!
 # does with the surviving injection_final_state.
@@ -307,31 +274,12 @@ proton_q1["injection_initial_state"].pdg            # 2212 (proton)
 proton_q1["injection_initial_state"].position
 proton_q1["injection_final_state"].position
 
-# weight_params has the same struct shape, but the cross-section / column-
-# depth fields are NaN — the surface-injection path doesn't fill them:
-proton_wp = proton_q1["weight_params"]
-proton_wp
+# Protons get a `phase_space_point` too — a `SurfaceCRPoint` rather than
+# the forced-CC variant the neutrino path produced. Surface CRs aren't
+# forced to interact (every primary produces a shower), so the point only
+# carries the source-side phase-space coordinates; the weighting layer
+# dispatches on its type to pick the right per-event density.
+proton_q1["phase_space_point"]
 
-# That NaN is also the discriminator the analysis code uses to pick the
-# right one-weight formula (see TamboMakie.jl/src/plotting/effA.jl::get_p):
-#
-#     if isnan(wp.generated_xs)              # surface-injected
-#         oneweight_per_event = 1 / p_mc_surface(wp)
-#     else                                   # forced interaction
-#         oneweight_per_event = p_phys(wp) / p_mc(wp)
-#     end
-#
-# For protons there is no `p_phys` correction — every primary that gets
-# sampled produces a shower, so the only weight is the inverse generation
-# density. Divide by NEVENT for the per-generated-event normalization:
-
-@doc TamboSim.p_mc_surface
-
-@show TamboSim.p_mc_surface(proton_wp);
-
-proton_oneweight = 1 / (TamboSim.p_mc_surface(proton_wp) * NEVENT)
-@show proton_oneweight;
-
-# Multiplying by a cosmic-ray flux dN/(dE·dA·dt·dΩ) and an exposure time
-# gives the expected proton event count, the same way the neutrino oneweight
-# does for an astrophysical-neutrino flux.
+# As with neutrinos, see 5_weighting_walkthrough.jl for what `oneweights(tf)`
+# does with these points.

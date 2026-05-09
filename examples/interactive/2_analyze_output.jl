@@ -58,45 +58,19 @@ q_frames = frames.q_frames;
 # =============================================================================
 # 2. One-weights for physical flux estimates
 # =============================================================================
-# Each Q frame carries weight_params, which inject! populates with the
-# generation phase-space + forced-interaction information. Two densities
-# are read off it:
+# `oneweights(tf)` returns a per-Q-frame "OneWeight" with units of
+# GeV · m² · sr. Multiplying by a flux dN/(dE·dA·dt·dΩ) (units
+# 1/(GeV·m²·s·sr)) and an exposure time (s) gives the expected event count
+# for that flux model. Generation-count normalization is built in: the
+# weights are scaled by the original injected `nevent`, so cutting frames
+# upstream (as we did with `decayed_in_air`) doesn't bias the result.
 #
-#   p_mc(wp)     generation density (GeV^-1 · m^-3 · sr^-1) — power-law,
-#                solid angle, area, and the forced-interaction factors
-#                that focused events on the detector.
-#   p_phys(wp)   physical interaction density (m^-1) — the natural rate
-#                at which the close_state would have interacted at the
-#                forced vertex.
-#
-# Forcing interactions inflated each event's MC weight; dividing by p_mc
-# and multiplying by p_phys is the importance-sampling correction that
-# puts you back on the natural physical rate. Per-event normalization is
-# 1 / n_gen:
-#
-#     oneweight = (p_phys(wp) / p_mc(wp)) / n_gen
-#
-# Units come out to GeV · m² · sr / event — the standard "OneWeight"
-# shape. Multiplying by a flux dN/(dE·dA·dt·dΩ) (units 1/(GeV·m²·s·sr))
-# and an exposure time (s) gives the expected event count.
-#
-# Units stay attached throughout — Unitful does the bookkeeping, and the
-# REPL display tells you what you're looking at.
+# See 5_weighting_walkthrough.jl for what the weighting machinery is doing
+# under the hood.
 
-n_gen = n_before  # generated count, before any cuts
-
-wps   = [f["weight_params"] for f in q_frames]
-pmcs  = [TamboSim.p_mc(wp)   for wp in wps]
-pphys = [TamboSim.p_phys(wp) for wp in wps]
-
-# Filter to events with a finite, positive generation density:
-valid_idx = findall(p -> isfinite(ustrip(p)) && ustrip(p) > 0, pmcs)
-
-oneweights = [(pphys[i] / pmcs[i]) / n_gen for i in valid_idx]   # GeV · m² · sr / event
-energies   = [wps[i].generated_initial_e for i in valid_idx]      # GeV
-
-@show length(oneweights);
-@show median(oneweights);                # the median one-weight, with units
+ows = oneweights(frames)
+@show length(ows);                       # one per surviving Q frame
+@show median(ows);                       # median OneWeight, with units
 
 # =============================================================================
 # 3. Decay-product flavor classification

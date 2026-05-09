@@ -143,7 +143,7 @@ n_skipped    = n_total - n_propagated
 #     proposal_decay_products
 #     proposal_final_state
 
-sort(collect(keys(q.data)))         # event_id, injection_*, weight_params, proposal_*
+sort(collect(keys(q.data)))         # event_id, injection_*, phase_space_point, proposal_*
 
 # The M frame also gained a snapshot of the proposal config:
 m_frame = frames.m_frames[end]

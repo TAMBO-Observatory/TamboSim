@@ -144,7 +144,7 @@ function test_inject_protons_produces_frames()
 
     geometry_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley_3000.jld2")
     injection_config = Dict{String,Any}(
-        "strategy"  => "CosmicRayInjectionPS",
+        "strategy"  => "CosmicRayInjection",
         "pinecone"  => 42,
         "nevent"    => 20,
         "pdg"       => 2212,
@@ -159,7 +159,7 @@ function test_inject_protons_produces_frames()
     )
     frames = load_frames(geometry_path)
 
-    inject_protons!(frames, injection_config)
+    TamboSim.inject_protons!(frames, injection_config)
 
     q_frames = filter(f -> f.stream == 'Q', frames)
     @test length(q_frames) == 20

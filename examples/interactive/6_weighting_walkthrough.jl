@@ -59,8 +59,8 @@ q1 = first(frames.q_frames)         # one event to dissect
 #
 # `build_phase_space(m)` constructs it from M's `injection` config snapshot.
 # The factory dispatches on `cfg["strategy"]` to pick the subtype:
-#   "NeutrinoInjectionPS"   — propagation through Earth, possibly forced CC
-#   "CosmicRayInjectionPS"  — surface sampling, no Earth transit
+#   "NeutrinoInjection"   — propagation through Earth, possibly forced CC
+#   "CosmicRayInjection"  — surface sampling, no Earth transit
 
 ps = TamboSim.build_phase_space(m)
 @show typeof(ps);

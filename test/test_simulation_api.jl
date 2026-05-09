@@ -15,7 +15,7 @@ const XS_PATH = joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
 
 function _injection_config(; nevent=10)
     Dict{String,Any}(
-        "strategy"    => "NeutrinoInjectionPS",
+        "strategy"    => "NeutrinoInjection",
         "pinecone"    => 7,
         "nevent"      => nevent,
         "pdg"         => 16,
@@ -37,6 +37,9 @@ function run_simulation_api_tests()
         test_inject_q_frame_parents()
         test_inject_custom_prefix()
         test_inject_missing_nevent_errors()
+        test_inject_missing_strategy_errors()
+        test_inject_unknown_strategy_errors()
+        test_inject_dispatches_to_protons()
     end
 
     @testset "proposal_propagation!" begin
@@ -118,8 +121,48 @@ end
 
 function test_inject_missing_nevent_errors()
     frames = load_frames(GEOMETRY_PATH)
-    bad_config = Dict{String,Any}("pdg" => 16)
+    bad_config = Dict{String,Any}("strategy" => "NeutrinoInjection", "pdg" => 16)
     @test_throws ErrorException inject!(frames, bad_config)
+end
+
+function test_inject_missing_strategy_errors()
+    frames = load_frames(GEOMETRY_PATH)
+    bad_config = _injection_config(nevent=2)
+    delete!(bad_config, "strategy")
+    @test_throws ErrorException inject!(frames, bad_config)
+end
+
+function test_inject_unknown_strategy_errors()
+    frames = load_frames(GEOMETRY_PATH)
+    bad_config = _injection_config(nevent=2)
+    bad_config["strategy"] = "BogusInjection"
+    @test_throws ErrorException inject!(frames, bad_config)
+end
+
+function test_inject_dispatches_to_protons()
+    frames = load_frames(GEOMETRY_PATH)
+    proton_config = Dict{String,Any}(
+        "strategy"  => "CosmicRayInjection",
+        "pinecone"  => 42,
+        "nevent"    => 5,
+        "pdg"       => 2212,
+        "gamma"     => 2.7,
+        "emin"      => 1e3,
+        "emax"      => 1e7,
+        "thetamin"  => 91.0,
+        "thetamax"  => 130.0,
+        "phimin"    => 0.0,
+        "phimax"    => 360.0,
+        "altitude"  => 50.0,
+    )
+    inject!(frames, proton_config)
+
+    q_frames = filter(f -> f.stream == 'Q', frames)
+    @test length(q_frames) == 5
+    # Proton path stamps `particle_passes_through_rock` on each successfully
+    # injected Q frame; neutrino path does not. This confirms dispatch routed
+    # to inject_protons!.
+    @test any(f -> haskey(f, "particle_passes_through_rock"), q_frames)
 end
 
 # =============================================================================

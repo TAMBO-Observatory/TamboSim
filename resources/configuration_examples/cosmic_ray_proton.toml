@@ -14,7 +14,7 @@ earth_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley.h5:colca_valley_30
 detector_key = "detector1"
 
 [injection]
-strategy = "CosmicRayInjectionPS"
+strategy = "CosmicRayInjection"
 pinecone = 925
 nevent = 100000
 pdg = 2212

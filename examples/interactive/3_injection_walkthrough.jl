@@ -1,9 +1,19 @@
 # 3_injection_walkthrough.jl
 #
-# Run inject! from scratch on the canonical Colca-valley geometry and
+# Run injection from scratch on the canonical Colca-valley geometry and
 # explore what it does to a TamboFrames container. Designed to be pasted
 # into the REPL section by section — values display themselves rather
 # than being wrapped in println.
+#
+# The public entrypoint is `inject!(frames, config)`, which reads
+# `config["strategy"]` and dispatches to one of the backends:
+#
+#   "NeutrinoInjection"  → inject_neutrinos!
+#   "CosmicRayInjection" → inject_protons!
+#
+# This walkthrough calls the backends directly (sections 2 and 7) so the
+# per-strategy mechanics are explicit; in production scripts, prefer
+# `inject!(frames, config)` and let the strategy field route the work.
 #
 # This walkthrough produces (modulo the missing PROPOSAL stage) the same
 # data that examples/resources/example_output.jld2 carries, by using the
@@ -12,8 +22,8 @@
 # For frame-container basics, see 1_frame_usage.jl.
 #
 # Topics covered:
-#   1. Inputs to inject!: the geometry G frame + the [injection] TOML table
-#   2. Run inject! and survey the result (M frame + Q frames + new keys)
+#   1. Inputs to inject_neutrinos!: the geometry G frame + the [injection] TOML table
+#   2. Run inject_neutrinos! and survey the result (M frame + Q frames + new keys)
 #   3. The samplers and cross section that did the per-event work
 #   4. The three injection states and how the sampling inversion sets them
 #   5. phase_space_point — the per-event handoff to the weighting walkthrough
@@ -33,13 +43,13 @@ const SEED   = 1234
 const NEVENT = 50
 
 # =============================================================================
-# 1. Inputs to inject!
+# 1. Inputs to inject_neutrinos!
 # =============================================================================
-# inject! takes a TamboFrames container (must contain a G frame) and a
-# parsed [injection] config dict. It mutates the container: pushing one
-# new M frame + nevent new Q frames.
+# inject_neutrinos! takes a TamboFrames container (must contain a G frame)
+# and a parsed [injection] config dict. It mutates the container: pushing
+# one new M frame + nevent new Q frames.
 
-@doc inject!
+@doc TamboSim.inject_neutrinos!
 
 frames = load_frames(geometry_file)
 frames                              # tree view: just the G/C/D bundle, no events yet
@@ -62,9 +72,9 @@ injection_config["pinecone"] = SEED
 @show injection_config["nevent"];                         # number of primaries to throw
 
 # =============================================================================
-# 2. Run inject! and survey the result
+# 2. Run inject_neutrinos! and survey the result
 # =============================================================================
-# A single inject! call does two things internally:
+# A single inject_neutrinos! call does two things internally:
 #   (a) appends one M frame to the container, snapshotted under the
 #       "injection" key, plus `nevent` empty Q frames each tagged with a
 #       sequential event_id;
@@ -73,7 +83,7 @@ injection_config["pinecone"] = SEED
 # Sections 3–5 unpack what (b) put where; this section just runs the
 # call and shows the resulting shape.
 
-inject!(frames, injection_config)
+TamboSim.inject_neutrinos!(frames, injection_config)
 
 frames                              # tree view: M frame + 50 Q frames now present
 length(frames.q_frames)             # 50
@@ -92,15 +102,15 @@ sort(collect(keys(q1.data)))        # event_id, injection_*_state, phase_space_p
 # =============================================================================
 # 3. The samplers and cross section that did the per-event work
 # =============================================================================
-# The per-event loop in inject! draws from three machines, all configured
+# The per-event loop in inject_neutrinos! draws from three machines, all configured
 # from the [injection] table:
 #
 #   UnitfulPowerLawSampler     energy ∈ [emin, emax] GeV with dN/dE ∝ E^-gamma
 #   UniformAngularSampler      direction uniformly in the zenith/azimuth box
 #   CrossSection               neutrino-nucleon σ(E) interpolated from a table
 #
-# These don't survive on the frames after inject! returns, so to inspect
-# them we re-construct a copy here — these are the same constructors inject! uses
+# These don't survive on the frames after inject_neutrinos! returns, so to inspect
+# them we re-construct a copy here — these are the same constructors inject_neutrinos! uses
 # internally.
 
 @doc TamboSim.UnitfulPowerLawSampler
@@ -233,10 +243,10 @@ sort(collect(keys(failed_q.data)))  # event_id alone — no injection_*_state, n
 # Cosmic-ray protons are surface-injected: every primary produces a shower
 # by construction, so there's no forced CC interaction, no Earth-propagation
 # cascade, and no cross-section table. inject_protons! shares the same
-# spectrum + angular samplers as inject!, but the per-event work and the
-# resulting Q-frame keys are different.
+# spectrum + angular samplers as inject_neutrinos!, but the per-event work
+# and the resulting Q-frame keys are different.
 
-@doc inject_protons!
+@doc TamboSim.inject_protons!
 
 proton_config_file = joinpath(tambo_path, "resources", "configuration_examples", "cosmic_ray_proton.toml")
 proton_config = TOML.parsefile(proton_config_file)
@@ -257,7 +267,7 @@ proton_injection_config["pinecone"] = SEED
 # Run on a fresh frames container so we can compare side-by-side with the
 # neutrino frames above without mutating them.
 proton_frames = load_frames(geometry_file)
-inject_protons!(proton_frames, proton_injection_config)
+TamboSim.inject_protons!(proton_frames, proton_injection_config)
 
 proton_frames                       # tree view: M frame + NEVENT Q frames
 

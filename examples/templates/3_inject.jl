@@ -1,27 +1,27 @@
 # 3_inject.jl
 #
 # Sample primaries on a TamboSim geometry and write the resulting Q frames
-# to disk. Two modes:
+# to disk. The injection backend is chosen by the `strategy` field in the
+# `[injection]` TOML table:
 #
-#   default          neutrino injection via `inject!` — TauRunner Earth
-#                    propagation + forced CC interaction at the detector.
-#                    Reads `[injection]` from a neutrino TOML (default:
-#                    tau_neutrino_cc.toml).
+#   strategy = "NeutrinoInjection"   → TauRunner Earth propagation +
+#                                      forced CC interaction at the
+#                                      detector. Default config:
+#                                      tau_neutrino_cc.toml.
 #
-#   --protons        cosmic-ray proton injection via `inject_protons!` —
-#                    surface injection at a configurable altitude, no
-#                    forced interaction. Reads `[injection]` from a
-#                    proton TOML (default: cosmic_ray_proton.toml). The
-#                    `--pdg` flag is ignored in this mode.
+#   strategy = "CosmicRayInjection"  → surface injection at a
+#                                      configurable altitude, no forced
+#                                      interaction. Default config:
+#                                      cosmic_ray_proton.toml.
 #
 # Input:
 #   <geometry>.jld2     a GCD bundle from 1_create_geometry.jl (D frame may
 #                       or may not have detector units placed; injection
 #                       does not need them)
-#   <config>.toml       injection settings — energy range, zenith range,
-#                       n events, RNG seed (`pinecone`), and (neutrino only)
-#                       primary PDG + cross-section table location, or
-#                       (proton only) sampling `altitude`.
+#   <config>.toml       injection settings — `strategy`, energy range,
+#                       zenith range, n events, RNG seed (`pinecone`),
+#                       primary PDG + cross-section table location
+#                       (neutrino) or sampling `altitude` (proton).
 #
 # Output:
 #   <outfile>.jld2      Q-frame stream containing one frame per sampled
@@ -46,14 +46,14 @@ using TOML
 
 function parse_commandline()
     s = ArgParseSettings(
-        description = "Inject neutrino events into TAMBO simulation"
+        description = "Inject primaries into a TAMBO simulation; backend selected by config[\"injection\"][\"strategy\"]"
     )
 
     @add_arg_table! s begin
         "--config", "-c"
-            help = "Path to configuration TOML file (default selected from --protons)"
+            help = "Path to configuration TOML file (default: tau_neutrino_cc.toml)"
             arg_type = String
-            default = nothing
+            default = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
         "--geometry", "-g"
             help = "Path to geometry JLD2 file (produced by create_geometry.jl)"
             arg_type = String
@@ -67,12 +67,9 @@ function parse_commandline()
             arg_type = Int
             default = 100000
         "--pdg", "-p"
-            help = "Particle PDG code (e.g., 16 for nutau, 14 for numu); ignored with --protons"
+            help = "Override the primary PDG code in the config (e.g. 16=nutau, 14=numu, 2212=proton)"
             arg_type = Int
-            default = 16
-        "--protons"
-            help = "Inject downgoing cosmic-ray protons via inject_protons! instead of inject!"
-            action = :store_true
+            default = nothing
         "--no-cut"
             help = "Disable cutting failed events (where injection region was not visible)"
             action = :store_true
@@ -87,20 +84,15 @@ end
 
 args = parse_commandline()
 
-outfile        = args["outfile"]
-inject_protons = args["protons"]
-cut_failed     = !args["no-cut"]
+outfile    = args["outfile"]
+cut_failed = !args["no-cut"]
 
-default_config = inject_protons ? "cosmic_ray_proton.toml" : "tau_neutrino_cc.toml"
-config_path    = something(args["config"],
-                           "$(tambo_path)/resources/configuration_examples/$default_config")
-
-config = TOML.parsefile(config_path)
+config = TOML.parsefile(args["config"])
 relativize!(config)
 
 injection_config = config["injection"]
 injection_config["nevent"] = args["nevent"]
-if !inject_protons
+if !isnothing(args["pdg"])
     injection_config["pdg"] = args["pdg"]
 end
 if !isnothing(args["seed"])
@@ -108,19 +100,13 @@ if !isnothing(args["seed"])
 end
 
 println("Injection settings:")
-println("  mode              : $(inject_protons ? "cosmic-ray protons" : "neutrinos")")
-if !inject_protons
-    println("  primary PDG       : $(injection_config["pdg"])")
-end
+println("  strategy          : $(injection_config["strategy"])")
+println("  primary PDG       : $(injection_config["pdg"])")
 println("  n events to throw : $(injection_config["nevent"])")
 println("  drop failed events: $cut_failed")
 
 frames = load_frames(args["geometry"])
-if inject_protons
-    inject_protons!(frames, injection_config)
-else
-    inject!(frames, injection_config)
-end
+inject!(frames, injection_config)
 
 if cut_failed
     filter!(frame -> haskey(frame, "injection_final_state"), frames)

@@ -202,7 +202,7 @@ end
 """
 Internal implementation of inject_event containing the core logic.
 """
-function _inject_event_impl(
+function _inject_neutrino_event_impl(
     pdg::Int,
     prem,
     bvh::BVHTree{T},
@@ -378,7 +378,7 @@ function inject_event(
         detector_areas = area.(detector_triangles)
     end
 
-    return _inject_event_impl(
+    return _inject_neutrino_event_impl(
         pdg, prem, bvh, cs, detector_region, as, pl, xs,
         detector_triangles, detector_normals, detector_bvh, detector_areas,
         epsilon, tr_seed
@@ -428,7 +428,7 @@ function inject_event(
     epsilon=1e-6*u"m",
     tr_seed=nothing,
 ) where {T<:Real}
-    return _inject_event_impl(
+    return _inject_neutrino_event_impl(
         pdg, prem, bvh, cs, detector_region, as, pl, xs,
         detector_props.triangles, detector_props.normals,
         detector_props.bvh, detector_props.areas,
@@ -579,6 +579,40 @@ end
 """
     inject!(frames::TamboFrames, config::Dict; prefix::String="injection")
 
+Unified injection entrypoint. Reads `config["strategy"]` and dispatches
+to the matching backend:
+
+- `"NeutrinoInjection"`   → [`inject_neutrinos!`](@ref)
+- `"CosmicRayInjection"`  → [`inject_protons!`](@ref)
+
+Errors loudly if `strategy` is missing or not recognized. The backends
+remain callable directly for tests and power users.
+"""
+function inject!(
+    frames::TamboFrames,
+    config::Dict;
+    prefix::String="injection"
+)
+    haskey(config, "strategy") || error(
+        "inject!: injection config is missing required `strategy` field. " *
+        "Set it to one of \"NeutrinoInjection\" or \"CosmicRayInjection\"."
+    )
+    strategy = config["strategy"]
+    if strategy == "NeutrinoInjection"
+        return inject_neutrinos!(frames, config; prefix=prefix)
+    elseif strategy == "CosmicRayInjection"
+        return inject_protons!(frames, config; prefix=prefix)
+    else
+        error(
+            "inject!: unknown strategy \"$strategy\". " *
+            "Expected \"NeutrinoInjection\" or \"CosmicRayInjection\"."
+        )
+    end
+end
+
+"""
+    inject_neutrinos!(frames::TamboFrames, config::Dict; prefix::String="injection")
+
 Inject neutrino primaries into a TamboFrames container. Mutates `frames`
 in place by:
 
@@ -611,12 +645,12 @@ in place by:
 - `prefix::String`: namespace under which states and the config snapshot
   are stored. Default `"injection"`.
 """
-function inject!(
+function inject_neutrinos!(
     frames::TamboFrames,
     config::Dict;
     prefix::String="injection"
 )
-    g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject!")
+    g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_neutrinos!")
     d_frame = m_frame.d_frame
 
     prem            = g_frame["prem"]

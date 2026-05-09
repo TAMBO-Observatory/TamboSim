@@ -32,11 +32,11 @@ Frame (stream='Q', parents: M)
     injection_close_state
     injection_final_state
     injection_initial_state
+    phase_space_point
     proposal_continuous_losses
     proposal_decay_products
     proposal_final_state
     proposal_stochastic_losses
-    weight_params
 
 julia> frames.m_frames[1]
 Frame (stream='M', no parents)

@@ -188,6 +188,19 @@ end
 CoordinateSystem(g_frame::Frame) = g_frame["cs"]
 
 """
+    _ensure_geometry_hash!(g_frame::Frame)
+
+If `g_frame` has prem and topography but no `geometry_hash`, derive and store
+it. Defensive fallback for legacy fixtures saved before `build_gcd_bundle`
+started baking the hash in.
+"""
+function _ensure_geometry_hash!(g_frame::Frame)
+    haskey(g_frame.data, "geometry_hash") && return
+    haskey(g_frame.data, "prem") && haskey(g_frame.data, "topography") || return
+    g_frame["geometry_hash"] = _geometry_hash(g_frame["prem"], g_frame["topography"])
+end
+
+"""
     _ensure_earth_loaded!(frames::TamboFrames)
 
 Ensures the G frame has earth geometry loaded. Calls `load_earth!` if prem is missing.
@@ -197,6 +210,7 @@ function _ensure_earth_loaded!(frames::TamboFrames)
     if !haskey(g_frame.data, "prem")
         load_earth!(g_frame)
     end
+    _ensure_geometry_hash!(g_frame)
 end
 
 """

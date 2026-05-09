@@ -54,11 +54,13 @@ function run_weighting_tests()
         test_forced_neutrino_functor_matches_old_formula()
         test_upstream_neutrino_functor_matches_old_formula()
         test_cr_functor_matches_old_formula()
-        test_compatibility_pdg_mismatch()
-        test_compatibility_geometry_mismatch()
-        test_compatibility_missing_geometry_hash()
         test_compatibility_energy_out_of_bounds()
         test_compatibility_phi_wraparound()
+    end
+
+    @testset "Campaign-level compatibility (M ↔ PS filter)" begin
+        test_campaign_pdg_mismatch_via_filter()
+        test_campaign_geometry_mismatch_via_filter()
     end
 
     @testset "Multi-campaign oneweight" begin
@@ -66,29 +68,36 @@ function run_weighting_tests()
         test_boundary_disjoint_phase_spaces()
         test_overlapping_phase_spaces()
     end
+
+    @testset "Round-trip oneweights from example_output" begin
+        test_round_trip_oneweights_match_inline_formula()
+    end
 end
 
 # =============================================================================
 # PhaseSpace / PhaseSpacePoint tests
 # =============================================================================
 
-function _mock_g_frame(hash_val::UInt=UInt(42))
-    Frame('G', Dict{String,Any}("geometry_hash" => hash_val))
+const _TEST_GEOM_HASH = UInt(42)
+
+function _test_neutrino_ps(; emin=1e3, emax=1e6, nevent=1000,
+                            geometry_hash::UInt=_TEST_GEOM_HASH, pdg::Int=16)
+    NeutrinoInjectionPS(geometry_hash, pdg, emin*u"GeV", emax*u"GeV",
+                        2.0, 0.0, π/2, 0.0, 2π, nevent)
 end
 
-function _test_neutrino_ps(g; emin=1e3, emax=1e6, nevent=1000)
-    NeutrinoInjectionPS(g, 16, emin*u"GeV", emax*u"GeV", 2.0, 0.0, π/2, 0.0, 2π, nevent)
-end
-
-function _test_cr_ps(g; emin=1e3, emax=1e6, nevent=1000)
-    CosmicRayInjectionPS(g, 2212, emin*u"GeV", emax*u"GeV", 2.0, 0.0, π/2, 0.0, 2π, nevent)
+function _test_cr_ps(; emin=1e3, emax=1e6, nevent=1000,
+                      geometry_hash::UInt=_TEST_GEOM_HASH, pdg::Int=2212)
+    CosmicRayInjectionPS(geometry_hash, pdg, emin*u"GeV", emax*u"GeV",
+                         2.0, 0.0, π/2, 0.0, 2π, nevent)
 end
 
 function test_forced_neutrino_functor_matches_old_formula()
-    g  = _mock_g_frame()
-    ps = _test_neutrino_ps(g)
+    ps = _test_neutrino_ps()
     # Distinct sigma vs dsigma so a swap between the two would actually fail.
-    pt = ForcedNeutrinoInteractionPoint(g, 16, 1e4u"GeV", π/4, 1.0, 500.0u"m^2", 100.0u"g/cm^2", 2.65u"g/cm^3", 2e-36u"cm^2", 7e-38u"cm^2")
+    pt = ForcedNeutrinoInteractionPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2",
+                                        100.0u"g/cm^2", 2.65u"g/cm^3",
+                                        2e-36u"cm^2", 7e-38u"cm^2")
 
     result = ps(pt)
 
@@ -101,9 +110,8 @@ function test_forced_neutrino_functor_matches_old_formula()
 end
 
 function test_upstream_neutrino_functor_matches_old_formula()
-    g  = _mock_g_frame()
-    ps = _test_neutrino_ps(g)
-    pt = UpstreamNeutrinoInteractionPoint(g, 16, 1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    ps = _test_neutrino_ps()
+    pt = UpstreamNeutrinoInteractionPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
 
     result = ps(pt)
     expected = _old_surface_density(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π, 1e4u"GeV")
@@ -112,9 +120,8 @@ function test_upstream_neutrino_functor_matches_old_formula()
 end
 
 function test_cr_functor_matches_old_formula()
-    g  = _mock_g_frame()
-    ps = _test_cr_ps(g)
-    pt = SurfaceCRPoint(g, 2212, 1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    ps = _test_cr_ps()
+    pt = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
 
     result = ps(pt)
     expected = _old_surface_density(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π, 1e4u"GeV")
@@ -122,35 +129,9 @@ function test_cr_functor_matches_old_formula()
     @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈ ustrip(u"GeV^-1 * m^-2 * sr^-1", expected)
 end
 
-function test_compatibility_pdg_mismatch()
-    g  = _mock_g_frame()
-    ps = _test_cr_ps(g)
-    pt = SurfaceCRPoint(g, 2212+1, 1e4u"GeV", π/4, 1.0, 500.0u"m^2")
-    @test ps(pt) == 0.0u"GeV^-1 * m^-2 * sr^-1"
-end
-
-function test_compatibility_geometry_mismatch()
-    g1 = _mock_g_frame(UInt(1))
-    g2 = _mock_g_frame(UInt(2))
-    ps = _test_cr_ps(g1)
-    pt = SurfaceCRPoint(g2, 2212, 1e4u"GeV", π/4, 1.0, 500.0u"m^2")
-    @test ps(pt) == 0.0u"GeV^-1 * m^-2 * sr^-1"
-end
-
-function test_compatibility_missing_geometry_hash()
-    # Old JLD2 files predate `geometry_hash`; `_compatible` must error loudly
-    # rather than silently zeroing out every event in the run.
-    g_with    = _mock_g_frame()
-    g_without = Frame('G', Dict{String,Any}())
-    ps = _test_cr_ps(g_with)
-    pt = SurfaceCRPoint(g_without, 2212, 1e4u"GeV", π/4, 1.0, 500.0u"m^2")
-    @test_throws ErrorException ps(pt)
-end
-
 function test_compatibility_energy_out_of_bounds()
-    g  = _mock_g_frame()
-    ps = _test_cr_ps(g; emin=1e3, emax=1e5)
-    pt = SurfaceCRPoint(g, 2212, 1e6u"GeV", π/4, 1.0, 500.0u"m^2")
+    ps = _test_cr_ps(; emin=1e3, emax=1e5)
+    pt = SurfaceCRPoint(1e6u"GeV", π/4, 1.0, 500.0u"m^2")
     @test ps(pt) == 0.0u"GeV^-1 * m^-2 * sr^-1"
 end
 
@@ -158,40 +139,61 @@ function test_compatibility_phi_wraparound()
     # The injection sampler accepts a φ range that wraps past 2π (e.g.
     # [3π/2, 5π/2], i.e. 270°→90° through 0°). cart_to_sph returns φ in
     # [-π, π], so an event at φ = -π/2 must still match this range.
-    g  = _mock_g_frame()
-    ps = CosmicRayInjectionPS(g, 2212, 1e3u"GeV", 1e6u"GeV", 2.0,
+    ps = CosmicRayInjectionPS(_TEST_GEOM_HASH, 2212, 1e3u"GeV", 1e6u"GeV", 2.0,
                               0.0, π/2, 3π/2, 5π/2, 1000)
     # In-range: φ = -π/2 is the same direction as 3π/2.
-    pt_in = SurfaceCRPoint(g, 2212, 1e4u"GeV", π/4, -π/2, 500.0u"m^2")
+    pt_in = SurfaceCRPoint(1e4u"GeV", π/4, -π/2, 500.0u"m^2")
     @test ps(pt_in) > 0.0u"GeV^-1 * m^-2 * sr^-1"
     # Out of range: φ = π is opposite to the [3π/2, 5π/2] arc.
-    pt_out = SurfaceCRPoint(g, 2212, 1e4u"GeV", π/4, Float64(π), 500.0u"m^2")
+    pt_out = SurfaceCRPoint(1e4u"GeV", π/4, Float64(π), 500.0u"m^2")
     @test ps(pt_out) == 0.0u"GeV^-1 * m^-2 * sr^-1"
+end
+
+# Campaign-level filter: pdg and geometry_hash live on M's "injection"
+# config snapshot under E2; mismatches drop the PS from `_oneweight_from_ps`
+# before the per-event functor runs.
+function test_campaign_pdg_mismatch_via_filter()
+    ps = _test_cr_ps(; pdg=2212)
+    pt = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    # M says pdg=9999 — PS describing pdg=2212 must not contribute.
+    q  = _make_q_frame_with_point(pt; pdg=9999)
+    @test _oneweight_from_ps(q, PhaseSpace[ps]) == 0.0u"GeV*m^2*sr"
+end
+
+function test_campaign_geometry_mismatch_via_filter()
+    ps = _test_cr_ps(; geometry_hash=UInt(1))
+    pt = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    # M's snapshot says geometry_hash=2 — PS for geometry_hash=1 must not contribute.
+    q  = _make_q_frame_with_point(pt; geometry_hash=UInt(2))
+    @test _oneweight_from_ps(q, PhaseSpace[ps]) == 0.0u"GeV*m^2*sr"
 end
 
 # =============================================================================
 # Multi-campaign oneweight tests
 # =============================================================================
 
-function _make_q_frame_with_point(pt::PhaseSpacePoint)
-    m = Frame('M', Dict{String,Any}())
-    return Frame('Q', Dict{String,Any}("phase_space_point" => pt), Dict{Char,Frame}('M' => m))
+function _make_q_frame_with_point(pt::PhaseSpacePoint;
+                                   geometry_hash::UInt=_TEST_GEOM_HASH,
+                                   pdg::Int=2212)
+    cfg = Dict{String,Any}("geometry_hash" => geometry_hash, "pdg" => pdg)
+    m   = Frame('M', Dict{String,Any}("injection" => cfg))
+    return Frame('Q', Dict{String,Any}("phase_space_point" => pt),
+                 Dict{Char,Frame}('M' => m))
 end
 
 function test_disjoint_phase_spaces()
-    g   = _mock_g_frame()
-    ps1 = _test_cr_ps(g; emin=1e3, emax=1e5, nevent=1000)
-    ps2 = _test_cr_ps(g; emin=1e5, emax=1e7, nevent=1000)
+    ps1 = _test_cr_ps(; emin=1e3, emax=1e5, nevent=1000)
+    ps2 = _test_cr_ps(; emin=1e5, emax=1e7, nevent=1000)
 
     # Event only in ps1's range
-    pt_low = SurfaceCRPoint(g, 2212, 1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    pt_low = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
     q_low  = _make_q_frame_with_point(pt_low)
     ow_combined = _oneweight_from_ps(q_low, PhaseSpace[ps1, ps2])
     ow_single   = _oneweight_from_ps(q_low, PhaseSpace[ps1])
     @test ustrip(u"GeV*m^2*sr", ow_combined) ≈ ustrip(u"GeV*m^2*sr", ow_single)
 
     # Event only in ps2's range
-    pt_high = SurfaceCRPoint(g, 2212, 1e6u"GeV", π/4, 1.0, 500.0u"m^2")
+    pt_high = SurfaceCRPoint(1e6u"GeV", π/4, 1.0, 500.0u"m^2")
     q_high  = _make_q_frame_with_point(pt_high)
     ow_combined2 = _oneweight_from_ps(q_high, PhaseSpace[ps1, ps2])
     ow_single2   = _oneweight_from_ps(q_high, PhaseSpace[ps2])
@@ -202,11 +204,10 @@ function test_boundary_disjoint_phase_spaces()
     # Adjacent campaigns sharing a boundary energy: with half-open intervals
     # (`emin <= E < emax`), an event at exactly E == emax_PS1 == emin_PS2 must
     # belong to PS2 only — never both. Catches regressions to inclusive `<=`.
-    g   = _mock_g_frame()
-    ps1 = _test_cr_ps(g; emin=1e3, emax=1e5, nevent=1000)
-    ps2 = _test_cr_ps(g; emin=1e5, emax=1e7, nevent=1000)
+    ps1 = _test_cr_ps(; emin=1e3, emax=1e5, nevent=1000)
+    ps2 = _test_cr_ps(; emin=1e5, emax=1e7, nevent=1000)
 
-    pt_boundary = SurfaceCRPoint(g, 2212, 1e5u"GeV", π/4, 1.0, 500.0u"m^2")
+    pt_boundary = SurfaceCRPoint(1e5u"GeV", π/4, 1.0, 500.0u"m^2")
     q_boundary  = _make_q_frame_with_point(pt_boundary)
 
     ow_combined = _oneweight_from_ps(q_boundary, PhaseSpace[ps1, ps2])
@@ -218,19 +219,18 @@ function test_boundary_disjoint_phase_spaces()
 end
 
 function test_overlapping_phase_spaces()
-    g   = _mock_g_frame()
-    ps1 = _test_cr_ps(g; emin=1e3, emax=1e6, nevent=1000)
-    ps2 = _test_cr_ps(g; emin=1e5, emax=1e7, nevent=1000)
+    ps1 = _test_cr_ps(; emin=1e3, emax=1e6, nevent=1000)
+    ps2 = _test_cr_ps(; emin=1e5, emax=1e7, nevent=1000)
 
     # Event outside overlap (only in ps1)
-    pt_low = SurfaceCRPoint(g, 2212, 1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    pt_low = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
     q_low  = _make_q_frame_with_point(pt_low)
     ow_combined = _oneweight_from_ps(q_low, PhaseSpace[ps1, ps2])
     ow_single   = _oneweight_from_ps(q_low, PhaseSpace[ps1])
     @test ustrip(u"GeV*m^2*sr", ow_combined) ≈ ustrip(u"GeV*m^2*sr", ow_single)
 
     # Event in overlap — both campaigns contribute, oneweight should be smaller
-    pt_overlap = SurfaceCRPoint(g, 2212, 5e5u"GeV", π/4, 1.0, 500.0u"m^2")
+    pt_overlap = SurfaceCRPoint(5e5u"GeV", π/4, 1.0, 500.0u"m^2")
     q_overlap  = _make_q_frame_with_point(pt_overlap)
     ow_both  = _oneweight_from_ps(q_overlap, PhaseSpace[ps1, ps2])
     ow_ps1   = _oneweight_from_ps(q_overlap, PhaseSpace[ps1])
@@ -243,6 +243,59 @@ function test_overlapping_phase_spaces()
     contribution2 = ps2(pt_overlap) * ps2.nevent
     expected = uconvert(u"GeV*m^2*sr", inv(contribution1 + contribution2))
     @test ustrip(u"GeV*m^2*sr", ow_both) ≈ ustrip(u"GeV*m^2*sr", expected)
+end
+
+# =============================================================================
+# Round-trip test against the committed example_output.jld2 fixture.
+#
+# Loads geometry + example_output, calls `oneweights(tf)`, and recomputes the
+# expected per-event one-weight inline from the PS + Point fields using the
+# pre-refactor formula helpers. Catches any drift between the production
+# functor body and the formulas the test helpers pin.
+# =============================================================================
+
+function test_round_trip_oneweights_match_inline_formula()
+    tambo_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
+    geom_file  = joinpath(tambo_path, "resources", "geometry", "colca_valley_3000.jld2")
+    out_file   = joinpath(tambo_path, "examples", "resources", "example_output.jld2")
+
+    tf = load_frames([geom_file, out_file])
+    @test length(tf.q_frames) > 0
+    @test length(tf.m_frames) == 1
+
+    ows = oneweights(tf)
+    @test length(ows) == length(tf.q_frames)
+
+    ps = TamboSim.build_phase_space(tf.m_frames[1])
+    @test ps isa NeutrinoInjectionPS
+
+    n_checked = 0
+    for (q, ow) in zip(tf.q_frames, ows)
+        haskey(q.data, "phase_space_point") || continue
+        pt = q["phase_space_point"]
+
+        # Recompute ps(pt) inline from the relevant `_old_*` helper, depending
+        # on which Point flavor this event produced. This is the formula the
+        # production functor was derived from; the round-trip test catches
+        # drift between them.
+        expected_density = if pt isa ForcedNeutrinoInteractionPoint
+            mc   = _old_mc_density(pt.area, ps.emin, ps.emax, ps.gamma,
+                                   ps.thetamin, ps.thetamax, ps.phimin, ps.phimax,
+                                   pt.E, pt.cd, pt.rho, pt.sigma, pt.dsigma)
+            phys = _old_phys_density(pt.cd, pt.rho, pt.dsigma)
+            uconvert(u"GeV^-1 * m^-2 * sr^-1", mc / phys)
+        elseif pt isa UpstreamNeutrinoInteractionPoint
+            _old_surface_density(pt.area, ps.emin, ps.emax, ps.gamma,
+                                 ps.thetamin, ps.thetamax, ps.phimin, ps.phimax, pt.E)
+        else
+            error("unexpected Point type in fixture: $(typeof(pt))")
+        end
+
+        expected_ow = uconvert(u"GeV*m^2*sr", inv(expected_density * ps.nevent))
+        @test ustrip(u"GeV*m^2*sr", ow) ≈ ustrip(u"GeV*m^2*sr", expected_ow)
+        n_checked += 1
+    end
+    @test n_checked > 0
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

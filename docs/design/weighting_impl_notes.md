@@ -1,8 +1,7 @@
 # Weighting refactor — implementation notes
 
 **Branch:** `weights-refactor-impl`
-**Date:** 2026-05-07
-**Status:** partial — types, functors, and public API implemented; injection loop not yet wired.
+**Status:** complete on `weights-refactor-impl`, pending review for merge into `v1-staging`.
 
 This document records the decisions made during implementation and how they relate to the original design proposal (`weighting.md`).
 
@@ -16,13 +15,11 @@ This document records the decisions made during implementation and how they rela
 
 - **`oneweight` public API.** `oneweight(tf, q)` and `oneweights(tf)` are implemented as specified, returning `GeV·m²·sr`. `oneweights!` was added as a convenience that writes the result directly onto each Q frame under a configurable key (default `"oneweight"`).
 
-- **`build_phase_space` factory.** Reads the M frame's injection config dict and constructs the appropriate PS subtype. Discriminates neutrino vs cosmic-ray campaigns by the presence of `"xs_location"` in the config. Accepts an optional `prefix` argument (default `"injection"`) matching the injection loop's convention.
-
-- **`p_phys` kept but marked for `@doc false`.** Retained as an internal helper; the functor for `ForcedNeutrinoInteractionPoint` calls it directly. Not yet marked `@doc false` — deferred to cleanup pass.
+- **`build_phase_space` factory.** Reads the M frame's injection config dict and constructs the appropriate PS subtype. Since `742c7ab`, neutrino vs cosmic-ray dispatch is keyed on an explicit `"strategy"` field rather than the presence of `"xs_location"` (strict error on missing/unknown). Accepts an optional `prefix` argument (default `"injection"`) matching the injection loop's convention.
 
 - **Null/failed events.** `oneweight` returns `0.0u"GeV*m^2*sr"` with a warning when `q["phase_space_point"]` is absent, keeping the output vector aligned with `tf`.
 
-- **Serialization.** `PhaseSpacePoint` structs are stored directly as JLD2 typed structs. `PhaseSpace` functors are regenerated on the fly via `build_phase_space` from the M frame's config dict. This matches the proposal's rationale: PS structs are cheap to reconstruct and avoiding serializing them insulates old output files from struct renames.
+- **Serialization.** `PhaseSpacePoint` structs are stored directly as JLD2 typed structs. `PhaseSpace` functors are regenerated on the fly via `build_phase_space` from the M frame's config dict. PS structs are cheap to reconstruct, and avoiding serializing them insulates old output files from struct renames.
 
 ---
 
@@ -32,77 +29,49 @@ This document records the decisions made during implementation and how they rela
 
 The proposal showed `area` in `NeutrinoInjectionPS` (campaign-level). After reading the injection loop, we confirmed that `area = sum(visible_areas)` is recomputed for each sampled direction and therefore varies event-by-event. Similarly, `cd`, `rho`, `sigma`, and `dsigma` are computed per forced-CC interaction. All five fields were moved to the Point structs.
 
-### 2.2 Geometry compatibility via hash, not object identity
+### 2.2 Geometry compatibility: M-snapshot of `geometry_hash`, not per-Point
 
-The proposal did not specify how to check that a PS and a PhaseSpacePoint come from compatible detector geometries. The naive approach (`ps.g_frame !== pt.g_frame`) is a reference check that breaks when two separately loaded JLD2 files describe the same geometry.
+The proposal did not specify how to check that a PS and a PhaseSpacePoint come from compatible detector geometries. We considered (E1) carrying `geometry_hash::UInt` and `pdg::Int` on every Point, vs. (E2) snapshotting both onto the M frame's injection config and filtering PS by M before evaluating any single Q. We chose **E2**.
 
-The implemented approach:
+Reasoning:
+- `save_frames` defaults to writing `('M', 'Q')` together, so a Q frame is always loaded alongside its M frame. The "Point self-describing" defense for E1 was answering a problem that doesn't occur in practice.
+- E2 lets us filter incompatible campaigns once at the M↔PS level, leaving the per-event functor concerned only with phase-space bounds. Two responsibilities, two `_compatible` methods.
+- Removes denormalization: campaign-level facts (geometry, species) live in exactly one place per Q-side (M's `"injection"` dict).
+- Shrinks serialized Q frames meaningfully — the per-event redundancy of campaign-level facts under E1 dominates the Point payload at realistic event counts.
+
+Implementation:
 - A `_geometry_hash` helper computes `hash(coords)` over a flat `Vector{Float64}` of raw vertex coordinates (PREM radii + topography vertex positions), avoiding Julia's struct-level `hash` which may use `objectid` for non-isbits types.
-- The hash is stored as `g_frame["geometry_hash"]` at construction time in `build_gcd_bundle` and recomputed (with a mismatch warning) in `load_earth!`.
-- `_compatible` compares the integer hash values. Two G frames loaded from the same geometry file will match regardless of whether they are the same Julia object.
-- Mismatches warn rather than error, because hash collisions are negligible in practice and a hard error would be disruptive for legitimate near-miss cases (e.g. between-version hash algorithm changes).
+- The hash is stored as `g_frame["geometry_hash"]` at construction time in `build_gcd_bundle` and recomputed (with a mismatch warning) in `load_earth!`. A defensive `_ensure_geometry_hash!(g_frame)` fallback lazily derives it from prem+topography for legacy fixtures that predate the field, and is called from both `_ensure_earth_loaded!` and `_reconstruct_frames`.
+- At injection time, `_setup_injection` snapshots `g_frame["geometry_hash"]` into the M frame's config dict alongside the user's injection knobs.
+- `build_phase_space` reads `geometry_hash` and `pdg` from `m[prefix]` (the snapshotted dict), and the resulting PS struct carries both as plain fields.
 
-### 2.3 `_compatible` checks phase-space bounds
+### 2.3 Two-method `_compatible`: campaign filter vs. per-event bounds
 
-Beyond geometry and PDG, `_compatible` checks that the event's energy, theta, and phi fall within the campaign's sampled range. This implements the "out-of-support returns zero" behavior described in the proposal without requiring explicit phase-space containment logic inside `oneweight` itself.
+`_compatible` is split:
+- `_compatible(m::Frame, ps::PhaseSpace; prefix="injection")` — campaign-level. Compares `m[prefix]["geometry_hash"]` and `m[prefix]["pdg"]` against the PS struct fields. `_oneweight_from_ps` filters the PS list with this before touching the per-event functor; campaigns from a different geometry or species drop out cleanly.
+- `_compatible(ps::PhaseSpace, pt::PhaseSpacePoint)` — per-event. Checks energy, theta, and phi against the PS's sampled range. φ uses `mod2pi(pt.phi - ps.phimin) < (ps.phimax - ps.phimin)` so that an event sampled in `[3π/2, 5π/2]` still admits an event whose `cart_to_sph` reading sits at `-π/2`. Energy and theta use half-open intervals (`emin <= E < emax`) so adjacent campaigns sharing a boundary value are disjoint, not double-counted.
 
-### 2.4 Vectorized API precomputes functors once
+### 2.4 Load-time validator
 
-`oneweights` and `oneweights!` build `[build_phase_space(m) for m in tf.m_frames]` once before iterating over Q frames. `oneweight(tf, q)` rebuilds them per call — appropriate for single-event interactive use. The shared inner logic lives in `_oneweight_from_ps(q, phase_spaces)`.
+`load_frames` calls `_validate_geometry_hash!(tf; prefixes=("injection",))` after reconstructing parents. For each M with both a parent G and a snapshotted hash, it asserts the snapshot matches `g["geometry_hash"]`; mismatches `error` with a clear message about loading the wrong G alongside an M+Q file. Skips silently when either side lacks a hash (legacy fixtures).
 
-### 2.5 Units: functors return `GeV^-1 * m^-2 * sr^-1`
+This complements the campaign-level `_compatible` filter: the filter prevents wrong weights at compute time; the validator prevents the user from ever silently pairing a saved campaign with the wrong geometry.
 
-Each functor returns the per-event contribution to the inverse one-weight in `GeV^-1 * m^-2 * sr^-1` (via `uconvert`). `oneweight` inverts the weighted sum and converts to `GeV * m^2 * sr`. This makes the units explicit at every layer and avoids ambiguity when mixing campaigns.
+### 2.5 Vectorized API precomputes functors once
+
+`oneweights` and `oneweights!` build `[build_phase_space(m) for m in tf.m_frames]` once before iterating over Q frames. `oneweight(tf, q)` rebuilds them per call — appropriate for single-event interactive use. The shared inner logic lives in `_oneweight_from_ps(q, phase_spaces; prefix)`. All three public entry points accept a `prefix` kwarg that propagates through the campaign-level `_compatible` filter.
+
+### 2.6 Units: functors return `GeV^-1 * m^-2 * sr^-1`
+
+Each functor returns the per-event contribution to the inverse one-weight in `GeV^-1 * m^-2 * sr^-1` (via `uconvert`). `oneweight` inverts the weighted sum and converts to `GeV * m^2 * sr`. PS and Point fields carry their physical units directly via `Quantity{Float64, dim, typeof(u"…")}`, removing the unit-reattachment dance that earlier drafts had inside the functor body.
+
+### 2.7 Inlined forced-CC math; deletion of `WeightParameters`
+
+The forced-CC functor used to call `p_mc(wp)` and `p_phys(wp)` from `compute_weights.jl`. Those helpers (and `WeightParameters`, `null_params`, `p_mc_surface`, `InjectionEvent`) are now deleted; the math is inlined in the functor body, mirroring the algebra of the deleted helpers (separate `mc` and `phys` blocks, no algebraic simplification). This removes the parallel weight pipeline and makes `phase_space.jl` self-contained.
 
 ---
 
 ## 3. What remains
 
-- **Injection loop.** `inject!` and `inject_protons!` need to construct the appropriate `PhaseSpacePoint` and write it to `q["phase_space_point"]`. This is the only step that makes the end-to-end API usable.
-- **Round-trip injection test.** A test that runs a small injection and verifies `oneweights(tf)` matches the old inline formula applied to `weight_params`.
-- **Cleanup.** Mark `p_mc`, `p_mc_surface`, `p_phys` as `@doc false`. Update inline formulas in `examples/` to call `oneweight`.
-
----
-
-## 4. Tests
-
-All new tests live in `test/test_weighting.jl` under `run_weighting_tests()`.
-
-### 4.1 PhaseSpace functors (8 tests)
-
-**`test_forced_neutrino_functor_matches_old_formula`**
-Constructs a `NeutrinoInjectionPS` and `ForcedNeutrinoInteractionPoint` with known values, calls the functor, and checks the result matches `p_mc(wp) / p_phys(wp)` computed independently. Catches regressions in the forced-CC weight formula and unit conversion errors.
-
-**`test_upstream_neutrino_functor_matches_old_formula`**
-Constructs a `NeutrinoInjectionPS` and `UpstreamNeutrinoInteractionPoint`, calls the functor, and checks the result matches `p_mc_surface(wp)`. Catches regressions in the surface pdf formula for upstream-converted events.
-
-**`test_cr_functor_matches_old_formula`**
-Same as above for `CosmicRayInjectionPS` + `SurfaceCRPoint`. Confirms the CR and upstream-neutrino surface cases produce identical math (they share `_surface_pdf`).
-
-**`test_compatibility_pdg_mismatch`**
-Calls a CR phase space with a point whose PDG code does not match. Verifies the result is exactly zero. Catches bugs where PDG filtering is skipped or compared incorrectly.
-
-**`test_compatibility_geometry_mismatch`**
-Calls a CR phase space built from G frame with hash `1` against a point from G frame with hash `2`. Verifies zero. Catches bugs where the geometry check is missing or uses reference equality instead of hash equality.
-
-**`test_compatibility_energy_out_of_bounds`**
-Calls a CR phase space with `emin=1e3, emax=1e5` against a point with `E=1e6`. Verifies zero. Catches off-by-one or wrong-direction bound checks.
-
-*(Three additional tests in this group cover the positive path for each functor type — verified nonzero, finite, correct sign.)*
-
-### 4.2 Multi-campaign oneweight (6 tests)
-
-**`test_disjoint_phase_spaces`**
-Creates two `CosmicRayInjectionPS` with non-overlapping energy ranges (`[1e3, 1e5]` and `[1e5, 1e7]`). Checks:
-- An event at `E=1e4` (in PS1 only): combined oneweight equals single-PS1 oneweight.
-- An event at `E=1e6` (in PS2 only): combined oneweight equals single-PS2 oneweight.
-
-Catches bugs where an out-of-support campaign incorrectly contributes to the sum, which would lower oneweights for all events.
-
-**`test_overlapping_phase_spaces`**
-Creates two `CosmicRayInjectionPS` with overlapping ranges (`[1e3, 1e6]` and `[1e5, 1e7]`). Checks:
-- An event at `E=1e4` (PS1 only): combined oneweight matches single-PS1.
-- An event at `E=5e5` (in overlap): combined oneweight is strictly less than either single-campaign oneweight.
-- The exact value: `1 / (ps1(pt)*n1 + ps2(pt)*n2)` matches `_oneweight_from_ps`.
-
-This is the core correctness test for the multiple importance sampling formula. It catches: wrong sign in the sum, missing `nevent` scaling, failure to accumulate contributions from multiple campaigns, and any branch that accidentally returns early before all campaigns are summed.
+- **Examples migration.** `examples/interactive/{1,2,3,4}_*.jl` reference `weight_params` in comments and one real read at `2_analyze_output.jl:87`. To be replaced with `oneweights(tf)` in a follow-up commit.
+- **Geometry fixture regen.** Old G-only JLD2 fixtures (`resources/geometry/colca_valley_3000.jld2` etc.) lack a stored `geometry_hash`. The `_ensure_geometry_hash!` fallback covers them at load time, but a one-shot regeneration sweep would let us drop the fallback later.

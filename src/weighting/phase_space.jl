@@ -4,8 +4,8 @@ abstract type PhaseSpacePoint end
 # --- Neutrino injection (propagation through Earth; events may be forced CC or upstream-converted) ---
 
 struct NeutrinoInjectionPS <: PhaseSpace
-    g_frame  :: Frame
-    pdg      :: Int
+    geometry_hash :: UInt
+    pdg           :: Int
     emin     :: Quantity{Float64, edim, typeof(u"GeV")}
     emax     :: Quantity{Float64, edim, typeof(u"GeV")}
     gamma    :: Float64
@@ -17,8 +17,6 @@ struct NeutrinoInjectionPS <: PhaseSpace
 end
 
 struct ForcedNeutrinoInteractionPoint <: PhaseSpacePoint
-    g_frame  :: Frame
-    pdg      :: Int
     E        :: Quantity{Float64, edim, typeof(u"GeV")}
     theta    :: Float64   # rad
     phi      :: Float64   # rad
@@ -30,8 +28,6 @@ struct ForcedNeutrinoInteractionPoint <: PhaseSpacePoint
 end
 
 struct UpstreamNeutrinoInteractionPoint <: PhaseSpacePoint
-    g_frame  :: Frame
-    pdg      :: Int
     E        :: Quantity{Float64, edim, typeof(u"GeV")}
     theta    :: Float64   # rad
     phi      :: Float64   # rad
@@ -41,8 +37,8 @@ end
 # --- Cosmic-ray injection (surface sampling) ---
 
 struct CosmicRayInjectionPS <: PhaseSpace
-    g_frame  :: Frame
-    pdg      :: Int
+    geometry_hash :: UInt
+    pdg           :: Int
     emin     :: Quantity{Float64, edim, typeof(u"GeV")}
     emax     :: Quantity{Float64, edim, typeof(u"GeV")}
     gamma    :: Float64
@@ -54,8 +50,6 @@ struct CosmicRayInjectionPS <: PhaseSpace
 end
 
 struct SurfaceCRPoint <: PhaseSpacePoint
-    g_frame  :: Frame
-    pdg      :: Int
     E        :: Quantity{Float64, edim, typeof(u"GeV")}
     theta    :: Float64   # rad
     phi      :: Float64   # rad
@@ -63,15 +57,23 @@ struct SurfaceCRPoint <: PhaseSpacePoint
 end
 
 # =============================================================================
-# Compatibility guard — shared by all functor methods
+# Compatibility guards
 # =============================================================================
 
+# Campaign-level: does this PS describe the same geometry + species as the
+# campaign that produced events under M? Used to filter the PS list before
+# weighting any single Q.
+function _compatible(m::Frame, ps::PhaseSpace; prefix::String="injection")
+    cfg = m[prefix]
+    UInt(cfg["geometry_hash"]) == ps.geometry_hash || return false
+    Int(cfg["pdg"])            == ps.pdg           || return false
+    return true
+end
+
+# Per-event: is this point inside this PS's sampler bounds? Geometry and pdg
+# are not checked here — the caller (`_oneweight_from_ps`) filters by M↔PS
+# first, so by the time we reach the functor those facts already agree.
 function _compatible(ps::PhaseSpace, pt::PhaseSpacePoint)
-    if !haskey(ps.g_frame, "geometry_hash") || !haskey(pt.g_frame, "geometry_hash")
-        error("_compatible: G frame is missing `geometry_hash`. Old JLD2 files predating the geometry-hash plumbing must be re-saved through `build_gcd_bundle` / `load_earth!` before they can be weighted.")
-    end
-    ps.g_frame["geometry_hash"] != pt.g_frame["geometry_hash"] && return false
-    ps.pdg != pt.pdg         && return false
     # Half-open intervals on the upper bound: adjacent campaigns sharing
     # a boundary value are disjoint, not double-counted.
     !(ps.emin     <= pt.E     < ps.emax)     && return false
@@ -145,54 +147,61 @@ end
 const _one_weight_units = u"GeV*m^2*sr"
 const _zero_ow = 0.0u"GeV*m^2*sr"
 
-function _oneweight_from_ps(q::Frame, phase_spaces::Vector{<:PhaseSpace})
+function _oneweight_from_ps(
+    q::Frame,
+    phase_spaces::Vector{<:PhaseSpace};
+    prefix::String="injection",
+)
     if !haskey(q.data, "phase_space_point")
         eid = get(q.data, "event_id", "unknown")
         @warn "Q frame (event_id=$eid) has no phase_space_point key — returning zero weight."
         return _zero_ow
     end
-    pt    = q["phase_space_point"]
-    total = sum(ps -> ps(pt) * ps.nevent, phase_spaces)
+    pt       = q["phase_space_point"]
+    m        = q.m_frame
+    matching = filter(ps -> _compatible(m, ps; prefix), phase_spaces)
+    isempty(matching) && return _zero_ow
+    total = sum(ps -> ps(pt) * ps.nevent, matching)
     iszero(ustrip(total)) && return _zero_ow
     return uconvert(_one_weight_units, inv(total))
 end
 
 """
-    oneweight(tf::TamboFrames, q::Frame) -> Quantity
+    oneweight(tf::TamboFrames, q::Frame; prefix="injection") -> Quantity
 
 Per-event one-weight in units of `GeV·m²·sr`. Returns zero if `q` has no
 `"phase_space_point"` key (failed injection) with a warning, or if no M frame
 contributes a non-zero phase-space density.
 """
-function oneweight(tf::TamboFrames, q::Frame)
-    phase_spaces = [build_phase_space(m) for m in tf.m_frames]
-    return _oneweight_from_ps(q, phase_spaces)
+function oneweight(tf::TamboFrames, q::Frame; prefix::String="injection")
+    phase_spaces = [build_phase_space(m, prefix) for m in tf.m_frames]
+    return _oneweight_from_ps(q, phase_spaces; prefix)
 end
 
 """
-    oneweights(tf::TamboFrames) -> Vector{<:Quantity}
+    oneweights(tf::TamboFrames; prefix="injection") -> Vector{<:Quantity}
 
 Compute one-weights for all Q frames in `tf`. Phase-space functors are
 constructed once per M frame and reused across all Q frames.
 """
-function oneweights(tf::TamboFrames)
-    phase_spaces = [build_phase_space(m) for m in tf.m_frames]
+function oneweights(tf::TamboFrames; prefix::String="injection")
+    phase_spaces = [build_phase_space(m, prefix) for m in tf.m_frames]
     return map(tf.q_frames) do q
-        _oneweight_from_ps(q, phase_spaces)
+        _oneweight_from_ps(q, phase_spaces; prefix)
     end
 end
 
 """
-    oneweights!(tf::TamboFrames)
+    oneweights!(tf::TamboFrames; key="oneweight", prefix="injection")
 
 Compute one-weights for all Q frames in `tf` and store the result in each Q
-frame under the key `"oneweight"`. Phase-space functors are constructed once
-per M frame and reused across all Q frames.
+frame under `key`. Phase-space functors are constructed once per M frame and
+reused across all Q frames.
 """
-function oneweights!(tf::TamboFrames; key::String="oneweight")
-    phase_spaces = [build_phase_space(m) for m in tf.m_frames]
+function oneweights!(tf::TamboFrames; key::String="oneweight", prefix::String="injection")
+    phase_spaces = [build_phase_space(m, prefix) for m in tf.m_frames]
     for q in tf.q_frames
-        q[key] = _oneweight_from_ps(q, phase_spaces)
+        q[key] = _oneweight_from_ps(q, phase_spaces; prefix)
     end
 end
 
@@ -206,13 +215,13 @@ end
 Construct the appropriate `PhaseSpace` subtype from an M frame's injection
 config. The config table at `m[prefix]` must declare `strategy`, set to
 the name of the desired `PhaseSpace` subtype (e.g. `"NeutrinoInjectionPS"`,
-`"CosmicRayInjectionPS"`).
+`"CosmicRayInjectionPS"`), and must carry the `geometry_hash` snapshot that
+`_setup_injection` writes at injection time.
 """
 function build_phase_space(m::Frame, prefix::String="injection")
     cfg = m[prefix]
-    g      = m.g_frame
     args = (
-        g,
+        UInt(cfg["geometry_hash"]),
         Int(cfg["pdg"]),
         Float64(cfg["emin"]) * u"GeV",
         Float64(cfg["emax"]) * u"GeV",

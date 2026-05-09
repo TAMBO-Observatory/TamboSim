@@ -217,7 +217,6 @@ function _inject_event_impl(
     detector_areas::Vector{Quantity{T,ldim^2,typeof(u"m^2")}},
     epsilon,
     tr_seed,
-    g_frame::Union{Frame,Nothing}
 ) where {T<:Real}
 
     # Sample direction for neutrino trajectory
@@ -261,8 +260,7 @@ function _inject_event_impl(
         # Handle charged lepton output (no forced interaction needed):
         # the neutrino was converted upstream during Earth transit.
         if abs(Int(close_state.pdg)) + 1 == abs(Int(pdg))
-            point = g_frame === nothing ? nothing :
-                UpstreamNeutrinoInteractionPoint(g_frame, pdg, initial_energy, theta, phi, area)
+            point = UpstreamNeutrinoInteractionPoint(initial_energy, theta, phi, area)
             return initial_state, close_state, close_state, point
         end
 
@@ -278,11 +276,10 @@ function _inject_event_impl(
 
         sigma  = xs(close_state.energy)
         dsigma = xs(close_state.energy, eout)
-        point = g_frame === nothing ? nothing :
-            ForcedNeutrinoInteractionPoint(
-                g_frame, pdg, initial_energy, theta, phi, area,
-                cd |> u"g/cm^2", density, sigma, dsigma,
-            )
+        point = ForcedNeutrinoInteractionPoint(
+            initial_energy, theta, phi, area,
+            cd |> u"g/cm^2", density, sigma, dsigma,
+        )
     catch e
         @warn "Runtime error during event injection, returning null result" exception=(e, catch_backtrace())
         return create_null_result(pdg, INJECTION_ERROR_RUNTIME, d, cs, T)
@@ -319,8 +316,8 @@ This function performs several steps:
    to determine its state near the interaction point (`close_state`).
 4. If the `close_state` is a neutrino, it forces an interaction (based on `xs`) and
    determines the final state (`final_state`) and its interaction vertex.
-5. If `g_frame` is provided, builds a `PhaseSpacePoint` recording the per-event
-   phase-space coordinates needed for downstream weighting.
+5. Builds a `PhaseSpacePoint` recording the per-event phase-space coordinates
+   needed for downstream weighting.
 
 # Arguments
 - `pdg::Int`: The PDG ID of the injected particle (e.g., neutrino).
@@ -344,8 +341,8 @@ This function performs several steps:
     - `initial_state`: The initial `Particle` state at injection.
     - `close_state`: The `Particle` state just before the final interaction or at detector entry.
     - `final_state`: The `Particle` state after interaction, or the `close_state` if it's a charged lepton.
-    - `point`: A `PhaseSpacePoint` (forced-CC or upstream-converted) when `g_frame` was supplied
-      and the event succeeded, otherwise `nothing`.
+    - `point`: A `PhaseSpacePoint` (forced-CC or upstream-converted) when the event
+      succeeded, otherwise `nothing` (failed/below-threshold paths).
 """
 function inject_event(
     pdg::Int,
@@ -363,7 +360,6 @@ function inject_event(
     detector_areas::Union{Vector{Quantity{T,ldim^2,typeof(u"m^2")}}, Nothing}=nothing,
     epsilon=1e-6*u"m",
     tr_seed=nothing,
-    g_frame::Union{Frame,Nothing}=nothing
 ) where {T<:Real}
     # Compute detector properties if not provided (inefficient for repeated calls)
     if isnothing(detector_triangles)
@@ -385,7 +381,7 @@ function inject_event(
     return _inject_event_impl(
         pdg, prem, bvh, cs, detector_region, as, pl, xs,
         detector_triangles, detector_normals, detector_bvh, detector_areas,
-        epsilon, tr_seed, g_frame
+        epsilon, tr_seed
     )
 end
 
@@ -431,13 +427,12 @@ function inject_event(
     detector_props::DetectorProperties{T};
     epsilon=1e-6*u"m",
     tr_seed=nothing,
-    g_frame::Union{Frame,Nothing}=nothing
 ) where {T<:Real}
     return _inject_event_impl(
         pdg, prem, bvh, cs, detector_region, as, pl, xs,
         detector_props.triangles, detector_props.normals,
         detector_props.bvh, detector_props.areas,
-        epsilon, tr_seed, g_frame
+        epsilon, tr_seed
     )
 end
 
@@ -491,7 +486,6 @@ function inject_proton_event(
     detector_props::DetectorProperties{T};
     altitude::Quantity=50.0u"km",
     epsilon=1e-6*u"m",
-    g_frame::Union{Frame,Nothing}=nothing
 ) where {T<:Real}
     d = rand(as, cs)
 
@@ -551,8 +545,7 @@ function inject_proton_event(
     end
 
     theta, phi = cart_to_sph(d)
-    point = g_frame === nothing ? nothing :
-        SurfaceCRPoint(g_frame, Int(PPlus), energy, theta, phi, sum(visible_areas))
+    point = SurfaceCRPoint(energy, theta, phi, sum(visible_areas))
 
     return initial_proton, final_proton, passes_through_rock, point
 end
@@ -566,7 +559,8 @@ function _setup_injection(frames::TamboFrames, config::Dict, prefix::String, fna
         f = _get_last_frame(frames, s; required=false)
         f !== nothing && (m_parents[s] = f)
     end
-    m_frame = Frame('M', Dict{String,Any}(prefix => config), m_parents)
+    config_with_hash = merge(config, Dict("geometry_hash" => UInt(g_frame["geometry_hash"])))
+    m_frame = Frame('M', Dict{String,Any}(prefix => config_with_hash), m_parents)
     push!(frames, m_frame)
     q_parents = Dict{Char,Frame}('M' => m_frame)
     for s in ('G', 'C', 'D')
@@ -659,7 +653,6 @@ function inject!(
             detector_normals=detector_normals,
             detector_bvh=detector_bvh,
             tr_seed=tr_seed,
-            g_frame=g_frame
         )
         frame["$(prefix)_initial_state"] = istate
         if !isnan(cstate.energy)
@@ -734,7 +727,7 @@ function inject_protons!(
     @llama_showprogress "Injecting protons" for frame in q_frames
         initial_proton, final_proton, passes_through_rock, point = inject_proton_event(
             bvh, cs, detector_region, as, pl, detector_props;
-            altitude=altitude, g_frame=g_frame,
+            altitude=altitude,
         )
         if !isnan(initial_proton.energy)
             frame["$(prefix)_initial_state"] = initial_proton

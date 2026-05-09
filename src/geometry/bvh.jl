@@ -279,7 +279,7 @@ end
 
 # Merge two AABBs
 """
-    merge(a::AABB{T}, b::AABB{T}) where {T<:Real} -> AABB
+    Base.merge(a::AABB{T}, b::AABB{T}) where {T<:Real} -> AABB
 
 Merges two `AABB`s into a single `AABB` that encloses both.
 
@@ -290,7 +290,7 @@ Merges two `AABB`s into a single `AABB` that encloses both.
 # Returns
 - A new `AABB` that is the union of `a` and `b`.
 """
-function merge(a::AABB{T}, b::AABB{T}) where {T<:Real}
+function Base.merge(a::AABB{T}, b::AABB{T}) where {T<:Real}
     min_corner = min.(a.min.point, b.min.point)
     max_corner = max.(a.max.point, b.max.point)
     cs = CoordinateSystem(a)

@@ -123,11 +123,10 @@ function test_proton_returns_phase_space_point()
 
     for _ in 1:100
         p, _, _, point = inject_proton_event(
-            bvh, cs, detector_region, as, pl, detector_props; g_frame=g_frame,
+            bvh, cs, detector_region, as, pl, detector_props,
         )
         if !isnan(p.energy)
             @test point isa SurfaceCRPoint
-            @test point.pdg == 2212
             @test point.E == p.energy
             @test point.area > 0.0u"m^2"
             return

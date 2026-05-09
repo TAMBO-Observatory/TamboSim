@@ -26,8 +26,13 @@ argument defaults to one of these.
 | File | Purpose |
 |---|---|
 | `tau_neutrino_cc.toml` | The standard nu_tau CC configuration for the Colca Valley site, used for the TAMBO sensitivity paper. |
-| `tau_neutrino_cc_fine_ecut.toml` | Same physics with tighter PROPOSAL energy cuts; slower but more accurate for low-energy lepton tracking. |
 | `cosmic_ray_proton.toml` | Cosmic-ray proton injection variant; consumed by `inject_protons!` (and selected by `templates/3_inject.jl --protons`). |
+
+The shipped CORSIKA energy cuts (`hadron_ecut` ≈ 0.05 GeV, `em_ecut` /
+`photon_ecut` ≈ 0.001 GeV) produce more complete shower particle lists
+at higher computational cost. For fast test runs, raising every CORSIKA
+`*_ecut` to ~1 GeV cuts shower-generation time substantially at the
+price of fewer low-energy particles.
 
 Path entries inside these configs use placeholders that
 `TamboSim.relativize!(config)` substitutes at load time:

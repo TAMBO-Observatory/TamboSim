@@ -201,11 +201,12 @@ end
 # =============================================================================
 
 """
-    build_phase_space(m::Frame) -> PhaseSpace
+    build_phase_space(m::Frame, prefix::String="injection") -> PhaseSpace
 
 Construct the appropriate `PhaseSpace` subtype from an M frame's injection
-config. Neutrino campaigns (those with an `"xs_location"` key) produce a
-`NeutrinoInjectionPS`; cosmic-ray campaigns produce a `CosmicRayInjectionPS`.
+config. The config table at `m[prefix]` must declare `strategy`, set to
+the name of the desired `PhaseSpace` subtype (e.g. `"NeutrinoInjectionPS"`,
+`"CosmicRayInjectionPS"`).
 """
 function build_phase_space(m::Frame, prefix::String="injection")
     cfg = m[prefix]
@@ -222,9 +223,21 @@ function build_phase_space(m::Frame, prefix::String="injection")
         deg2rad(Float64(cfg["phimax"])),
         Int(cfg["nevent"]),
     )
-    if haskey(cfg, "xs_location")
+    haskey(cfg, "strategy") || error(
+        "build_phase_space: M frame config (prefix=\"$prefix\") is missing " *
+        "required `strategy` field. Set it to one of \"NeutrinoInjectionPS\" " *
+        "or \"CosmicRayInjectionPS\". See resources/configuration_examples/ " *
+        "for the current schema."
+    )
+    strategy = cfg["strategy"]
+    if strategy == "NeutrinoInjectionPS"
         return NeutrinoInjectionPS(args...)
-    else
+    elseif strategy == "CosmicRayInjectionPS"
         return CosmicRayInjectionPS(args...)
+    else
+        error(
+            "build_phase_space: unknown strategy \"$strategy\". " *
+            "Known strategies: \"NeutrinoInjectionPS\", \"CosmicRayInjectionPS\"."
+        )
     end
 end

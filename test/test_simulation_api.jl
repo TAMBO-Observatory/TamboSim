@@ -15,6 +15,7 @@ const XS_PATH = joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
 
 function _injection_config(; nevent=10)
     Dict{String,Any}(
+        "strategy"    => "NeutrinoInjectionPS",
         "pinecone"    => 7,
         "nevent"      => nevent,
         "pdg"         => 16,

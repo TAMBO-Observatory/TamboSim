@@ -145,8 +145,10 @@ function test_inject_protons_produces_frames()
 
     geometry_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley_3000.jld2")
     injection_config = Dict{String,Any}(
+        "strategy"  => "CosmicRayInjectionPS",
         "pinecone"  => 42,
         "nevent"    => 20,
+        "pdg"       => 2212,
         "gamma"     => 2.7,
         "emin"      => 1e3,
         "emax"      => 1e7,

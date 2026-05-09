@@ -422,6 +422,70 @@ function Base.show(io::IO, ce::CorsikaEvent{T}) where {T}
 end
 
 # ============================================================================
+# PhaseSpace / PhaseSpacePoint
+# ============================================================================
+
+function _format_energy(e_gev)
+    if e_gev >= 1e9
+        return "$(round(e_gev/1e9, digits=2)) EeV"
+    elseif e_gev >= 1e6
+        return "$(round(e_gev/1e6, digits=2)) PeV"
+    elseif e_gev >= 1e3
+        return "$(round(e_gev/1e3, digits=2)) TeV"
+    else
+        return "$(round(e_gev, digits=2)) GeV"
+    end
+end
+
+function Base.show(io::IO, ps::PhaseSpace)
+    emin = _format_energy(ustrip(u"GeV", ps.emin))
+    emax = _format_energy(ustrip(u"GeV", ps.emax))
+    print(io, "$(nameof(typeof(ps)))(pdg=$(ps.pdg), E: $(emin)–$(emax), γ=$(round(ps.gamma, digits=2)), N=$(ps.nevent))")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", ps::PhaseSpace)
+    println(io, "$(nameof(typeof(ps))):")
+    println(io, "  pdg:           $(ps.pdg)")
+    emin = _format_energy(ustrip(u"GeV", ps.emin))
+    emax = _format_energy(ustrip(u"GeV", ps.emax))
+    println(io, "  energy:        $(emin) – $(emax)")
+    println(io, "  gamma:         $(round(ps.gamma, digits=3))")
+    println(io, "  zenith (θ):    $(round(rad2deg(ps.thetamin), digits=2))° – $(round(rad2deg(ps.thetamax), digits=2))°")
+    println(io, "  azimuth (ϕ):   $(round(rad2deg(ps.phimin), digits=2))° – $(round(rad2deg(ps.phimax), digits=2))°")
+    println(io, "  nevent:        $(ps.nevent)")
+    print(io,   "  geometry_hash: $(ps.geometry_hash)")
+end
+
+function Base.show(io::IO, pt::PhaseSpacePoint)
+    e   = _format_energy(ustrip(u"GeV", pt.E))
+    θ   = round(rad2deg(pt.theta), digits=2)
+    φ   = round(rad2deg(pt.phi),   digits=2)
+    print(io, "$(nameof(typeof(pt)))(E: $(e), θ: $(θ)°, ϕ: $(φ)°)")
+end
+
+function _show_point_common!(io::IO, pt::PhaseSpacePoint)
+    println(io, "  E:      $(_format_energy(ustrip(u"GeV", pt.E)))")
+    println(io, "  theta:  $(round(rad2deg(pt.theta), digits=2))°")
+    println(io, "  phi:    $(round(rad2deg(pt.phi),   digits=2))°")
+    print(io,   "  area:   $(round(ustrip(u"m^2", pt.area), digits=1)) m²")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", pt::PhaseSpacePoint)
+    println(io, "$(nameof(typeof(pt))):")
+    _show_point_common!(io, pt)
+end
+
+function Base.show(io::IO, ::MIME"text/plain", pt::ForcedNeutrinoInteractionPoint)
+    println(io, "ForcedNeutrinoInteractionPoint:")
+    _show_point_common!(io, pt)
+    println(io)
+    println(io, "  cd:     $(round(ustrip(u"g/cm^2", pt.cd),    digits=2)) g/cm²")
+    println(io, "  rho:    $(round(ustrip(u"g/cm^3", pt.rho),   digits=3)) g/cm³")
+    println(io, "  sigma:  $(@sprintf("%.3g", ustrip(u"cm^2", pt.sigma))) cm²")
+    print(io,   "  dsigma: $(@sprintf("%.3g", ustrip(u"cm^2", pt.dsigma))) cm²")
+end
+
+# ============================================================================
 # Stochastic Loss Type
 # ============================================================================
 

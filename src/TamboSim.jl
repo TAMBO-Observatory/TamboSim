@@ -52,6 +52,7 @@ using LibGit2
 using LinearAlgebra
 using Parquet2
 using PrecompileTools
+using Printf: @sprintf
 using ProgressMeter
 using Random
 using Rotations

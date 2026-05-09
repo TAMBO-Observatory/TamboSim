@@ -26,7 +26,7 @@ argument defaults to one of these.
 | File | Purpose |
 |---|---|
 | `tau_neutrino_cc.toml` | The standard nu_tau CC configuration for the Colca Valley site, used for the TAMBO sensitivity paper. |
-| `cosmic_ray_proton.toml` | Cosmic-ray proton injection variant; consumed by `inject_protons!` (and selected by `templates/3_inject.jl --protons`). |
+| `cosmic_ray_proton.toml` | Cosmic-ray proton injection variant; sets `strategy = "CosmicRayInjection"` so `inject!` dispatches to the proton backend. Pass to `templates/3_inject.jl` via `--config`. |
 
 The shipped CORSIKA energy cuts (`hadron_ecut` ≈ 0.05 GeV, `em_ecut` /
 `photon_ecut` ≈ 0.001 GeV) produce more complete shower particle lists

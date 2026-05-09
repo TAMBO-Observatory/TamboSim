@@ -14,7 +14,7 @@ Requires HDF5 geometry and cross-section data files.
 
 import TamboSim: UnitfulPowerLawSampler, UniformAngularSampler, CoordinateSystem,
               precompute_detector_properties, inject_event, CrossSection,
-              null_params, init_proposal, proposal_propagate, is_proposal_available
+              init_proposal, proposal_propagate, is_proposal_available
 
 """
     isinair(particle, prem, bvh)

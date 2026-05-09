@@ -23,7 +23,7 @@ function run_proton_injection_tests()
         test_proton_altitude()
         test_proton_particle_type()
         test_proton_energy_in_range()
-        test_proton_returns_visible_areas()
+        test_proton_returns_phase_space_point()
     end
 
     @testset "inject_protons!" begin
@@ -112,7 +112,7 @@ function test_proton_energy_in_range()
     @test false
 end
 
-function test_proton_returns_visible_areas()
+function test_proton_returns_phase_space_point()
     frames = make_test_frames()
     g_frame = TamboSim._get_last_frame(frames, 'G'); d_frame = TamboSim._get_last_frame(frames, 'D')
     bvh = g_frame["bvh"]; cs = g_frame["cs"]
@@ -122,10 +122,14 @@ function test_proton_returns_visible_areas()
     detector_props = precompute_detector_properties(topography, detector_region)
 
     for _ in 1:100
-        p, _, va, _ = inject_proton_event(bvh, cs, detector_region, as, pl, detector_props)
+        p, _, _, point = inject_proton_event(
+            bvh, cs, detector_region, as, pl, detector_props; g_frame=g_frame,
+        )
         if !isnan(p.energy)
-            @test !isnothing(va)
-            @test length(va) == length(detector_props.triangles)
+            @test point isa SurfaceCRPoint
+            @test point.pdg == 2212
+            @test point.E == p.energy
+            @test point.area > 0.0u"m^2"
             return
         end
     end

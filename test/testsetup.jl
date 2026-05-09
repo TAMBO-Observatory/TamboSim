@@ -14,8 +14,7 @@ using ProgressMeter
 using TamboSim
 
 # Import internal types and functions not exported by default
-import TamboSim: p_mc_surface,
-              CoordinateSystem, ecefcoordinates, Coordinate, Direction,
+import TamboSim: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
               Triangle, Sphere, Plane, OBB, Ray,
               AABB, BVHNode, BVHTree,
               normal, area, centroid, longlat_to_cart, cart_to_longlat, sph_to_cart, cart_to_sph,
@@ -23,7 +22,6 @@ import TamboSim: p_mc_surface,
               UnitfulPowerLawSampler, UniformAngularSampler, pl_norm, probability,
               Frame,
               Particle, FitStatus, ParticleShape,
-              WeightParameters,
               reverse,
               # Particle types
               TauMinus, TauPlus, NuTau, NuTauBar, Gamma,

@@ -76,7 +76,10 @@ function _compatible(ps::PhaseSpace, pt::PhaseSpacePoint)
     # a boundary value are disjoint, not double-counted.
     !(ps.emin     <= pt.E     < ps.emax)     && return false
     !(ps.thetamin <= pt.theta < ps.thetamax) && return false
-    !(ps.phimin   <= pt.phi   < ps.phimax)   && return false
+    # φ wraparound: pt.phi may live in [-π, π] (cart_to_sph convention) while
+    # ps.phimin/phimax can sit on a different branch. Compare modulo 2π so a
+    # range like [90°, 290°] still admits an event at φ = -π/2 == 3π/2.
+    !(mod2pi(pt.phi - ps.phimin) < (ps.phimax - ps.phimin)) && return false
     return true
 end
 
@@ -101,17 +104,22 @@ end
 
 function (ps::NeutrinoInjectionPS)(pt::ForcedNeutrinoInteractionPoint)
     _compatible(ps, pt) || return _zero_iow
-    mc   = p_mc(
-        pt.area,
-        ps.emin, ps.emax, ps.gamma,
-        ps.thetamin, ps.thetamax, ps.phimin, ps.phimax,
-        pt.E,
-        pt.cd,
-        pt.rho,
-        pt.sigma,
-        pt.dsigma,
-    )
-    phys = p_phys(pt.cd, pt.rho, pt.dsigma)
+
+    # Monte Carlo phase-space density (energy × angular × area × interaction)
+    norm = pl_norm(ps.gamma, ps.emin, ps.emax)
+    mc   = norm * (pt.E / ps.emin)^(-ps.gamma)
+    Ω    = (cos(ps.thetamin) - cos(ps.thetamax)) * (ps.phimax - ps.phimin) * u"sr"
+    mc  /= Ω
+    mc  /= pt.area
+    mc  *= pt.rho / pt.cd
+    mc  *= pt.dsigma / pt.sigma
+
+    # Physical interaction probability density along the trajectory
+    miso = speedoflight^(-2) * (938.27208816u"MeV" + 939.5654133u"MeV") / 2
+    phys  = pt.cd / miso
+    phys *= pt.rho / pt.cd
+    phys *= pt.dsigma
+
     return uconvert(u"GeV^-1 * m^-2 * sr^-1", mc / phys)
 end
 

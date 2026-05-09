@@ -1,134 +1,55 @@
 include("testsetup.jl")
 """
-Tests for the weighting module including weight parameters and calculations.
-
-These tests use the actual TamboSim types from src/ to ensure code coverage.
+Tests for the weighting module: PhaseSpace / PhaseSpacePoint functors and the
+multi-campaign one-weight aggregator.
 """
 
-# Import weighting-related types and functions
-import TamboSim: null_params, p_mc, p_phys, _oneweight_from_ps
+import TamboSim: _oneweight_from_ps
 
-# ============================================================================
-# Weighting helper functions for testing
-# ============================================================================
+# =============================================================================
+# Pre-refactor reference formulas
+#
+# The functor methods in `phase_space.jl` were derived from the (now deleted)
+# `p_mc`, `p_phys`, and `p_mc_surface` helpers. The `*_matches_old_formula`
+# tests below pin the new implementation to those old formulas; reproducing
+# them here as test-local helpers means the regression test still has a
+# documented reference even though the production code no longer carries it.
+# =============================================================================
 
-"""
-Calculate power law PDF value.
-"""
-function test_pl_pdf(γ, emin, emax, e)
-    if γ == 1
-        norm = 1 / (emin * log(emax / emin))
-    else
-        mg = 1 - γ
-        norm = mg / (emin^γ * (emax^mg - emin^mg))
-    end
-    return norm * (e / emin)^(-γ)
-end
-
-"""
-Calculate solid angle.
-"""
-function test_solid_angle(θmin, θmax, ϕmin, ϕmax)
-    return (ϕmax - ϕmin) * (cos(θmin) - cos(θmax))
-end
-
-"""
-Calculate Monte Carlo probability density.
-"""
-function test_p_mc(
-    area,
-    emin,
-    emax,
-    gamma,
-    thetamin,
-    thetamax,
-    phimin,
-    phimax,
-    generated_initial_e,
-    generated_cd,
-    generated_density,
-    generated_xs,
-    generated_diff_xs
-)
-    if generated_initial_e == 0.0u"GeV"
-        return 0.0u"GeV^-1 * m^-3"
-    end
-
-    # Power law PDF
-    pdf_e = test_pl_pdf(gamma, emin, emax, generated_initial_e)
-
-    # Solid angle
-    Ω = test_solid_angle(thetamin, thetamax, phimin, phimax)
-
-    # MC probability
-    p = pdf_e / area / Ω
-
+function _old_mc_density(area, emin, emax, gamma, thetamin, thetamax, phimin, phimax,
+                         E, cd, density, sigma, dsigma)
+    norm = pl_norm(gamma, emin, emax)
+    p = norm * (E / emin)^(-gamma)
+    Ω = (cos(thetamin) - cos(thetamax)) * (phimax - phimin) * u"sr"
+    p /= Ω
+    p /= area
+    p *= density / cd
+    p *= dsigma / sigma
     return p
 end
 
-function test_p_mc(wp::WeightParameters)
-    return test_p_mc(
-        wp.area,
-        wp.emin,
-        wp.emax,
-        wp.gamma,
-        wp.thetamin,
-        wp.thetamax,
-        wp.phimin,
-        wp.phimax,
-        wp.generated_initial_e,
-        wp.generated_cd,
-        wp.generated_density,
-        wp.generated_xs,
-        wp.generated_diff_xs
-    )
+function _old_phys_density(cd, density, dsigma)
+    miso = TamboSim.speedoflight^(-2) * (938.27208816u"MeV" + 939.5654133u"MeV") / 2
+    p  = cd / miso
+    p *= density / cd
+    p *= dsigma
+    return p
 end
 
-"""
-Calculate physical probability density (interaction probability per unit length).
-"""
-function test_p_phys(
-    physical_cd,
-    physical_density,
-    physical_diff_xs
-)
-    if isnan(ustrip(physical_cd))
-        return 0.0u"m^-1"
-    end
-
-    # Simple interaction probability per unit length
-    # P/L = n * σ where n is number density (1/volume)
-    # n = ρ * N_A / M, where N_A/M ≈ 6e23 / (1 g) for hydrogen-like target
-    # For simplicity, use an approximate N_A/M factor
-    N_A_over_M = 6.022e23u"g^-1"  # Avogadro's number per gram
-
-    # P/L = ρ * (N_A/M) * σ has units: (g/cm^3) * (1/g) * cm^2 = cm^-1 -> m^-1
-    p = physical_density * N_A_over_M * physical_diff_xs |> u"m^-1"
-
-    return abs(p)
+function _old_surface_density(area, emin, emax, gamma, thetamin, thetamax, phimin, phimax, E)
+    norm = pl_norm(gamma, emin, emax)
+    p = norm * (E / emin)^(-gamma)
+    Ω = (cos(thetamin) - cos(thetamax)) * (phimax - phimin) * u"sr"
+    p /= Ω
+    p /= area
+    return uconvert(u"GeV^-1 * m^-2 * sr^-1", p)
 end
 
 # ============================================================================
-# Test functions
+# Test runner
 # ============================================================================
 
 function run_weighting_tests()
-    @testset "Weight Parameters" begin
-        test_weight_parameters_construction()
-        test_null_weight_parameters()
-    end
-
-    @testset "Monte Carlo Probability" begin
-        test_p_mc_basic()
-        test_p_mc_with_weight_params()
-        test_p_mc_zero_energy()
-    end
-
-    @testset "Physical Probability" begin
-        test_p_phys_basic()
-        test_p_phys_nan_cd()
-    end
-
     @testset "PhaseSpace functors" begin
         test_forced_neutrino_functor_matches_old_formula()
         test_upstream_neutrino_functor_matches_old_formula()
@@ -137,6 +58,7 @@ function run_weighting_tests()
         test_compatibility_geometry_mismatch()
         test_compatibility_missing_geometry_hash()
         test_compatibility_energy_out_of_bounds()
+        test_compatibility_phi_wraparound()
     end
 
     @testset "Multi-campaign oneweight" begin
@@ -144,131 +66,6 @@ function run_weighting_tests()
         test_boundary_disjoint_phase_spaces()
         test_overlapping_phase_spaces()
     end
-end
-
-# Weight Parameters tests
-function test_weight_parameters_construction()
-    wp = WeightParameters(
-        100.0u"m^2",      # area
-        1.0u"GeV",        # emin
-        1000.0u"GeV",     # emax
-        2.0,              # gamma
-        0.0,              # thetamin
-        Float64(π/2),     # thetamax
-        0.0,              # phimin
-        Float64(2π),      # phimax
-        100.0u"GeV",      # generated_initial_e
-        50.0u"GeV",       # generated_final_e
-        100.0u"g/cm^2",   # generated_cd
-        2.65u"g/cm^3",    # generated_density
-        1e-36u"cm^2",     # generated_xs
-        1e-37u"cm^2"      # generated_diff_xs
-    )
-
-    @test wp.area == 100.0u"m^2"
-    @test wp.emin == 1.0u"GeV"
-    @test wp.emax == 1000.0u"GeV"
-    @test wp.gamma == 2.0
-    @test wp.generated_initial_e == 100.0u"GeV"
-end
-
-function test_null_weight_parameters()
-    null_wp = null_params
-
-    @test isnan(ustrip(null_wp.area))
-    @test isnan(ustrip(null_wp.emin))
-    @test isnan(ustrip(null_wp.generated_initial_e))
-end
-
-# Monte Carlo Probability tests
-function test_p_mc_basic()
-    # Test basic p_mc calculation
-    p = test_p_mc(
-        100.0u"m^2",      # area
-        1.0u"GeV",        # emin
-        1000.0u"GeV",     # emax
-        2.0,              # gamma
-        0.0,              # thetamin
-        Float64(π/2),     # thetamax
-        0.0,              # phimin
-        Float64(2π),      # phimax
-        100.0u"GeV",      # generated_initial_e
-        100.0u"g/cm^2",   # generated_cd
-        2.65u"g/cm^3",    # generated_density
-        1e-36u"cm^2",     # generated_xs
-        1e-37u"cm^2"      # generated_diff_xs
-    )
-
-    @test !isnan(ustrip(p))
-    @test p > 0.0u"GeV^-1 * m^-2"
-end
-
-function test_p_mc_with_weight_params()
-    wp = WeightParameters(
-        100.0u"m^2",
-        1.0u"GeV",
-        1000.0u"GeV",
-        2.0,
-        0.0,
-        Float64(π/2),
-        0.0,
-        Float64(2π),
-        100.0u"GeV",
-        50.0u"GeV",
-        100.0u"g/cm^2",
-        2.65u"g/cm^3",
-        1e-36u"cm^2",
-        1e-37u"cm^2"
-    )
-
-    p = test_p_mc(wp)
-
-    @test !isnan(ustrip(p))
-    @test p >= 0.0u"GeV^-1 * m^-2"
-end
-
-function test_p_mc_zero_energy()
-    # Zero energy should return zero probability
-    p = test_p_mc(
-        100.0u"m^2",
-        1.0u"GeV",
-        1000.0u"GeV",
-        2.0,
-        0.0,
-        Float64(π/2),
-        0.0,
-        Float64(2π),
-        0.0u"GeV",        # Zero initial energy
-        100.0u"g/cm^2",
-        2.65u"g/cm^3",
-        1e-36u"cm^2",
-        1e-37u"cm^2"
-    )
-
-    @test p == 0.0u"GeV^-1 * m^-3"
-end
-
-# Physical Probability tests
-function test_p_phys_basic()
-    p = test_p_phys(
-        100.0u"g/cm^2",   # physical_cd
-        2.65u"g/cm^3",    # physical_density
-        1e-36u"cm^2"      # physical_diff_xs
-    )
-
-    @test !isnan(ustrip(p))
-    @test p >= 0.0u"m^-1"
-end
-
-function test_p_phys_nan_cd()
-    # NaN column depth should return zero probability
-    p = test_p_phys(
-        NaN * u"g/cm^2",
-        2.65u"g/cm^3",
-        1e-36u"cm^2"
-    )
-
-    @test p == 0.0u"m^-1"
 end
 
 # =============================================================================
@@ -295,9 +92,9 @@ function test_forced_neutrino_functor_matches_old_formula()
 
     result = ps(pt)
 
-    mc   = p_mc(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π,
-                1e4u"GeV", 100.0u"g/cm^2", 2.65u"g/cm^3", 2e-36u"cm^2", 7e-38u"cm^2")
-    phys = p_phys(100.0u"g/cm^2", 2.65u"g/cm^3", 7e-38u"cm^2")
+    mc   = _old_mc_density(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π,
+                           1e4u"GeV", 100.0u"g/cm^2", 2.65u"g/cm^3", 2e-36u"cm^2", 7e-38u"cm^2")
+    phys = _old_phys_density(100.0u"g/cm^2", 2.65u"g/cm^3", 7e-38u"cm^2")
     expected = uconvert(u"GeV^-1 * m^-2 * sr^-1", mc / phys)
 
     @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈ ustrip(u"GeV^-1 * m^-2 * sr^-1", expected)
@@ -309,19 +106,9 @@ function test_upstream_neutrino_functor_matches_old_formula()
     pt = UpstreamNeutrinoInteractionPoint(g, 16, 1e4u"GeV", π/4, 1.0, 500.0u"m^2")
 
     result = ps(pt)
+    expected = _old_surface_density(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π, 1e4u"GeV")
 
-    mc_surface = p_mc(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π,
-                      1e4u"GeV", NaN*u"g/cm^2", NaN*u"g/cm^3", NaN*u"cm^2", NaN*u"cm^2")
-    # p_mc with NaN cd falls back to dividing by 1cm — that's the old surface path
-    # Instead verify against _surface_pdf formula directly
-    @test result > 0.0u"GeV^-1 * m^-2 * sr^-1"
-    @test !isnan(ustrip(result))
-    # Surface case: no interaction terms, so result equals p_mc_surface
-    wp = WeightParameters(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π,
-                          1e4u"GeV", NaN*u"GeV", NaN*u"g/cm^2", NaN*u"g/cm^3",
-                          NaN*u"cm^2", NaN*u"cm^2")
-    @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈
-          ustrip(u"GeV^-1 * m^-2 * sr^-1", uconvert(u"GeV^-1 * m^-2 * sr^-1", p_mc_surface(wp)))
+    @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈ ustrip(u"GeV^-1 * m^-2 * sr^-1", expected)
 end
 
 function test_cr_functor_matches_old_formula()
@@ -330,12 +117,9 @@ function test_cr_functor_matches_old_formula()
     pt = SurfaceCRPoint(g, 2212, 1e4u"GeV", π/4, 1.0, 500.0u"m^2")
 
     result = ps(pt)
+    expected = _old_surface_density(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π, 1e4u"GeV")
 
-    wp = WeightParameters(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π,
-                          1e4u"GeV", NaN*u"GeV", NaN*u"g/cm^2", NaN*u"g/cm^3",
-                          NaN*u"cm^2", NaN*u"cm^2")
-    @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈
-          ustrip(u"GeV^-1 * m^-2 * sr^-1", uconvert(u"GeV^-1 * m^-2 * sr^-1", p_mc_surface(wp)))
+    @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈ ustrip(u"GeV^-1 * m^-2 * sr^-1", expected)
 end
 
 function test_compatibility_pdg_mismatch()
@@ -368,6 +152,21 @@ function test_compatibility_energy_out_of_bounds()
     ps = _test_cr_ps(g; emin=1e3, emax=1e5)
     pt = SurfaceCRPoint(g, 2212, 1e6u"GeV", π/4, 1.0, 500.0u"m^2")
     @test ps(pt) == 0.0u"GeV^-1 * m^-2 * sr^-1"
+end
+
+function test_compatibility_phi_wraparound()
+    # The injection sampler accepts a φ range that wraps past 2π (e.g.
+    # [3π/2, 5π/2], i.e. 270°→90° through 0°). cart_to_sph returns φ in
+    # [-π, π], so an event at φ = -π/2 must still match this range.
+    g  = _mock_g_frame()
+    ps = CosmicRayInjectionPS(g, 2212, 1e3u"GeV", 1e6u"GeV", 2.0,
+                              0.0, π/2, 3π/2, 5π/2, 1000)
+    # In-range: φ = -π/2 is the same direction as 3π/2.
+    pt_in = SurfaceCRPoint(g, 2212, 1e4u"GeV", π/4, -π/2, 500.0u"m^2")
+    @test ps(pt_in) > 0.0u"GeV^-1 * m^-2 * sr^-1"
+    # Out of range: φ = π is opposite to the [3π/2, 5π/2] arc.
+    pt_out = SurfaceCRPoint(g, 2212, 1e4u"GeV", π/4, Float64(π), 500.0u"m^2")
+    @test ps(pt_out) == 0.0u"GeV^-1 * m^-2 * sr^-1"
 end
 
 # =============================================================================

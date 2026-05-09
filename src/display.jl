@@ -264,60 +264,6 @@ function Base.show(io::IO, ::MIME"text/plain", p::Particle{T}) where {T}
 end
 
 # ============================================================================
-# Weighting Types
-# ============================================================================
-
-"""
-    Base.show(io::IO, wp::WeightParameters)
-
-Displays WeightParameters with key sampling information.
-"""
-function Base.show(io::IO, wp::WeightParameters{T}) where {T}
-    emin = ustrip(u"GeV", wp.emin)
-    emax = ustrip(u"GeV", wp.emax)
-
-    function format_energy(e)
-        if isnan(e)
-            return "NaN"
-        elseif e >= 1e6
-            return "$(round(e/1e6, digits=1)) PeV"
-        elseif e >= 1e3
-            return "$(round(e/1e3, digits=1)) TeV"
-        else
-            return "$(round(e, digits=1)) GeV"
-        end
-    end
-
-    print(io, "WeightParameters{$T}(E: $(format_energy(emin))-$(format_energy(emax)), γ: $(round(wp.gamma, digits=2)))")
-end
-
-"""
-    Base.show(io::IO, ::MIME"text/plain", wp::WeightParameters)
-
-Multi-line display for WeightParameters with full details.
-"""
-function Base.show(io::IO, ::MIME"text/plain", wp::WeightParameters{T}) where {T}
-    area = ustrip(u"km^2", wp.area)
-    emin = ustrip(u"GeV", wp.emin)
-    emax = ustrip(u"GeV", wp.emax)
-    gen_e_init = ustrip(u"GeV", wp.generated_initial_e)
-    gen_e_final = ustrip(u"GeV", wp.generated_final_e)
-    gen_cd = ustrip(u"g/cm^2", wp.generated_cd)
-
-    println(io, "WeightParameters{$T}:")
-    println(io, "  Sampling:")
-    println(io, "    area:  $(round(area, digits=6)) km²")
-    println(io, "    E:     $emin - $emax GeV")
-    println(io, "    γ:     $(wp.gamma)")
-    println(io, "    θ:     $(round(rad2deg(wp.thetamin), digits=2))° - $(round(rad2deg(wp.thetamax), digits=2))°")
-    println(io, "    ϕ:     $(round(rad2deg(wp.phimin), digits=2))° - $(round(rad2deg(wp.phimax), digits=2))°")
-    println(io, "  Generated:")
-    println(io, "    initial E:  $gen_e_init GeV")
-    println(io, "    final E:    $gen_e_final GeV")
-    print(io, "    column depth: $gen_cd g/cm²")
-end
-
-# ============================================================================
 # Frame Types
 # ============================================================================
 

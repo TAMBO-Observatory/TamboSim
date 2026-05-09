@@ -6,8 +6,8 @@ abstract type PhaseSpacePoint end
 struct NeutrinoInjectionPS <: PhaseSpace
     g_frame  :: Frame
     pdg      :: Int
-    emin     :: Float64   # GeV
-    emax     :: Float64   # GeV
+    emin     :: Quantity{Float64, edim, typeof(u"GeV")}
+    emax     :: Quantity{Float64, edim, typeof(u"GeV")}
     gamma    :: Float64
     thetamin :: Float64   # rad
     thetamax :: Float64   # rad
@@ -19,23 +19,23 @@ end
 struct ForcedNeutrinoInteractionPoint <: PhaseSpacePoint
     g_frame  :: Frame
     pdg      :: Int
-    E        :: Float64   # GeV, injected neutrino energy
+    E        :: Quantity{Float64, edim, typeof(u"GeV")}
     theta    :: Float64   # rad
     phi      :: Float64   # rad
-    area     :: Float64   # m²  (sum of visible detector face areas for this event)
-    cd       :: Float64   # g/cm² (column depth to forced-CC vertex)
-    rho      :: Float64   # g/cm³ (density at vertex)
-    sigma    :: Float64   # cm² (total cross section)
-    dsigma   :: Float64   # cm² (differential cross section evaluated at final-state energy)
+    area     :: Quantity{Float64, ldim^2, typeof(u"m^2")}
+    cd       :: Quantity{Float64, mdim/ldim^2, typeof(u"g/cm^2")}
+    rho      :: Quantity{Float64, mdim/ldim^3, typeof(u"g/cm^3")}
+    sigma    :: Quantity{Float64, ldim^2, typeof(u"cm^2")}
+    dsigma   :: Quantity{Float64, ldim^2, typeof(u"cm^2")}
 end
 
 struct UpstreamNeutrinoInteractionPoint <: PhaseSpacePoint
     g_frame  :: Frame
     pdg      :: Int
-    E        :: Float64   # GeV, injected neutrino energy
+    E        :: Quantity{Float64, edim, typeof(u"GeV")}
     theta    :: Float64   # rad
     phi      :: Float64   # rad
-    area     :: Float64   # m²
+    area     :: Quantity{Float64, ldim^2, typeof(u"m^2")}
 end
 
 # --- Cosmic-ray injection (surface sampling) ---
@@ -43,8 +43,8 @@ end
 struct CosmicRayInjectionPS <: PhaseSpace
     g_frame  :: Frame
     pdg      :: Int
-    emin     :: Float64   # GeV
-    emax     :: Float64   # GeV
+    emin     :: Quantity{Float64, edim, typeof(u"GeV")}
+    emax     :: Quantity{Float64, edim, typeof(u"GeV")}
     gamma    :: Float64
     thetamin :: Float64   # rad
     thetamax :: Float64   # rad
@@ -56,10 +56,10 @@ end
 struct SurfaceCRPoint <: PhaseSpacePoint
     g_frame  :: Frame
     pdg      :: Int
-    E        :: Float64   # GeV, injected CR energy
+    E        :: Quantity{Float64, edim, typeof(u"GeV")}
     theta    :: Float64   # rad
     phi      :: Float64   # rad
-    area     :: Float64   # m²
+    area     :: Quantity{Float64, ldim^2, typeof(u"m^2")}
 end
 
 # =============================================================================
@@ -87,11 +87,11 @@ const _zero_iow = 0.0u"GeV^-1 * m^-2 * sr^-1"
 # =============================================================================
 
 function _surface_pdf(ps::PhaseSpace, pt::PhaseSpacePoint)
-    norm = pl_norm(ps.gamma, ps.emin * u"GeV", ps.emax * u"GeV")
+    norm = pl_norm(ps.gamma, ps.emin, ps.emax)
     p    = norm * (pt.E / ps.emin)^(-ps.gamma)
     Ω    = (cos(ps.thetamin) - cos(ps.thetamax)) * (ps.phimax - ps.phimin) * u"sr"
     p   /= Ω
-    p   /= pt.area * u"m^2"
+    p   /= pt.area
     return uconvert(u"GeV^-1 * m^-2 * sr^-1", p)
 end
 
@@ -102,16 +102,16 @@ end
 function (ps::NeutrinoInjectionPS)(pt::ForcedNeutrinoInteractionPoint)
     _compatible(ps, pt) || return _zero_iow
     mc   = p_mc(
-        pt.area   * u"m^2",
-        ps.emin   * u"GeV", ps.emax * u"GeV", ps.gamma,
+        pt.area,
+        ps.emin, ps.emax, ps.gamma,
         ps.thetamin, ps.thetamax, ps.phimin, ps.phimax,
-        pt.E      * u"GeV",
-        pt.cd     * u"g/cm^2",
-        pt.rho    * u"g/cm^3",
-        pt.sigma  * u"cm^2",
-        pt.dsigma * u"cm^2",
+        pt.E,
+        pt.cd,
+        pt.rho,
+        pt.sigma,
+        pt.dsigma,
     )
-    phys = p_phys(pt.cd * u"g/cm^2", pt.rho * u"g/cm^3", pt.dsigma * u"cm^2")
+    phys = p_phys(pt.cd, pt.rho, pt.dsigma)
     return uconvert(u"GeV^-1 * m^-2 * sr^-1", mc / phys)
 end
 
@@ -205,8 +205,8 @@ function build_phase_space(m::Frame, prefix::String="injection")
     args = (
         g,
         Int(cfg["pdg"]),
-        Float64(cfg["emin"]),
-        Float64(cfg["emax"]),
+        Float64(cfg["emin"]) * u"GeV",
+        Float64(cfg["emax"]) * u"GeV",
         Float64(cfg["gamma"]),
         deg2rad(Float64(cfg["thetamin"])),
         deg2rad(Float64(cfg["thetamax"])),

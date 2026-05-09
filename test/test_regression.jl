@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Sampler statistics tests for TamboSim.
 
@@ -237,4 +238,9 @@ function test_combined_sampling_moments()
     @test all(0 .<= thetas .<= π/2 + 0.01)
 
     @test all(p.pdg == NuTau for p in particles)
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Sampler Statistics" begin
+        run_sampler_statistics_tests()
+    end
 end

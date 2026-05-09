@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for the weighting module including weight parameters and calculations.
 
@@ -252,4 +253,9 @@ function test_p_phys_nan_cd()
     )
 
     @test p == 0.0u"m^-1"
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Weighting" begin
+        run_weighting_tests()
+    end
 end

@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for the Frame data structure.
 """
@@ -742,5 +743,10 @@ function test_show_truncates_many_roots()
             "├─ G",
             "└─ … (2 more G)",
         ]
+    end
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Frames" begin
+        run_frame_tests()
     end
 end

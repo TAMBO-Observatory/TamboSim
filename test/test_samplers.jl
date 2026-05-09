@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for the samplers module including power law sampler and angular sampler.
 
@@ -205,4 +206,9 @@ function test_find_trim_idxs_right_jump()
     data = [1.0, 2.0, 3.0, 3000.0]
     lidx, ridx = find_trim_idxs(data)
     @test ridx < length(data)
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Samplers" begin
+        run_sampler_tests()
+    end
 end

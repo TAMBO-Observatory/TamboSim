@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for CORSIKA event reading, coordinate transformations, and the
 MultiParquetIterator.
@@ -263,5 +264,10 @@ function run_corsika_tests()
         # Photon: mass is zero, speed should be c
         v_photon = particle_speed(1.0u"GeV", Gamma)
         @test isapprox(ustrip(u"m/s", v_photon), ustrip(u"m/s", c), rtol=1e-10)
+    end
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "CORSIKA" begin
+        run_corsika_tests()
     end
 end

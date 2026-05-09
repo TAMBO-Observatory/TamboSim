@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Propagation and decay-in-mountain fraction tests.
 
@@ -116,5 +117,10 @@ function run_propagation_decay_fraction_tests()
         # Decayed-in-mountain + emerged-in-air should account for ~all decays
         # (some events may lose all energy without decaying, but most should decay)
         @test frac_decayed_in_mountain + frac_emerged_air > 0.8
+    end
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Propagation Decay Fraction" begin
+        run_propagation_decay_fraction_tests()
     end
 end

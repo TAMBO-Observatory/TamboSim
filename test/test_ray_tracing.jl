@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for ray tracing functionality using the actual TamboSim types.
 """
@@ -191,4 +192,9 @@ function test_plane_intersection_parallel()
 
     @test isnothing(hit_point)
     @test isnothing(t)
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Ray Tracing" begin
+        run_ray_tracing_tests()
+    end
 end

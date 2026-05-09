@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for the detector culling functionality.
 
@@ -254,4 +255,9 @@ function test_geometric_triangle_weight_away()
 
     @test length(weights) == 1
     @test weights[1] ≈ 0.0  # Triangle faces away from the direction
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Detector Culling" begin
+        run_detector_culling_tests()
+    end
 end

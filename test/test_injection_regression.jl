@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Injection regression tests for TamboSim.
 
@@ -257,5 +258,10 @@ function run_injection_regression_tests()
         # The vast majority of tau propagations should end in decay
         frac_decayed = n_with_decay / n_tested
         @test frac_decayed > 0.9
+    end
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Injection Regression" begin
+        run_injection_regression_tests()
     end
 end

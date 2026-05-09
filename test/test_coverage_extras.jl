@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Display and utility tests for TamboSim.
 
@@ -158,5 +159,10 @@ function run_display_tests()
         TamboSim.relativize!(rd)
         @test !occursin("_TAMBOSIM_PATH_", rd["path"])
         @test !occursin("_TAMBOSIM_PATH_", rd["nested"]["p"])
+    end
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Display" begin
+        run_display_tests()
     end
 end

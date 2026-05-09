@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for the top-level simulation API:
   - inject!            frame creation, parent wiring, config storage
@@ -410,5 +411,10 @@ function test_relativize_env_placeholder_unset_yields_empty()
         @test d["out"] == "/run_001/triggered.jld2"
     finally
         saved === nothing || (ENV["TAMBO_DATA_PATH"] = saved)
+    end
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Simulation API" begin
+        run_simulation_api_tests()
     end
 end

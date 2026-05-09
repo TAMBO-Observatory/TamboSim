@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for the particles module including particle types and particle state.
 
@@ -223,4 +224,9 @@ function test_stochastic_loss_construction()
     # Unit conversion: 1000 MeV == 1 GeV
     @test StochasticLoss(1, 1000.0u"MeV", pos).energy == 1.0u"GeV"
     @test StochasticLoss(1, 0.001u"TeV", pos).energy  == 1.0u"GeV"
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Particles" begin
+        run_particle_tests()
+    end
 end

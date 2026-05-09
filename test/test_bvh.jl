@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for the BVH (Bounding Volume Hierarchy) tree structure.
 
@@ -251,4 +252,9 @@ function test_obb_world_to_local()
     @test length(lp) == 3
     ld = TamboSim.world_to_local(obb, Direction([0.0, 0.0, 1.0], cs))
     @test length(ld) == 3
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "BVH" begin
+        run_bvh_tests()
+    end
 end

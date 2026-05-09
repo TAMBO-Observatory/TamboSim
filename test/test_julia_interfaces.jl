@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for the Julia interfaces (TauRunner and PROPOSAL).
 
@@ -117,4 +118,8 @@ function test_is_proposal_available()
     # In the test environment, PROPOSAL likely isn't fully available
     # so we just check that the function runs without error
 end
-
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Julia Interfaces" begin
+        run_julia_interfaces_tests()
+    end
+end

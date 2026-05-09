@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for the geometry module including CoordinateSystem, Coordinate, Direction,
 Triangle, Sphere, OBB, Plane, and related utilities.
@@ -549,4 +550,9 @@ function test_place_detector_units_spacing()
     obbs_coarse, _ = TamboSim.place_detector_units(g_frame, d_frame; spacing=200.0u"m")
     obbs_fine,   _ = TamboSim.place_detector_units(g_frame, d_frame; spacing=100.0u"m")
     @test length(obbs_fine) > length(obbs_coarse)         # smaller spacing → more modules
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Geometry" begin
+        run_geometry_tests()
+    end
 end

@@ -197,7 +197,7 @@ q1["injection_final_state"].position
 # layer needs to assign each event a flux-independent one-weight.
 #
 # The shape of that struct, the campaign-level metadata it pairs with, and
-# the formula `oneweights(tf)` applies are covered in 5_weighting_walkthrough.jl.
+# the formula `oneweights(tf)` applies are covered in 6_weighting_walkthrough.jl.
 # Here we just confirm the key is present:
 
 q1["phase_space_point"]             # struct fields display
@@ -281,5 +281,5 @@ proton_q1["injection_final_state"].position
 # dispatches on its type to pick the right per-event density.
 proton_q1["phase_space_point"]
 
-# As with neutrinos, see 5_weighting_walkthrough.jl for what `oneweights(tf)`
+# As with neutrinos, see 6_weighting_walkthrough.jl for what `oneweights(tf)`
 # does with these points.

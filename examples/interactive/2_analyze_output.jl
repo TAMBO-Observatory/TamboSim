@@ -65,7 +65,7 @@ q_frames = frames.q_frames;
 # weights are scaled by the original injected `nevent`, so cutting frames
 # upstream (as we did with `decayed_in_air`) doesn't bias the result.
 #
-# See 5_weighting_walkthrough.jl for what the weighting machinery is doing
+# See 6_weighting_walkthrough.jl for what the weighting machinery is doing
 # under the hood.
 
 ows = oneweights(frames)

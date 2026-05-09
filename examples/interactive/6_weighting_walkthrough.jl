@@ -1,4 +1,4 @@
-# 5_weighting_walkthrough.jl
+# 6_weighting_walkthrough.jl
 #
 # Explain how TamboSim turns a simulated event into a flux-independent
 # one-weight: the PhaseSpace and PhaseSpacePoint objects each Q frame
@@ -63,9 +63,7 @@ q1 = first(frames.q_frames)         # one event to dissect
 #   "CosmicRayInjectionPS"  — surface sampling, no Earth transit
 
 ps = TamboSim.build_phase_space(m)
-
 @show typeof(ps);
-ps                                  # all fields display
 
 # Fields worth pointing at:
 @show ps.geometry_hash;             # snapshotted from G at injection time
@@ -100,7 +98,6 @@ ps                                  # all fields display
 
 pt = q1["phase_space_point"]
 @show typeof(pt);
-pt                                  # all fields display
 
 @show pt.E;                         # the source-side energy actually drawn for this event
 @show pt.theta, pt.phi;             # zenith / azimuth, in radians

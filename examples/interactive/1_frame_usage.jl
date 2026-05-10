@@ -10,6 +10,7 @@
 #   3. Key lookup and parent inheritance
 #   4. Inspecting the TOML config that produced the output
 
+using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using TamboSim
 using TOML
 

@@ -20,6 +20,7 @@
 #   5. The per-PDG rest-energy skip and its effect on the surviving frames
 #   6. Diff against post-injection: which keys are new
 
+using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using TamboSim
 using TOML
 using Unitful: ustrip, @u_str

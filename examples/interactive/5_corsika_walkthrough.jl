@@ -21,6 +21,7 @@
 #   5. The cmd line tambo_shower receives, and where its output goes
 #   6. Reading the output back with read_corsika
 
+using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using LinearAlgebra
 using TamboSim
 using Unitful: ustrip, @u_str

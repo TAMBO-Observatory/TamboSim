@@ -14,6 +14,7 @@
 #   2. Computing one-weights (with units!) for physical flux estimates
 #   3. Classifying decay-product flavor (EM / hadronic / muonic)
 
+using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using Statistics
 using TamboSim
 using Unitful: ustrip, @u_str

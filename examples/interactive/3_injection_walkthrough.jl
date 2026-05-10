@@ -30,6 +30,7 @@
 #   6. Failure mode: when an injected direction doesn't see any rock
 #   7. Variant: inject_protons! for cosmic-ray primaries
 
+using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using TamboSim
 using TOML
 using Unitful: @u_str

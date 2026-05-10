@@ -22,6 +22,7 @@
 #   7. The public API: oneweights(tf)
 #   8. Multi-campaign aggregation
 
+using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using TamboSim
 using Unitful: @u_str
 

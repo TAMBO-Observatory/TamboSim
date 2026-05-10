@@ -28,7 +28,13 @@ function tr_init()
     ENV["PROPOSAL_TABLES_PATH"] = tables_path
 
     # Create Earth with PREM density model
-    # Add extra rock layer on top for TAMBO elevation (~3km rock to sea level)
+    # Add extra rock layer on top for TAMBO elevation (~3km rock to sea level).
+    # Density 2.6 g/cm³ matches TauRunner's PREM continental-crust value
+    # (TauRunner/src/Bodies/Earth.jl, PREM_PARAMS continental crust entry) so the
+    # extension is self-consistent with the layer below it. This is distinct 
+    # from TamboSim's ROCK_DENSITY = 2.65 g/cm³ (find_interaction_vertex.jl),
+    # which is the standard-rock density used for in-rock vertex placement and the
+    # PROPOSAL air/rock medium discriminant.
     _tr_earth[] = TR.construct_earth(layers=[(1, 2.6)])
 
     # Create cross-sections using CSMS model

@@ -438,13 +438,11 @@ end
 
 """
     inject_proton_event(
-        bvh::BVHTree{T},
         cs::CoordinateSystem{T},
-        detector_region,
         as::UniformAngularSampler,
         pl::UnitfulPowerLawSampler,
         detector_props::DetectorProperties{T};
-        altitude::Quantity=50.0u"km",
+        altitude::Quantity=112.0u"km",
         epsilon=1e-6*u"m"
     ) where {T<:Real}
 
@@ -462,29 +460,26 @@ direction.
 4. Samples energy from the power-law sampler.
 
 # Arguments
-- `bvh::BVHTree{T}`: BVH over the full topography mesh.
 - `cs::CoordinateSystem{T}`: ECEF-anchored coordinate system.
-- `detector_region`: indices of the topography triangles forming the detector surface.
 - `as::UniformAngularSampler`: Sampler for the angular distribution.
 - `pl::UnitfulPowerLawSampler`: Sampler for the energy distribution.
 - `detector_props::DetectorProperties{T}`: Pre-computed detector properties.
-- `altitude::Quantity`: Starting altitude for the proton (default: 50 km).
+- `altitude::Quantity`: Starting altitude for the proton (default: 112 km).
 - `epsilon`: Small offset to avoid self-intersections (default: 1e-6 m).
 
 # Returns
-- `(initial_proton::Particle, final_proton::Particle, visible_areas, passes_through_rock)`:
+- `(initial_proton::Particle, final_proton::Particle, point)`:
   `initial_proton` is at the detector surface point (before backtracing),
-  `final_proton` is at the specified altitude (after backtracing, ready for CORSIKA).
-  If no visible triangles exist, both particles have `NaN` energy and `visible_areas` is `nothing`.
+  `final_proton` is at the specified altitude (after backtracing, ready for CORSIKA),
+  `point` is the `SurfaceCRPoint` phase-space coordinate.
+  If no visible triangles exist, both particles have `NaN` energy and `point` is `nothing`.
 """
 function inject_proton_event(
-    bvh::BVHTree{T},
     cs::CoordinateSystem{T},
-    detector_region,
     as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
     detector_props::DetectorProperties{T};
-    altitude::Quantity=50.0u"km",
+    altitude::Quantity=112.0u"km",
     epsilon=1e-6*u"m",
 ) where {T<:Real}
     d = rand(as, cs)
@@ -498,7 +493,7 @@ function inject_proton_event(
         coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
         dir = Direction([NaN, NaN, NaN], cs)
         nan_particle = Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, PPlus, NaN*u"GeV", coord, dir)
-        return nan_particle, nan_particle, false, nothing
+        return nan_particle, nan_particle, nothing
     end
 
     # Trace back along trajectory to reach the specified altitude above the curved Earth's
@@ -532,22 +527,10 @@ function inject_proton_event(
     initial_proton = Particle(PPlus, energy, p, d)
     final_proton = Particle(PPlus, energy, proton_position, d)
 
-    # Check if the proton path passes through rock (mountains between injection and detector)
-    forward_ray = Ray(proton_position, d)
-    topo_hits = intersect_all(bvh, forward_ray)
-    detector_indices = Set(detector_region)
-    diff = proton_position.point - p.point
-    path_len = sqrt(diff[1]^2 + diff[2]^2 + diff[3]^2)
-    # Check if any non-detector topography triangle (i.e. a mountain) is hit
-    # within the path from the injection point to the detector surface
-    passes_through_rock = any(topo_hits) do ix
-        ix.index ∉ detector_indices && ix.distance < path_len
-    end
-
     theta, phi = cart_to_sph(d)
     point = SurfaceCRPoint(energy, theta, phi, sum(visible_areas))
 
-    return initial_proton, final_proton, passes_through_rock, point
+    return initial_proton, final_proton, point
 end
 
 function _setup_injection(frames::TamboFrames, config::Dict, prefix::String, fname::String)
@@ -710,8 +693,6 @@ carries:
 - `<prefix>_initial_state` — proton at the sampled point on the detector surface
 - `<prefix>_final_state` — proton backtraced to `config["altitude"]` above
   Earth, ready for CORSIKA injection
-- `particle_passes_through_rock::Bool` — whether the back-traced ray clipped
-  the topography on its way up
 - `phase_space_point::SurfaceCRPoint` — surface-injection phase-space
   coordinates consumed downstream by `oneweight` / `oneweights`.
 
@@ -738,7 +719,6 @@ function inject_protons!(
     g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_protons!")
     d_frame = m_frame.d_frame
 
-    bvh             = g_frame["bvh"]
     cs              = g_frame["cs"]
     topography      = g_frame["topography"]
     detector_region = d_frame["detector_region"]
@@ -754,19 +734,18 @@ function inject_protons!(
         deg2rad(config["phimin"]),
         deg2rad(config["phimax"]),
     )
-    altitude = get(config, "altitude", 50.0) * u"km"
+    altitude = get(config, "altitude", 112.0) * u"km"
     detector_props = precompute_detector_properties(topography, detector_region)
     Random.seed!(config["pinecone"])
 
     @llama_showprogress "Injecting protons" for frame in q_frames
-        initial_proton, final_proton, passes_through_rock, point = inject_proton_event(
-            bvh, cs, detector_region, as, pl, detector_props;
+        initial_proton, final_proton, point = inject_proton_event(
+            cs, as, pl, detector_props;
             altitude=altitude,
         )
         if !isnan(initial_proton.energy)
             frame["$(prefix)_initial_state"] = initial_proton
             frame["$(prefix)_final_state"] = final_proton
-            frame["particle_passes_through_rock"] = passes_through_rock
             point === nothing || (frame["phase_space_point"] = point)
         end
     end

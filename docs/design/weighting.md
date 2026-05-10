@@ -40,7 +40,7 @@ The NaN pattern of those sampled fields is the only signal of which physics path
 | Surface-injected proton             | NaN                 | NaN                        | NaN                         |
 | Null / failed injection             | NaN                 | NaN                        | NaN                         |
 
-Note: TauRunner-converted and surface-injected currently look identical at the field level. They are distinguished by which *other* frame keys are present (`particle_passes_through_rock` for protons; `injection_close_state == injection_final_state` for upstream-converted) and by the parent M frame's config. This is fragile.
+Note: TauRunner-converted and surface-injected currently look identical at the field level. They are distinguished by the type of `phase_space_point` (a `SurfaceCRPoint` for protons), by `injection_close_state == injection_final_state` for upstream-converted neutrinos, and by the parent M frame's config. This is fragile.
 
 ### 2.2 `p_mc`, `p_mc_surface`, `p_phys` (today)
 

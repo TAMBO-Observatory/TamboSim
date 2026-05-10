@@ -274,8 +274,6 @@ proton_frames                       # tree view: M frame + NEVENT Q frames
 
 # Per-Q-frame keys: same skeleton as the neutrino case, but
 #   - no `injection_close_state`  (no Earth-propagation cascade)
-#   - new `particle_passes_through_rock`  (Bool: did the proton's trajectory
-#     pass through rock before reaching the atmosphere?)
 proton_q1 = proton_frames.q_frames[1]
 sort(collect(keys(proton_q1.data)))
 

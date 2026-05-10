@@ -159,10 +159,11 @@ function test_inject_dispatches_to_protons()
 
     q_frames = filter(f -> f.stream == 'Q', frames)
     @test length(q_frames) == 5
-    # Proton path stamps `particle_passes_through_rock` on each successfully
-    # injected Q frame; neutrino path does not. This confirms dispatch routed
-    # to inject_protons!.
-    @test any(f -> haskey(f, "particle_passes_through_rock"), q_frames)
+    # Proton path stamps a `SurfaceCRPoint` at `phase_space_point`; the
+    # neutrino path stamps a different point type. This confirms dispatch
+    # routed to inject_protons!.
+    @test any(f -> haskey(f, "phase_space_point") &&
+                   f["phase_space_point"] isa SurfaceCRPoint, q_frames)
 end
 
 # =============================================================================

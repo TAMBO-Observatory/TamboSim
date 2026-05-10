@@ -38,7 +38,7 @@ end
 function test_proton_altitude()
     frames = make_test_frames()
     g_frame = TamboSim._get_last_frame(frames, 'G'); d_frame = TamboSim._get_last_frame(frames, 'D')
-    bvh = g_frame["bvh"]; cs = g_frame["cs"]
+    cs = g_frame["cs"]
     topography = g_frame["topography"]; detector_region = d_frame["detector_region"]
 
     pl = UnitfulPowerLawSampler(2.7, 1e3u"GeV", 1e7u"GeV")
@@ -51,7 +51,7 @@ function test_proton_altitude()
     # Try up to 100 times to get a successful injection
     final_proton = nothing
     for _ in 1:100
-        _, fp, _, _ = inject_proton_event(bvh, cs, detector_region, as, pl, detector_props; altitude=altitude)
+        _, fp, _ = inject_proton_event(cs, as, pl, detector_props; altitude=altitude)
         if !isnan(fp.energy)
             final_proton = fp
             break
@@ -75,14 +75,14 @@ end
 function test_proton_particle_type()
     frames = make_test_frames()
     g_frame = TamboSim._get_last_frame(frames, 'G'); d_frame = TamboSim._get_last_frame(frames, 'D')
-    bvh = g_frame["bvh"]; cs = g_frame["cs"]
+    cs = g_frame["cs"]
     topography = g_frame["topography"]; detector_region = d_frame["detector_region"]
     pl = UnitfulPowerLawSampler(2.7, 1e3u"GeV", 1e7u"GeV")
     as = UniformAngularSampler(deg2rad(91.0), deg2rad(130.0), deg2rad(0.0), deg2rad(360.0))
     detector_props = precompute_detector_properties(topography, detector_region)
 
     for _ in 1:100
-        p, _, _, _ = inject_proton_event(bvh, cs, detector_region, as, pl, detector_props)
+        p, _, _ = inject_proton_event(cs, as, pl, detector_props)
         if !isnan(p.energy)
             @test p.pdg == PPlus
             return
@@ -94,7 +94,7 @@ end
 function test_proton_energy_in_range()
     frames = make_test_frames()
     g_frame = TamboSim._get_last_frame(frames, 'G'); d_frame = TamboSim._get_last_frame(frames, 'D')
-    bvh = g_frame["bvh"]; cs = g_frame["cs"]
+    cs = g_frame["cs"]
     topography = g_frame["topography"]; detector_region = d_frame["detector_region"]
     emin, emax = 1e3u"GeV", 1e7u"GeV"
     pl = UnitfulPowerLawSampler(2.7, emin, emax)
@@ -102,7 +102,7 @@ function test_proton_energy_in_range()
     detector_props = precompute_detector_properties(topography, detector_region)
 
     for _ in 1:100
-        p, _, _, _ = inject_proton_event(bvh, cs, detector_region, as, pl, detector_props)
+        p, _, _ = inject_proton_event(cs, as, pl, detector_props)
         if !isnan(p.energy)
             @test p.energy >= emin
             @test p.energy <= emax
@@ -115,16 +115,14 @@ end
 function test_proton_returns_phase_space_point()
     frames = make_test_frames()
     g_frame = TamboSim._get_last_frame(frames, 'G'); d_frame = TamboSim._get_last_frame(frames, 'D')
-    bvh = g_frame["bvh"]; cs = g_frame["cs"]
+    cs = g_frame["cs"]
     topography = g_frame["topography"]; detector_region = d_frame["detector_region"]
     pl = UnitfulPowerLawSampler(2.7, 1e3u"GeV", 1e7u"GeV")
     as = UniformAngularSampler(deg2rad(91.0), deg2rad(130.0), deg2rad(0.0), deg2rad(360.0))
     detector_props = precompute_detector_properties(topography, detector_region)
 
     for _ in 1:100
-        p, _, _, point = inject_proton_event(
-            bvh, cs, detector_region, as, pl, detector_props,
-        )
+        p, _, point = inject_proton_event(cs, as, pl, detector_props)
         if !isnan(p.energy)
             @test point isa SurfaceCRPoint
             @test point.E == p.energy

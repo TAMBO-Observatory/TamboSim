@@ -124,7 +124,7 @@ xs                                  # struct fields show the energy grid + σ va
 # =============================================================================
 # 4. The three injection states
 # =============================================================================
-# inject_event uses a sampling-inversion trick to focus events on the
+# inject_neutrino_event uses a sampling-inversion trick to focus events on the
 # detector. Rather than throwing primaries on a sphere far from the
 # mountain (most would miss), it:
 #
@@ -217,7 +217,7 @@ q1["phase_space_point"]             # struct fields display
 # =============================================================================
 # Some sampled directions never see the detector region at all (they go
 # off into space without hitting rock that contains it). For those frames
-# inject_event skipped *_final_state and phase_space_point — only event_id
+# inject_neutrino_event skipped *_final_state and phase_space_point — only event_id
 # remains. Downstream stages need the final state, so the templates cut
 # these frames immediately:
 #

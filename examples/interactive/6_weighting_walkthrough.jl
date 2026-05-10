@@ -146,7 +146,7 @@ pt = q1["phase_space_point"]
 #       same surface generation density formula
 #
 # The forced-CC math collapses the importance-sampling boost that
-# inject_event applied to focus events on the detector. The surface cases
+# inject_neutrino_event applied to focus events on the detector. The surface cases
 # don't force an interaction, so there's nothing to undo.
 
 dens = ps(pt)

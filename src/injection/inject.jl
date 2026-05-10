@@ -50,7 +50,7 @@ function precompute_detector_properties(
 end
 
 """
-    create_null_result(
+    _create_null_neutrino_result(
         pdg::Int,
         error_code::Int,
         d::Direction{T},
@@ -70,7 +70,7 @@ Creates a null result tuple for failed injection events.
 # Returns
 - A tuple of (initial_state, null_particle, null_particle, nothing).
 """
-function create_null_result(
+function _create_null_neutrino_result(
     pdg::Int,
     error_code::Int,
     d::Direction{T},
@@ -124,14 +124,14 @@ function sample_detector_point(
 end
 
 """
-    validate_trajectory(prem, bvh, detector_region, p, revd) -> (intersections, error_code)
+    validate_earth_trajectory(prem, bvh, detector_region, p, revd) -> (intersections, error_code)
 
 Validates a particle trajectory through the Earth model.
 
 # Returns
 - `(intersections, 0)` if valid, `(nothing, error_code)` if invalid.
 """
-function validate_trajectory(
+function validate_earth_trajectory(
     prem,
     bvh::BVHTree{T},
     detector_region,
@@ -160,7 +160,7 @@ function validate_trajectory(
 end
 
 """
-    compute_final_state(
+    force_interaction_vertex(
         close_state::Particle,
         xs::CrossSection,
         intersections,
@@ -173,7 +173,7 @@ Computes the final particle state after forcing an interaction.
 # Returns
 - `(final_state, eout, cd, density)` tuple with the interaction results.
 """
-function compute_final_state(
+function force_interaction_vertex(
     close_state::Particle,
     xs::CrossSection,
     intersections,
@@ -200,7 +200,7 @@ function compute_final_state(
 end
 
 """
-Internal implementation of inject_event containing the core logic.
+Internal implementation of inject_neutrino_event containing the core logic.
 """
 function _inject_neutrino_event_impl(
     pdg::Int,
@@ -229,15 +229,15 @@ function _inject_neutrino_event_impl(
     )
 
     if isnothing(p)
-        return create_null_result(pdg, INJECTION_ERROR_NO_VISIBLE_TRIANGLES, d, cs, T)
+        return _create_null_neutrino_result(pdg, INJECTION_ERROR_NO_VISIBLE_TRIANGLES, d, cs, T)
     end
 
     # Validate trajectory through Earth
     revd = reverse(d)
-    intersections, error_code = validate_trajectory(prem, bvh, detector_region, p, revd)
+    intersections, error_code = validate_earth_trajectory(prem, bvh, detector_region, p, revd)
 
     if isnothing(intersections)
-        return create_null_result(pdg, error_code, d, cs, T)
+        return _create_null_neutrino_result(pdg, error_code, d, cs, T)
     end
 
     # Sample energy and create initial state
@@ -251,7 +251,7 @@ function _inject_neutrino_event_impl(
 
         # Handle null particle from failed propagation
         if isnan(close_state.energy)
-            return create_null_result(pdg, INJECTION_ERROR_RUNTIME, d, cs, T)
+            return _create_null_neutrino_result(pdg, INJECTION_ERROR_RUNTIME, d, cs, T)
         end
 
         theta, phi = cart_to_sph(d)
@@ -270,7 +270,7 @@ function _inject_neutrino_event_impl(
         end
 
         # Force interaction for neutrino output
-        final_state, eout, cd, density = compute_final_state(
+        final_state, eout, cd, density = force_interaction_vertex(
             close_state, xs, intersections, cs, d
         )
 
@@ -282,14 +282,14 @@ function _inject_neutrino_event_impl(
         )
     catch e
         @warn "Runtime error during event injection, returning null result" exception=(e, catch_backtrace())
-        return create_null_result(pdg, INJECTION_ERROR_RUNTIME, d, cs, T)
+        return _create_null_neutrino_result(pdg, INJECTION_ERROR_RUNTIME, d, cs, T)
     end
 
     return initial_state, close_state, final_state, point
 end
 
 """
-    inject_event(
+    inject_neutrino_event(
         pdg::Int,
         prem,
         bvh::BVHTree{T},
@@ -344,7 +344,7 @@ This function performs several steps:
     - `point`: A `PhaseSpacePoint` (forced-CC or upstream-converted) when the event
       succeeded, otherwise `nothing` (failed/below-threshold paths).
 """
-function inject_event(
+function inject_neutrino_event(
     pdg::Int,
     prem,
     bvh::BVHTree{T},
@@ -386,7 +386,7 @@ function inject_event(
 end
 
 """
-    inject_event(
+    inject_neutrino_event(
         pdg::Int,
         prem,
         bvh::BVHTree{T},
@@ -411,11 +411,11 @@ and reused across events.
 detector_props = precompute_detector_properties(topography, detector_region)
 
 for i in 1:n_events
-    result = inject_event(pdg, prem, bvh, cs, detector_region, as, pl, xs, detector_props)
+    result = inject_neutrino_event(pdg, prem, bvh, cs, detector_region, as, pl, xs, detector_props)
 end
 ```
 """
-function inject_event(
+function inject_neutrino_event(
     pdg::Int,
     prem,
     bvh::BVHTree{T},
@@ -679,7 +679,7 @@ function inject_neutrinos!(
 
     @llama_showprogress "Injecting" for frame in q_frames
         tr_seed = rand(UInt32)
-        istate, cstate, fstate, point = inject_event(
+        istate, cstate, fstate, point = inject_neutrino_event(
             config["pdg"],
             prem, bvh, cs, detector_region, topography,
             as, pl, cross_section;

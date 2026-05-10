@@ -257,10 +257,10 @@ proton_injection_config = proton_config["injection"]
 proton_injection_config["nevent"]   = NEVENT
 proton_injection_config["pinecone"] = SEED
 
-# The proton config has no `pdg` (protons are protons), no `xs_location`
-# (no forced interaction), but adds `altitude` — the geodetic altitude at
-# which the primary is sampled along its trajectory before entering the
-# atmosphere.
+# The proton config is similar to that for neutrinos but 
+# adds `altitude` — the geodetic altitude at which the primary 
+# is sampled along its trajectory before entering the atmosphere.
+@show proton_injection_config["pdg"]; 
 @show proton_injection_config["altitude"];                                # km
 @show proton_injection_config["thetamin"], proton_injection_config["thetamax"];  # downgoing
 @show proton_injection_config["gamma"];                                   # CR-flux-shaped (~2.7)

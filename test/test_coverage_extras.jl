@@ -96,19 +96,6 @@ function run_display_tests()
         @test occursin("pdg:", s)
         @test occursin("status:", s)
 
-        # WeightParameters
-        wp = WeightParameters(
-            1.0u"m^2", 1e3u"GeV", 1e6u"GeV", -2.0,
-            0.0, π/2, 0.0, 2π,
-            1e4u"GeV", 1e5u"GeV",
-            100.0u"g/cm^2", 2.65u"g/cm^3",
-            1e-32u"cm^2", 1e-33u"cm^2"
-        )
-        show(io, wp)
-        @test occursin("WeightParameters", String(take!(io)))
-        show(io, MIME"text/plain"(), wp)
-        @test occursin("Sampling", String(take!(io)))
-
         # Frame single-line and multi-line
         _gf = Frame('G', Dict{String,Any}())
         _mf = Frame('M', Dict{String,Any}())

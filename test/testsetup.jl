@@ -22,7 +22,6 @@ import TamboSim: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
               UnitfulPowerLawSampler, UniformAngularSampler, pl_norm, probability,
               Frame,
               Particle, FitStatus, ParticleShape,
-              WeightParameters,
               reverse,
               # Particle types
               TauMinus, TauPlus, NuTau, NuTauBar, Gamma,

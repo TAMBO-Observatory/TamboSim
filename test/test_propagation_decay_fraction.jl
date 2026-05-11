@@ -10,7 +10,7 @@ Uses fixed random seeds for deterministic reproducibility.
 """
 
 import TamboSim: UnitfulPowerLawSampler, UniformAngularSampler, CoordinateSystem,
-              precompute_detector_properties, inject_event, CrossSection,
+              precompute_detector_properties, inject_neutrino_event, CrossSection,
               init_proposal, proposal_propagate, is_proposal_available
 
 """
@@ -56,7 +56,7 @@ function run_propagation_decay_fraction_tests()
     n_injected = 0
     for _ in 1:n_events
         tr_seed = rand(UInt32)
-        istate, cstate, fstate, wp = inject_event(
+        istate, cstate, fstate, wp = inject_neutrino_event(
             16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed
         )
         n_injected += 1

@@ -1,4 +1,4 @@
-# 6_detector_layout.jl
+# 7_detector_layout.jl
 #
 # Walk through the OBB placement algorithm that templates/2_create_detector.jl
 # wraps as a CLI. Designed to be pasted into the REPL section by section —
@@ -18,6 +18,7 @@
 #   5. Per-point OBB construction with the max-slope filter
 #   6. The resulting D-frame keys, and how 6_corsika_hits.jl consumes them
 
+using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using LinearAlgebra
 using Rotations
 using TamboSim

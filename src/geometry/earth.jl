@@ -173,14 +173,32 @@ function load_earth!(g_frame::Frame)
         detectorname = haskey(g_frame.data, "detector_key") ? g_frame.data["detector_key"] : ""
         _load_earth_h5(location, detectorname)
     end
-    g_frame["prem"]       = prem
-    g_frame["topography"] = topography
-    g_frame["bvh"]        = bvh
-    g_frame["cs"]         = cs
+    new_hash = _geometry_hash(prem, topography)
+    if haskey(g_frame.data, "geometry_hash") && g_frame["geometry_hash"] != new_hash
+        @warn "geometry_hash mismatch for $(location): stored hash does not match reloaded geometry. The file may have changed since the JLD2 was written."
+    end
+    g_frame["prem"]          = prem
+    g_frame["topography"]    = topography
+    g_frame["bvh"]           = bvh
+    g_frame["cs"]            = cs
+    g_frame["geometry_hash"] = new_hash
     return g_frame
 end
 
 CoordinateSystem(g_frame::Frame) = g_frame["cs"]
+
+"""
+    _ensure_geometry_hash!(g_frame::Frame)
+
+If `g_frame` has prem and topography but no `geometry_hash`, derive and store
+it. Defensive fallback for legacy fixtures saved before `build_gcd_bundle`
+started baking the hash in.
+"""
+function _ensure_geometry_hash!(g_frame::Frame)
+    haskey(g_frame.data, "geometry_hash") && return
+    haskey(g_frame.data, "prem") && haskey(g_frame.data, "topography") || return
+    g_frame["geometry_hash"] = _geometry_hash(g_frame["prem"], g_frame["topography"])
+end
 
 """
     _ensure_earth_loaded!(frames::TamboFrames)
@@ -192,6 +210,7 @@ function _ensure_earth_loaded!(frames::TamboFrames)
     if !haskey(g_frame.data, "prem")
         load_earth!(g_frame)
     end
+    _ensure_geometry_hash!(g_frame)
 end
 
 """
@@ -204,6 +223,23 @@ region indices and pre-built detector BVH).
 Save the result with `save_frames(path, frames, streams=('G','C','D'))` to
 produce a JLD2 that downstream runs can load without the original HDF5 file.
 """
+function _geometry_hash(prem, topography)
+    coords = Float64[]
+    for s in prem
+        push!(coords, ustrip(u"m", s.radius))
+    end
+    for tri in topography
+        for v in (tri.v1, tri.v2, tri.v3)
+            append!(coords, ustrip.(u"m", v.point))
+        end
+    end
+    # SHA256 over raw IEEE 754 bytes — stable across Julia versions.
+    # Julia's built-in hash() is not stable across minor versions and must not
+    # be used for values persisted to disk.
+    digest = sha256(reinterpret(UInt8, coords))
+    return reinterpret(UInt64, digest[1:8])[1]
+end
+
 function build_gcd_bundle(earth_path::String, detector_key::String)
     prem, topography, bvh, detector_region, cs = if endswith(earth_path, ".ply")
         _load_earth_ply(earth_path)
@@ -212,11 +248,12 @@ function build_gcd_bundle(earth_path::String, detector_key::String)
     end
 
     g_frame = Frame('G', Dict{String,Any}(
-        "earth_path" => earth_path,
-        "prem"       => prem,
-        "topography" => topography,
-        "bvh"        => bvh,
-        "cs"         => cs,
+        "earth_path"    => earth_path,
+        "prem"          => prem,
+        "topography"    => topography,
+        "bvh"           => bvh,
+        "cs"            => cs,
+        "geometry_hash" => _geometry_hash(prem, topography),
     ))
 
     c_frame = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame))

@@ -41,10 +41,47 @@ function _reconstruct_frames(raw::Vector{Tuple{Char,Dict{String,Any}}})
         if stream == 'G' && haskey(data, "earth_path") && !haskey(data, "bvh")
             load_earth!(frame)
         end
+        if stream == 'G'
+            _ensure_geometry_hash!(frame)
+        end
         parent_cache[stream] = frame
         push!(frames, frame)
     end
     return frames
+end
+
+"""
+    _validate_geometry_hash!(tf::TamboFrames; prefixes=("injection",))
+
+For every M frame that snapshotted a `geometry_hash` under one of `prefixes`
+(set at injection time by `_setup_injection`), verify it matches the live
+`geometry_hash` of its parent G frame. Mismatches mean the user paired a
+saved injection campaign with the wrong geometry — `oneweights` would
+silently produce wrong values without this guard.
+
+Skips M frames that have no G parent (M-only files loaded standalone), no
+config under any of `prefixes`, or no snapshotted hash within that config
+(campaigns predating the snapshot).
+"""
+function _validate_geometry_hash!(tf::TamboFrames; prefixes=("injection",))
+    for (m_idx, m) in enumerate(tf.m_frames)
+        haskey(m.parents, 'G') || continue
+        g = m.parents['G']
+        haskey(g.data, "geometry_hash") || continue
+        for prefix in prefixes
+            haskey(m.data, prefix) || continue
+            cfg = m.data[prefix]
+            cfg isa AbstractDict && haskey(cfg, "geometry_hash") || continue
+            snap = UInt(cfg["geometry_hash"])
+            live = UInt(g["geometry_hash"])
+            snap == live || error(
+                "_validate_geometry_hash!: M frame #$m_idx (prefix=\"$prefix\") " *
+                "was injected against geometry_hash=$snap, but its loaded G frame " *
+                "has geometry_hash=$live. Loading the wrong G with this M+Q file " *
+                "would silently produce incorrect oneweights — refusing to proceed."
+            )
+        end
+    end
 end
 
 """
@@ -58,7 +95,7 @@ the parent cache (G/C frames) carrying over across file boundaries.
 
 Loads frames from a single JLD2 file.
 """
-function load_frames(paths::Vector{String})
+function load_frames(paths::Vector{String}; prefixes=("injection",))
     raw = Tuple{Char,Dict{String,Any}}[]
     for path in paths
         jldopen(path, "r") do file
@@ -70,7 +107,9 @@ function load_frames(paths::Vector{String})
             end
         end
     end
-    return TamboFrames(_reconstruct_frames(raw))
+    tf = TamboFrames(_reconstruct_frames(raw))
+    _validate_geometry_hash!(tf; prefixes)
+    return tf
 end
 
-load_frames(path::String) = load_frames([path])
+load_frames(path::String; prefixes=("injection",)) = load_frames([path]; prefixes)

@@ -13,8 +13,8 @@ Requires HDF5 geometry and cross-section data files.
 """
 
 import TamboSim: UnitfulPowerLawSampler, UniformAngularSampler, CoordinateSystem,
-              precompute_detector_properties, inject_event, CrossSection,
-              null_params, init_proposal, proposal_propagate, is_proposal_available
+              precompute_detector_properties, inject_neutrino_event, CrossSection,
+              init_proposal, proposal_propagate, is_proposal_available
 
 """
     isinair(particle, prem, bvh)
@@ -41,7 +41,7 @@ function run_injection(prem, bvh, cs, detector_region, xs, detector_props, as, g
 
     for i in 1:n_events
         tr_seed = rand(UInt32)
-        istate, cstate, fstate, wp = inject_event(16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed)
+        istate, cstate, fstate, wp = inject_neutrino_event(16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed)
         e_val = ustrip(u"GeV", istate.energy)
         if !isnan(e_val)
             push!(initial_energies, e_val)
@@ -93,7 +93,7 @@ function run_injection_regression_tests()
         Random.seed!(3)
         tr_seed = UInt32(3723491101)
 
-        istate, cstate, fstate, wp = inject_event(
+        istate, cstate, fstate, wp = inject_neutrino_event(
             16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed
         )
 
@@ -130,7 +130,7 @@ function run_injection_regression_tests()
 
         # Reproducibility: same seeds must give identical results
         Random.seed!(3)
-        istate2, cstate2, fstate2, wp2 = inject_event(
+        istate2, cstate2, fstate2, wp2 = inject_neutrino_event(
             16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed
         )
         @test istate2.energy == istate.energy
@@ -196,7 +196,7 @@ function run_injection_regression_tests()
         Random.seed!(prop_seed)
         for i in 1:n_prop_events
             tr_seed = rand(UInt32)
-            istate, cstate, fstate, wp = inject_event(16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed)
+            istate, cstate, fstate, wp = inject_neutrino_event(16, prem, bvh, cs, detector_region, as, pl, xs, detector_props; tr_seed=tr_seed)
             if !isnan(fstate.energy)
                 push!(fstates, fstate)
             end

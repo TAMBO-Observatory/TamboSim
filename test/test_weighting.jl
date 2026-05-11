@@ -1,259 +1,392 @@
 include("testsetup.jl")
 """
-Tests for the weighting module including weight parameters and calculations.
-
-These tests use the actual TamboSim types from src/ to ensure code coverage.
+Tests for the weighting module: PhaseSpace / PhaseSpacePoint functors and the
+multi-campaign one-weight aggregator.
 """
 
-# Import weighting-related types and functions
-import TamboSim: null_params
+import TamboSim: _oneweight_from_ps, _validate_geometry_hash!
 
-# ============================================================================
-# Weighting helper functions for testing
-# ============================================================================
+# =============================================================================
+# Pre-refactor reference formulas
+#
+# The functor methods in `phase_space.jl` were derived from the (now deleted)
+# `p_mc`, `p_phys`, and `p_mc_surface` helpers. The `*_matches_old_formula`
+# tests below pin the new implementation to those old formulas; reproducing
+# them here as test-local helpers means the regression test still has a
+# documented reference even though the production code no longer carries it.
+# =============================================================================
 
-"""
-Calculate power law PDF value.
-"""
-function test_pl_pdf(γ, emin, emax, e)
-    if γ == 1
-        norm = 1 / (emin * log(emax / emin))
-    else
-        mg = 1 - γ
-        norm = mg / (emin^γ * (emax^mg - emin^mg))
-    end
-    return norm * (e / emin)^(-γ)
-end
-
-"""
-Calculate solid angle.
-"""
-function test_solid_angle(θmin, θmax, ϕmin, ϕmax)
-    return (ϕmax - ϕmin) * (cos(θmin) - cos(θmax))
-end
-
-"""
-Calculate Monte Carlo probability density.
-"""
-function test_p_mc(
-    area,
-    emin,
-    emax,
-    gamma,
-    thetamin,
-    thetamax,
-    phimin,
-    phimax,
-    generated_initial_e,
-    generated_cd,
-    generated_density,
-    generated_xs,
-    generated_diff_xs
-)
-    if generated_initial_e == 0.0u"GeV"
-        return 0.0u"GeV^-1 * m^-3"
-    end
-
-    # Power law PDF
-    pdf_e = test_pl_pdf(gamma, emin, emax, generated_initial_e)
-
-    # Solid angle
-    Ω = test_solid_angle(thetamin, thetamax, phimin, phimax)
-
-    # MC probability
-    p = pdf_e / area / Ω
-
+function _old_mc_density(area, emin, emax, gamma, thetamin, thetamax, phimin, phimax,
+                         E, cd, density, sigma, dsigma)
+    norm = pl_norm(gamma, emin, emax)
+    p = norm * (E / emin)^(-gamma)
+    Ω = (cos(thetamin) - cos(thetamax)) * (phimax - phimin) * u"sr"
+    p /= Ω
+    p /= area
+    p *= density / cd
+    p *= dsigma / sigma
     return p
 end
 
-function test_p_mc(wp::WeightParameters)
-    return test_p_mc(
-        wp.area,
-        wp.emin,
-        wp.emax,
-        wp.gamma,
-        wp.thetamin,
-        wp.thetamax,
-        wp.phimin,
-        wp.phimax,
-        wp.generated_initial_e,
-        wp.generated_cd,
-        wp.generated_density,
-        wp.generated_xs,
-        wp.generated_diff_xs
-    )
+function _old_phys_density(cd, density, dsigma)
+    miso = TamboSim.speedoflight^(-2) * (938.27208816u"MeV" + 939.5654133u"MeV") / 2
+    p  = cd / miso
+    p *= density / cd
+    p *= dsigma
+    return p
 end
 
-"""
-Calculate physical probability density (interaction probability per unit length).
-"""
-function test_p_phys(
-    physical_cd,
-    physical_density,
-    physical_diff_xs
-)
-    if isnan(ustrip(physical_cd))
-        return 0.0u"m^-1"
-    end
-
-    # Simple interaction probability per unit length
-    # P/L = n * σ where n is number density (1/volume)
-    # n = ρ * N_A / M, where N_A/M ≈ 6e23 / (1 g) for hydrogen-like target
-    # For simplicity, use an approximate N_A/M factor
-    N_A_over_M = 6.022e23u"g^-1"  # Avogadro's number per gram
-
-    # P/L = ρ * (N_A/M) * σ has units: (g/cm^3) * (1/g) * cm^2 = cm^-1 -> m^-1
-    p = physical_density * N_A_over_M * physical_diff_xs |> u"m^-1"
-
-    return abs(p)
+function _old_surface_density(area, emin, emax, gamma, thetamin, thetamax, phimin, phimax, E)
+    norm = pl_norm(gamma, emin, emax)
+    p = norm * (E / emin)^(-gamma)
+    Ω = (cos(thetamin) - cos(thetamax)) * (phimax - phimin) * u"sr"
+    p /= Ω
+    p /= area
+    return uconvert(u"GeV^-1 * m^-2 * sr^-1", p)
 end
 
 # ============================================================================
-# Test functions
+# Test runner
 # ============================================================================
 
 function run_weighting_tests()
-    @testset "Weight Parameters" begin
-        test_weight_parameters_construction()
-        test_null_weight_parameters()
+    @testset "PhaseSpace functors" begin
+        test_forced_neutrino_functor_matches_old_formula()
+        test_upstream_neutrino_functor_matches_old_formula()
+        test_cr_functor_matches_old_formula()
+        test_compatibility_energy_out_of_bounds()
+        test_compatibility_phi_wraparound()
     end
 
-    @testset "Monte Carlo Probability" begin
-        test_p_mc_basic()
-        test_p_mc_with_weight_params()
-        test_p_mc_zero_energy()
+    @testset "Campaign-level compatibility (M ↔ PS filter)" begin
+        test_campaign_pdg_mismatch_via_filter()
+        test_campaign_geometry_mismatch_via_filter()
     end
 
-    @testset "Physical Probability" begin
-        test_p_phys_basic()
-        test_p_phys_nan_cd()
+    @testset "Multi-campaign oneweight" begin
+        test_disjoint_phase_spaces()
+        test_boundary_disjoint_phase_spaces()
+        test_overlapping_phase_spaces()
+        test_mixed_strategy_campaigns()
+        test_zero_nevent_warns_and_returns_zero()
+    end
+
+    @testset "Round-trip oneweights from example_output" begin
+        test_round_trip_oneweights_match_inline_formula()
+    end
+
+    @testset "geometry_hash validation" begin
+        test_validate_geometry_hash_mismatch()
+        test_validate_geometry_hash_match()
+        test_validate_geometry_hash_no_g_parent()
     end
 end
 
-# Weight Parameters tests
-function test_weight_parameters_construction()
-    wp = WeightParameters(
-        100.0u"m^2",      # area
-        1.0u"GeV",        # emin
-        1000.0u"GeV",     # emax
-        2.0,              # gamma
-        0.0,              # thetamin
-        Float64(π/2),     # thetamax
-        0.0,              # phimin
-        Float64(2π),      # phimax
-        100.0u"GeV",      # generated_initial_e
-        50.0u"GeV",       # generated_final_e
-        100.0u"g/cm^2",   # generated_cd
-        2.65u"g/cm^3",    # generated_density
-        1e-36u"cm^2",     # generated_xs
-        1e-37u"cm^2"      # generated_diff_xs
+# =============================================================================
+# PhaseSpace / PhaseSpacePoint tests
+# =============================================================================
+
+const _TEST_GEOM_HASH = UInt(42)
+
+function _test_neutrino_ps(; emin=1e3, emax=1e6, nevent=1000,
+                            geometry_hash::UInt=_TEST_GEOM_HASH, pdg::Int=16)
+    NeutrinoInjectionPS(geometry_hash, pdg, emin*u"GeV", emax*u"GeV",
+                        2.0, 0.0, π/2, 0.0, 2π, nevent)
+end
+
+function _test_cr_ps(; emin=1e3, emax=1e6, nevent=1000,
+                      geometry_hash::UInt=_TEST_GEOM_HASH, pdg::Int=2212)
+    CosmicRayInjectionPS(geometry_hash, pdg, emin*u"GeV", emax*u"GeV",
+                         2.0, 0.0, π/2, 0.0, 2π, nevent)
+end
+
+function test_forced_neutrino_functor_matches_old_formula()
+    ps = _test_neutrino_ps()
+    # Distinct sigma vs dsigma so a swap between the two would actually fail.
+    pt = ForcedNeutrinoInteractionPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2",
+                                        100.0u"g/cm^2", 2.65u"g/cm^3",
+                                        2e-36u"cm^2", 7e-38u"cm^2")
+
+    result = ps(pt)
+
+    mc   = _old_mc_density(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π,
+                           1e4u"GeV", 100.0u"g/cm^2", 2.65u"g/cm^3", 2e-36u"cm^2", 7e-38u"cm^2")
+    phys = _old_phys_density(100.0u"g/cm^2", 2.65u"g/cm^3", 7e-38u"cm^2")
+    expected = uconvert(u"GeV^-1 * m^-2 * sr^-1", mc / phys)
+
+    @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈ ustrip(u"GeV^-1 * m^-2 * sr^-1", expected)
+end
+
+function test_upstream_neutrino_functor_matches_old_formula()
+    ps = _test_neutrino_ps()
+    pt = UpstreamNeutrinoInteractionPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+
+    result = ps(pt)
+    expected = _old_surface_density(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π, 1e4u"GeV")
+
+    @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈ ustrip(u"GeV^-1 * m^-2 * sr^-1", expected)
+end
+
+function test_cr_functor_matches_old_formula()
+    ps = _test_cr_ps()
+    pt = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+
+    result = ps(pt)
+    expected = _old_surface_density(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π, 1e4u"GeV")
+
+    @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈ ustrip(u"GeV^-1 * m^-2 * sr^-1", expected)
+end
+
+function test_compatibility_energy_out_of_bounds()
+    ps = _test_cr_ps(; emin=1e3, emax=1e5)
+    pt = SurfaceCRPoint(1e6u"GeV", π/4, 1.0, 500.0u"m^2")
+    @test ps(pt) == 0.0u"GeV^-1 * m^-2 * sr^-1"
+end
+
+function test_compatibility_phi_wraparound()
+    # The injection sampler accepts a φ range that wraps past 2π (e.g.
+    # [3π/2, 5π/2], i.e. 270°→90° through 0°). cart_to_sph returns φ in
+    # [-π, π], so an event at φ = -π/2 must still match this range.
+    ps = CosmicRayInjectionPS(_TEST_GEOM_HASH, 2212, 1e3u"GeV", 1e6u"GeV", 2.0,
+                              0.0, π/2, 3π/2, 5π/2, 1000)
+    # In-range: φ = -π/2 is the same direction as 3π/2.
+    pt_in = SurfaceCRPoint(1e4u"GeV", π/4, -π/2, 500.0u"m^2")
+    @test ps(pt_in) > 0.0u"GeV^-1 * m^-2 * sr^-1"
+    # Out of range: φ = π is opposite to the [3π/2, 5π/2] arc.
+    pt_out = SurfaceCRPoint(1e4u"GeV", π/4, Float64(π), 500.0u"m^2")
+    @test ps(pt_out) == 0.0u"GeV^-1 * m^-2 * sr^-1"
+end
+
+# Campaign-level filter: pdg and geometry_hash live on M's "injection"
+# config snapshot under E2; mismatches drop the PS from `_oneweight_from_ps`
+# before the per-event functor runs.
+function test_campaign_pdg_mismatch_via_filter()
+    ps = _test_cr_ps(; pdg=2212)
+    pt = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    # M says pdg=9999 — PS describing pdg=2212 must not contribute.
+    q  = _make_q_frame_with_point(pt; pdg=9999)
+    @test _oneweight_from_ps(q, PhaseSpace[ps]) == 0.0u"GeV*m^2*sr"
+end
+
+function test_campaign_geometry_mismatch_via_filter()
+    ps = _test_cr_ps(; geometry_hash=UInt(1))
+    pt = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    # M's snapshot says geometry_hash=2 — PS for geometry_hash=1 must not contribute.
+    q  = _make_q_frame_with_point(pt; geometry_hash=UInt(2))
+    @test _oneweight_from_ps(q, PhaseSpace[ps]) == 0.0u"GeV*m^2*sr"
+end
+
+# =============================================================================
+# Multi-campaign oneweight tests
+# =============================================================================
+
+function _make_q_frame_with_point(pt::PhaseSpacePoint;
+                                   geometry_hash::UInt=_TEST_GEOM_HASH,
+                                   pdg::Int=2212)
+    cfg = Dict{String,Any}("geometry_hash" => geometry_hash, "pdg" => pdg)
+    m   = Frame('M', Dict{String,Any}("injection" => cfg))
+    return Frame('Q', Dict{String,Any}("phase_space_point" => pt),
+                 Dict{Char,Frame}('M' => m))
+end
+
+function test_disjoint_phase_spaces()
+    ps1 = _test_cr_ps(; emin=1e3, emax=1e5, nevent=1000)
+    ps2 = _test_cr_ps(; emin=1e5, emax=1e7, nevent=1000)
+
+    # Event only in ps1's range
+    pt_low = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    q_low  = _make_q_frame_with_point(pt_low)
+    ow_combined = _oneweight_from_ps(q_low, PhaseSpace[ps1, ps2])
+    ow_single   = _oneweight_from_ps(q_low, PhaseSpace[ps1])
+    @test ustrip(u"GeV*m^2*sr", ow_combined) ≈ ustrip(u"GeV*m^2*sr", ow_single)
+
+    # Event only in ps2's range
+    pt_high = SurfaceCRPoint(1e6u"GeV", π/4, 1.0, 500.0u"m^2")
+    q_high  = _make_q_frame_with_point(pt_high)
+    ow_combined2 = _oneweight_from_ps(q_high, PhaseSpace[ps1, ps2])
+    ow_single2   = _oneweight_from_ps(q_high, PhaseSpace[ps2])
+    @test ustrip(u"GeV*m^2*sr", ow_combined2) ≈ ustrip(u"GeV*m^2*sr", ow_single2)
+end
+
+function test_boundary_disjoint_phase_spaces()
+    # Adjacent campaigns sharing a boundary energy: with half-open intervals
+    # (`emin <= E < emax`), an event at exactly E == emax_PS1 == emin_PS2 must
+    # belong to PS2 only — never both. Catches regressions to inclusive `<=`.
+    ps1 = _test_cr_ps(; emin=1e3, emax=1e5, nevent=1000)
+    ps2 = _test_cr_ps(; emin=1e5, emax=1e7, nevent=1000)
+
+    pt_boundary = SurfaceCRPoint(1e5u"GeV", π/4, 1.0, 500.0u"m^2")
+    q_boundary  = _make_q_frame_with_point(pt_boundary)
+
+    ow_combined = _oneweight_from_ps(q_boundary, PhaseSpace[ps1, ps2])
+    ow_only_ps2 = _oneweight_from_ps(q_boundary, PhaseSpace[ps2])
+    @test ustrip(u"GeV*m^2*sr", ow_combined) ≈ ustrip(u"GeV*m^2*sr", ow_only_ps2)
+
+    # PS1 alone must reject the boundary event (zero contribution → infinite ow → _zero_ow sentinel).
+    @test ps1(pt_boundary) == 0.0u"GeV^-1 * m^-2 * sr^-1"
+end
+
+function test_overlapping_phase_spaces()
+    ps1 = _test_cr_ps(; emin=1e3, emax=1e6, nevent=1000)
+    ps2 = _test_cr_ps(; emin=1e5, emax=1e7, nevent=1000)
+
+    # Event outside overlap (only in ps1)
+    pt_low = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    q_low  = _make_q_frame_with_point(pt_low)
+    ow_combined = _oneweight_from_ps(q_low, PhaseSpace[ps1, ps2])
+    ow_single   = _oneweight_from_ps(q_low, PhaseSpace[ps1])
+    @test ustrip(u"GeV*m^2*sr", ow_combined) ≈ ustrip(u"GeV*m^2*sr", ow_single)
+
+    # Event in overlap — both campaigns contribute, oneweight should be smaller
+    pt_overlap = SurfaceCRPoint(5e5u"GeV", π/4, 1.0, 500.0u"m^2")
+    q_overlap  = _make_q_frame_with_point(pt_overlap)
+    ow_both  = _oneweight_from_ps(q_overlap, PhaseSpace[ps1, ps2])
+    ow_ps1   = _oneweight_from_ps(q_overlap, PhaseSpace[ps1])
+    ow_ps2   = _oneweight_from_ps(q_overlap, PhaseSpace[ps2])
+    @test ustrip(u"GeV*m^2*sr", ow_both) < ustrip(u"GeV*m^2*sr", ow_ps1)
+    @test ustrip(u"GeV*m^2*sr", ow_both) < ustrip(u"GeV*m^2*sr", ow_ps2)
+
+    # Verify exact value: 1 / (ps1(pt)*n1 + ps2(pt)*n2)
+    contribution1 = ps1(pt_overlap) * ps1.nevent
+    contribution2 = ps2(pt_overlap) * ps2.nevent
+    expected = uconvert(u"GeV*m^2*sr", inv(contribution1 + contribution2))
+    @test ustrip(u"GeV*m^2*sr", ow_both) ≈ ustrip(u"GeV*m^2*sr", expected)
+end
+
+function test_zero_nevent_warns_and_returns_zero()
+    ps = _test_cr_ps(; nevent=0)
+    pt = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    q  = _make_q_frame_with_point(pt)
+    @test_warn r"nevent=0" _oneweight_from_ps(q, PhaseSpace[ps])
+    ow = _oneweight_from_ps(q, PhaseSpace[ps])
+    @test ow == 0.0u"GeV*m^2*sr"
+end
+
+function test_mixed_strategy_campaigns()
+    # A TamboFrames holding both a neutrino campaign (pdg=16) and a CR campaign
+    # (pdg=2212) with the same geometry hash. Each Q frame must receive a non-zero
+    # one-weight only from its own campaign's PhaseSpace; the incompatible PS
+    # must be filtered out by _compatible before the functor is called.
+    nu_ps = _test_neutrino_ps(; pdg=16)
+    cr_ps = _test_cr_ps(; pdg=2212)
+    both  = PhaseSpace[nu_ps, cr_ps]
+
+    pt_nu = UpstreamNeutrinoInteractionPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    q_nu  = _make_q_frame_with_point(pt_nu; pdg=16)
+
+    pt_cr = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    q_cr  = _make_q_frame_with_point(pt_cr; pdg=2212)
+
+    # Neutrino Q: combined weight must equal weight from neutrino PS alone.
+    ow_nu_combined = _oneweight_from_ps(q_nu, both)
+    ow_nu_only     = _oneweight_from_ps(q_nu, PhaseSpace[nu_ps])
+    @test ow_nu_combined > 0.0u"GeV*m^2*sr"
+    @test ustrip(u"GeV*m^2*sr", ow_nu_combined) ≈ ustrip(u"GeV*m^2*sr", ow_nu_only)
+
+    # CR Q: combined weight must equal weight from CR PS alone.
+    ow_cr_combined = _oneweight_from_ps(q_cr, both)
+    ow_cr_only     = _oneweight_from_ps(q_cr, PhaseSpace[cr_ps])
+    @test ow_cr_combined > 0.0u"GeV*m^2*sr"
+    @test ustrip(u"GeV*m^2*sr", ow_cr_combined) ≈ ustrip(u"GeV*m^2*sr", ow_cr_only)
+end
+
+# =============================================================================
+# Round-trip test against the committed example_output.jld2 fixture.
+#
+# Loads geometry + example_output, calls `oneweights(tf)`, and recomputes the
+# expected per-event one-weight inline from the PS + Point fields using the
+# pre-refactor formula helpers. Catches any drift between the production
+# functor body and the formulas the test helpers pin.
+# =============================================================================
+
+function test_round_trip_oneweights_match_inline_formula()
+    tambo_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
+    geom_file  = joinpath(tambo_path, "resources", "geometry", "colca_valley_3000.jld2")
+    out_file   = joinpath(tambo_path, "examples", "resources", "example_output.jld2")
+
+    tf = load_frames([geom_file, out_file])
+    @test length(tf.q_frames) > 0
+    @test length(tf.m_frames) == 1
+
+    ows = oneweights(tf)
+    @test length(ows) == length(tf.q_frames)
+
+    ps = TamboSim.build_phase_space(tf.m_frames[1])
+    @test ps isa NeutrinoInjectionPS
+
+    n_checked = 0
+    for (q, ow) in zip(tf.q_frames, ows)
+        haskey(q.data, "phase_space_point") || continue
+        pt = q["phase_space_point"]
+
+        # Recompute ps(pt) inline from the relevant `_old_*` helper, depending
+        # on which Point flavor this event produced. This is the formula the
+        # production functor was derived from; the round-trip test catches
+        # drift between them.
+        expected_density = if pt isa ForcedNeutrinoInteractionPoint
+            mc   = _old_mc_density(pt.area, ps.emin, ps.emax, ps.gamma,
+                                   ps.thetamin, ps.thetamax, ps.phimin, ps.phimax,
+                                   pt.E, pt.cd, pt.rho, pt.sigma, pt.dsigma)
+            phys = _old_phys_density(pt.cd, pt.rho, pt.dsigma)
+            uconvert(u"GeV^-1 * m^-2 * sr^-1", mc / phys)
+        elseif pt isa UpstreamNeutrinoInteractionPoint
+            _old_surface_density(pt.area, ps.emin, ps.emax, ps.gamma,
+                                 ps.thetamin, ps.thetamax, ps.phimin, ps.phimax, pt.E)
+        else
+            error("unexpected Point type in fixture: $(typeof(pt))")
+        end
+
+        expected_ow = uconvert(u"GeV*m^2*sr", inv(expected_density * ps.nevent))
+        @test ustrip(u"GeV*m^2*sr", ow) ≈ ustrip(u"GeV*m^2*sr", expected_ow)
+        n_checked += 1
+    end
+    @test n_checked > 0
+end
+
+# =============================================================================
+# geometry_hash validation tests
+# =============================================================================
+
+function test_validate_geometry_hash_mismatch()
+    # G frame with one hash, M frame snapshotted against a different hash.
+    # Simulates loading the wrong geometry alongside a saved M+Q file.
+    g = Frame('G', Dict{String,Any}("geometry_hash" => UInt(0xABCD)))
+    m = Frame('M',
+        Dict{String,Any}("injection" => Dict{String,Any}(
+            "geometry_hash" => UInt(0x1234),
+            "pdg"           => 16,
+        )),
+        Dict{Char,Frame}('G' => g),
     )
-
-    @test wp.area == 100.0u"m^2"
-    @test wp.emin == 1.0u"GeV"
-    @test wp.emax == 1000.0u"GeV"
-    @test wp.gamma == 2.0
-    @test wp.generated_initial_e == 100.0u"GeV"
+    tf = TamboFrames(Frame[g, m])
+    @test_throws ErrorException _validate_geometry_hash!(tf)
 end
 
-function test_null_weight_parameters()
-    null_wp = null_params
-
-    @test isnan(ustrip(null_wp.area))
-    @test isnan(ustrip(null_wp.emin))
-    @test isnan(ustrip(null_wp.generated_initial_e))
-end
-
-# Monte Carlo Probability tests
-function test_p_mc_basic()
-    # Test basic p_mc calculation
-    p = test_p_mc(
-        100.0u"m^2",      # area
-        1.0u"GeV",        # emin
-        1000.0u"GeV",     # emax
-        2.0,              # gamma
-        0.0,              # thetamin
-        Float64(π/2),     # thetamax
-        0.0,              # phimin
-        Float64(2π),      # phimax
-        100.0u"GeV",      # generated_initial_e
-        100.0u"g/cm^2",   # generated_cd
-        2.65u"g/cm^3",    # generated_density
-        1e-36u"cm^2",     # generated_xs
-        1e-37u"cm^2"      # generated_diff_xs
+function test_validate_geometry_hash_match()
+    # Same hash on both sides — should pass silently.
+    hash_val = UInt(0xABCD)
+    g = Frame('G', Dict{String,Any}("geometry_hash" => hash_val))
+    m = Frame('M',
+        Dict{String,Any}("injection" => Dict{String,Any}(
+            "geometry_hash" => hash_val,
+            "pdg"           => 16,
+        )),
+        Dict{Char,Frame}('G' => g),
     )
-
-    @test !isnan(ustrip(p))
-    @test p > 0.0u"GeV^-1 * m^-2"
+    tf = TamboFrames(Frame[g, m])
+    @test _validate_geometry_hash!(tf) === nothing
 end
 
-function test_p_mc_with_weight_params()
-    wp = WeightParameters(
-        100.0u"m^2",
-        1.0u"GeV",
-        1000.0u"GeV",
-        2.0,
-        0.0,
-        Float64(π/2),
-        0.0,
-        Float64(2π),
-        100.0u"GeV",
-        50.0u"GeV",
-        100.0u"g/cm^2",
-        2.65u"g/cm^3",
-        1e-36u"cm^2",
-        1e-37u"cm^2"
-    )
-
-    p = test_p_mc(wp)
-
-    @test !isnan(ustrip(p))
-    @test p >= 0.0u"GeV^-1 * m^-2"
+function test_validate_geometry_hash_no_g_parent()
+    # M frame with no G parent — validator should skip it silently, not throw.
+    m = Frame('M', Dict{String,Any}("injection" => Dict{String,Any}(
+        "geometry_hash" => UInt(0xABCD),
+        "pdg"           => 16,
+    )))
+    tf = TamboFrames(Frame[m])
+    @test _validate_geometry_hash!(tf) === nothing
 end
 
-function test_p_mc_zero_energy()
-    # Zero energy should return zero probability
-    p = test_p_mc(
-        100.0u"m^2",
-        1.0u"GeV",
-        1000.0u"GeV",
-        2.0,
-        0.0,
-        Float64(π/2),
-        0.0,
-        Float64(2π),
-        0.0u"GeV",        # Zero initial energy
-        100.0u"g/cm^2",
-        2.65u"g/cm^3",
-        1e-36u"cm^2",
-        1e-37u"cm^2"
-    )
-
-    @test p == 0.0u"GeV^-1 * m^-3"
-end
-
-# Physical Probability tests
-function test_p_phys_basic()
-    p = test_p_phys(
-        100.0u"g/cm^2",   # physical_cd
-        2.65u"g/cm^3",    # physical_density
-        1e-36u"cm^2"      # physical_diff_xs
-    )
-
-    @test !isnan(ustrip(p))
-    @test p >= 0.0u"m^-1"
-end
-
-function test_p_phys_nan_cd()
-    # NaN column depth should return zero probability
-    p = test_p_phys(
-        NaN * u"g/cm^2",
-        2.65u"g/cm^3",
-        1e-36u"cm^2"
-    )
-
-    @test p == 0.0u"m^-1"
-end
 if abspath(PROGRAM_FILE) == @__FILE__
     @testset "Weighting" begin
         run_weighting_tests()

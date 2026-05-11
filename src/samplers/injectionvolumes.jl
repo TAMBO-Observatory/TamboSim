@@ -143,7 +143,7 @@ This is a convenience method that extracts the position and direction from the
 `event`'s `entry_state` and then calls the primary `impact_parameter` function.
 
 # Arguments
-- `event`: An event object (e.g., `InjectionEvent`) that has an `entry_state` field,
+- `event`: An event object that has an `entry_state` field,
   which in turn has `position` (a `Coordinate`) and `direction` (a `Direction`) fields.
 
 # Returns
@@ -182,7 +182,7 @@ and returns the inverse of the cylinder's base area as the probability density.
 
 # Arguments
 - `cylinder::SymmetricInjectionCylinder`: The injection cylinder object.
-- `event`: An event object (e.g., `InjectionEvent`) used to calculate the impact parameter.
+- `event`: An event object used to calculate the impact parameter.
 
 # Returns
 - `Float64`: The probability density.

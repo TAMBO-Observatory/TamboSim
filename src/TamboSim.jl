@@ -1,6 +1,16 @@
 module TamboSim
 
-export Ray,
+export PhaseSpace,
+       PhaseSpacePoint,
+       NeutrinoInjectionPS,
+       ForcedNeutrinoInteractionPoint,
+       UpstreamNeutrinoInteractionPoint,
+       CosmicRayInjectionPS,
+       SurfaceCRPoint,
+       oneweight,
+       oneweights,
+       oneweights!,
+       Ray,
        Coordinate,
        Direction,
        intersect_all,
@@ -10,7 +20,6 @@ export Ray,
        hierarchy_violations,
        is_valid_hierarchy,
        inject!,
-       inject_protons!,
        proposal_propagation!,
        save_frames,
        load_frames,
@@ -42,9 +51,11 @@ using LibGit2
 using LinearAlgebra
 using Parquet2
 using PrecompileTools
+using Printf: @sprintf
 using ProgressMeter
 using Random
 using Rotations
+using SHA: sha256
 using StaticArrays
 using StatsBase
 using Tables

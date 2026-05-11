@@ -103,7 +103,7 @@ This is a convenience method that extracts the zenith and azimuthal angles from 
 
 # Arguments
 - `sampler::UniformAngularSampler`: The angular sampler object.
-- `event`: An event object (e.g., `InjectionEvent`) that has an `initial_state` field,
+- `event`: An event object that has an `initial_state` field,
   which in turn has a `direction` field.
 
 # Returns

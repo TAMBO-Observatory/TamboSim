@@ -10,6 +10,7 @@
 #   3. Key lookup and parent inheritance
 #   4. Inspecting the TOML config that produced the output
 
+using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using TamboSim
 using TOML
 
@@ -70,7 +71,7 @@ g_frame = q_frame.g_frame
 m_frame = q_frame.m_frame
 
 # What's stored on each frame directly:
-sort(collect(keys(q_frame.data)))  # injection_*, proposal_*, weight_params, event_id
+sort(collect(keys(q_frame.data)))  # injection_*, proposal_*, phase_space_point, event_id
 sort(collect(keys(m_frame.data)))  # injection / proposal config snapshots
 sort(collect(keys(g_frame.data)))  # bvh, topography, prem, cs, earth_path, ...
 

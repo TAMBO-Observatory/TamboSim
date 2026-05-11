@@ -1,6 +1,3 @@
-ArrowTypes.arrowname(::Type{InjectionEvent}) = :InjectionEvent
-ArrowTypes.JuliaType(::Val{:InjectionEvent}) = InjectionEvent
-
 ArrowTypes.arrowname(::Type{ProposalResult}) = :ProposalResult
 ArrowTypes.JuliaType(::Val{:ProposalResult}) = ProposalResult
 

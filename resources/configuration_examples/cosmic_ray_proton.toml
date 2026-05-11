@@ -25,7 +25,7 @@ thetamin = 91  # degrees (downgoing: zenith > 90°)
 thetamax = 130 # degrees
 phimin = 0     # degrees
 phimax = 360   # degrees
-altitude = 50.0 # km — sample primary along the trajectory at this altitude
+altitude = 112.0 # km — sample primary along the trajectory at this altitude
 track_progress = false
 
 [corsika]

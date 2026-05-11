@@ -55,6 +55,7 @@ using Printf: @sprintf
 using ProgressMeter
 using Random
 using Rotations
+using SHA: sha256
 using StaticArrays
 using StatsBase
 using Tables

@@ -64,6 +64,7 @@ end
 # campaign that produced events under M? Used to filter the PS list before
 # weighting any single Q.
 function _compatible(m::Frame, ps::PhaseSpace; prefix::String="injection")
+    haskey(m.data, prefix) || return false
     cfg = m[prefix]
     UInt(cfg["geometry_hash"]) == ps.geometry_hash || return false
     Int(cfg["pdg"])            == ps.pdg           || return false
@@ -161,6 +162,12 @@ function _oneweight_from_ps(
     m        = q.m_frame
     matching = filter(ps -> _compatible(m, ps; prefix), phase_spaces)
     isempty(matching) && return _zero_ow
+    for ps in matching
+        if ps.nevent == 0
+            eid = get(q.data, "event_id", "unknown")
+            @warn "Compatible PhaseSpace ($(typeof(ps)), pdg=$(ps.pdg)) has nevent=0 — this campaign will contribute zero weight. Check your injection config (event_id=$eid)."
+        end
+    end
     total = sum(ps -> ps(pt) * ps.nevent, matching)
     iszero(ustrip(total)) && return _zero_ow
     return uconvert(_one_weight_units, inv(total))
@@ -174,7 +181,7 @@ Per-event one-weight in units of `GeV·m²·sr`. Returns zero if `q` has no
 contributes a non-zero phase-space density.
 """
 function oneweight(tf::TamboFrames, q::Frame; prefix::String="injection")
-    phase_spaces = [build_phase_space(m, prefix) for m in tf.m_frames]
+    phase_spaces = [build_phase_space(m; prefix) for m in tf.m_frames]
     return _oneweight_from_ps(q, phase_spaces; prefix)
 end
 
@@ -185,7 +192,7 @@ Compute one-weights for all Q frames in `tf`. Phase-space functors are
 constructed once per M frame and reused across all Q frames.
 """
 function oneweights(tf::TamboFrames; prefix::String="injection")
-    phase_spaces = [build_phase_space(m, prefix) for m in tf.m_frames]
+    phase_spaces = [build_phase_space(m; prefix) for m in tf.m_frames]
     return map(tf.q_frames) do q
         _oneweight_from_ps(q, phase_spaces; prefix)
     end
@@ -199,7 +206,7 @@ frame under `key`. Phase-space functors are constructed once per M frame and
 reused across all Q frames.
 """
 function oneweights!(tf::TamboFrames; key::String="oneweight", prefix::String="injection")
-    phase_spaces = [build_phase_space(m, prefix) for m in tf.m_frames]
+    phase_spaces = [build_phase_space(m; prefix) for m in tf.m_frames]
     for q in tf.q_frames
         q[key] = _oneweight_from_ps(q, phase_spaces; prefix)
     end
@@ -210,14 +217,14 @@ end
 # =============================================================================
 
 """
-    build_phase_space(m::Frame, prefix::String="injection") -> PhaseSpace
+    build_phase_space(m::Frame; prefix::String="injection") -> PhaseSpace
 
 Construct the appropriate `PhaseSpace` subtype from an M frame's injection
 config. The config table at `m[prefix]` must declare `strategy`, set to
 one of `"NeutrinoInjection"` or `"CosmicRayInjection"`, and must carry the
 `geometry_hash` snapshot that `_setup_injection` writes at injection time.
 """
-function build_phase_space(m::Frame, prefix::String="injection")
+function build_phase_space(m::Frame; prefix::String="injection")
     cfg = m[prefix]
     args = (
         UInt(cfg["geometry_hash"]),

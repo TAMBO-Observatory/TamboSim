@@ -233,7 +233,11 @@ function _geometry_hash(prem, topography)
             append!(coords, ustrip.(u"m", v.point))
         end
     end
-    return hash(coords)
+    # SHA256 over raw IEEE 754 bytes — stable across Julia versions.
+    # Julia's built-in hash() is not stable across minor versions and must not
+    # be used for values persisted to disk.
+    digest = sha256(reinterpret(UInt8, coords))
+    return reinterpret(UInt64, digest[1:8])[1]
 end
 
 function build_gcd_bundle(earth_path::String, detector_key::String)

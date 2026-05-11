@@ -4,7 +4,7 @@ Tests for the weighting module: PhaseSpace / PhaseSpacePoint functors and the
 multi-campaign one-weight aggregator.
 """
 
-import TamboSim: _oneweight_from_ps
+import TamboSim: _oneweight_from_ps, _validate_geometry_hash!
 
 # =============================================================================
 # Pre-refactor reference formulas
@@ -67,10 +67,18 @@ function run_weighting_tests()
         test_disjoint_phase_spaces()
         test_boundary_disjoint_phase_spaces()
         test_overlapping_phase_spaces()
+        test_mixed_strategy_campaigns()
+        test_zero_nevent_warns_and_returns_zero()
     end
 
     @testset "Round-trip oneweights from example_output" begin
         test_round_trip_oneweights_match_inline_formula()
+    end
+
+    @testset "geometry_hash validation" begin
+        test_validate_geometry_hash_mismatch()
+        test_validate_geometry_hash_match()
+        test_validate_geometry_hash_no_g_parent()
     end
 end
 
@@ -245,6 +253,43 @@ function test_overlapping_phase_spaces()
     @test ustrip(u"GeV*m^2*sr", ow_both) ≈ ustrip(u"GeV*m^2*sr", expected)
 end
 
+function test_zero_nevent_warns_and_returns_zero()
+    ps = _test_cr_ps(; nevent=0)
+    pt = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    q  = _make_q_frame_with_point(pt)
+    @test_warn r"nevent=0" _oneweight_from_ps(q, PhaseSpace[ps])
+    ow = _oneweight_from_ps(q, PhaseSpace[ps])
+    @test ow == 0.0u"GeV*m^2*sr"
+end
+
+function test_mixed_strategy_campaigns()
+    # A TamboFrames holding both a neutrino campaign (pdg=16) and a CR campaign
+    # (pdg=2212) with the same geometry hash. Each Q frame must receive a non-zero
+    # one-weight only from its own campaign's PhaseSpace; the incompatible PS
+    # must be filtered out by _compatible before the functor is called.
+    nu_ps = _test_neutrino_ps(; pdg=16)
+    cr_ps = _test_cr_ps(; pdg=2212)
+    both  = PhaseSpace[nu_ps, cr_ps]
+
+    pt_nu = UpstreamNeutrinoInteractionPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    q_nu  = _make_q_frame_with_point(pt_nu; pdg=16)
+
+    pt_cr = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    q_cr  = _make_q_frame_with_point(pt_cr; pdg=2212)
+
+    # Neutrino Q: combined weight must equal weight from neutrino PS alone.
+    ow_nu_combined = _oneweight_from_ps(q_nu, both)
+    ow_nu_only     = _oneweight_from_ps(q_nu, PhaseSpace[nu_ps])
+    @test ow_nu_combined > 0.0u"GeV*m^2*sr"
+    @test ustrip(u"GeV*m^2*sr", ow_nu_combined) ≈ ustrip(u"GeV*m^2*sr", ow_nu_only)
+
+    # CR Q: combined weight must equal weight from CR PS alone.
+    ow_cr_combined = _oneweight_from_ps(q_cr, both)
+    ow_cr_only     = _oneweight_from_ps(q_cr, PhaseSpace[cr_ps])
+    @test ow_cr_combined > 0.0u"GeV*m^2*sr"
+    @test ustrip(u"GeV*m^2*sr", ow_cr_combined) ≈ ustrip(u"GeV*m^2*sr", ow_cr_only)
+end
+
 # =============================================================================
 # Round-trip test against the committed example_output.jld2 fixture.
 #
@@ -296,6 +341,50 @@ function test_round_trip_oneweights_match_inline_formula()
         n_checked += 1
     end
     @test n_checked > 0
+end
+
+# =============================================================================
+# geometry_hash validation tests
+# =============================================================================
+
+function test_validate_geometry_hash_mismatch()
+    # G frame with one hash, M frame snapshotted against a different hash.
+    # Simulates loading the wrong geometry alongside a saved M+Q file.
+    g = Frame('G', Dict{String,Any}("geometry_hash" => UInt(0xABCD)))
+    m = Frame('M',
+        Dict{String,Any}("injection" => Dict{String,Any}(
+            "geometry_hash" => UInt(0x1234),
+            "pdg"           => 16,
+        )),
+        Dict{Char,Frame}('G' => g),
+    )
+    tf = TamboFrames(Frame[g, m])
+    @test_throws ErrorException _validate_geometry_hash!(tf)
+end
+
+function test_validate_geometry_hash_match()
+    # Same hash on both sides — should pass silently.
+    hash_val = UInt(0xABCD)
+    g = Frame('G', Dict{String,Any}("geometry_hash" => hash_val))
+    m = Frame('M',
+        Dict{String,Any}("injection" => Dict{String,Any}(
+            "geometry_hash" => hash_val,
+            "pdg"           => 16,
+        )),
+        Dict{Char,Frame}('G' => g),
+    )
+    tf = TamboFrames(Frame[g, m])
+    @test _validate_geometry_hash!(tf) === nothing
+end
+
+function test_validate_geometry_hash_no_g_parent()
+    # M frame with no G parent — validator should skip it silently, not throw.
+    m = Frame('M', Dict{String,Any}("injection" => Dict{String,Any}(
+        "geometry_hash" => UInt(0xABCD),
+        "pdg"           => 16,
+    )))
+    tf = TamboFrames(Frame[m])
+    @test _validate_geometry_hash!(tf) === nothing
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

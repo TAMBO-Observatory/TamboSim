@@ -52,6 +52,10 @@ function run_propagation_decay_fraction_tests()
     pl = UnitfulPowerLawSampler(gamma, 3e5u"GeV", 1e9u"GeV")
 
     Random.seed!(seed)
+    # taurunner_interface drives PROPOSAL's C++ propagator during Earth transit,
+    # which advances PROPOSAL's own RNG. Seed it here too so this phase is
+    # deterministic regardless of what earlier testsets left it in.
+    TamboSim.PP.set_random_seed(Int32(seed))
     fstates = Particle{Float64}[]
     n_injected = 0
     for _ in 1:n_events
@@ -78,6 +82,10 @@ function run_propagation_decay_fraction_tests()
     @testset "Propagation and decay-in-mountain fractions" begin
         for (j, fs) in enumerate(fstates)
             losses, cont_e, secs, prop_final = proposal_propagate(fs, prem, bvh, j)
+            
+            # Culled event: lepton exited all media without propagating
+            # (vertex off-mesh / above the atmosphere). Skip.
+            isnan(prop_final.energy) && continue
 
             in_air = isinair_prop(prop_final, prem, bvh)
             has_decay = !isempty(secs)

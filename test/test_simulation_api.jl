@@ -16,7 +16,7 @@ const XS_PATH = joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
 function _injection_config(; nevent=10)
     Dict{String,Any}(
         "strategy"    => "NeutrinoInjection",
-        "pinecone"    => 7,
+        "seed"    => 7,
         "nevent"      => nevent,
         "pdg"         => 16,
         "gamma"       => 2.0,
@@ -147,7 +147,7 @@ function test_inject_dispatches_to_protons()
     frames = load_frames(GEOMETRY_PATH)
     proton_config = Dict{String,Any}(
         "strategy"  => "CosmicRayInjection",
-        "pinecone"  => 42,
+        "seed"  => 42,
         "nevent"    => 5,
         "pdg"       => 2212,
         "gamma"     => 2.7,
@@ -220,7 +220,7 @@ function test_proposal_config_stored()
     filter!(f -> haskey(f, "injection_final_state"), frames)
 
     proposal_config = Dict{String,Any}(
-        "pinecone"        => 7,
+        "seed"        => 7,
         "ecut"            => -1,
         "vcut"            => 0.05,
         "do_interpolate"  => true,
@@ -244,7 +244,7 @@ function test_proposal_output_keys()
     count(f -> f.stream == 'Q', frames) > 0 || return
 
     proposal_config = Dict{String,Any}(
-        "pinecone"        => 7,
+        "seed"        => 7,
         "ecut"            => -1,
         "vcut"            => 0.05,
         "do_interpolate"  => true,
@@ -283,7 +283,7 @@ function test_proposal_skips_below_rest_energy()
     target["injection_final_state"] = Particle(EMinus, 0.1u"MeV", orig.position, orig.direction)
 
     proposal_config = Dict{String,Any}(
-        "pinecone"        => 7,
+        "seed"        => 7,
         "ecut"            => -1,
         "vcut"            => 0.05,
         "do_interpolate"  => true,

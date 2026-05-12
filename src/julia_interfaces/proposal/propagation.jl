@@ -160,7 +160,7 @@ contain `inkey` and writing four new keys per event:
 - `frames::TamboFrames`: must already have an M frame (run `inject!`
   first).
 - `config::Dict`: parsed `[proposal]` TOML table. Consults
-  `"pinecone"` (RNG seed) and any cross-section / parametrization
+  `"seed"` (RNG seed) and any cross-section / parametrization
   settings that `init_proposal` knows about.
 
 # Keyword arguments
@@ -191,11 +191,11 @@ function proposal_propagation!(
     prem = g_frame["prem"]
     bvh  = g_frame["bvh"]
 
-    if !haskey(config, "pinecone")
+    if !haskey(config, "seed")
         @warn "Deciding seed via RNG and adding to configuration"
-        config["pinecone"] = rand(UInt32)
+        config["seed"] = rand(UInt32)
     end
-    Random.seed!(config["pinecone"])
+    Random.seed!(config["seed"])
 
     q_frames = filter(f -> f.stream == 'Q', frames)
 

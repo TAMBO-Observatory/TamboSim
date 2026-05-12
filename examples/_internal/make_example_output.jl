@@ -32,8 +32,8 @@ config = TOML.parsefile(config_file)
 relativize!(config)
 
 config["injection"]["nevent"]   = NEVENT
-config["injection"]["pinecone"] = SEED
-config["proposal"]["pinecone"]  = SEED
+config["injection"]["seed"] = SEED
+config["proposal"]["seed"]  = SEED
 
 frames = load_frames(geometry_file)
 inject!(frames, config["injection"])

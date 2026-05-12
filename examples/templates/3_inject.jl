@@ -19,7 +19,7 @@
 #                       or may not have detector units placed; injection
 #                       does not need them)
 #   <config>.toml       injection settings — `strategy`, energy range,
-#                       zenith range, n events, RNG seed (`pinecone`),
+#                       zenith range, n events, RNG seed (`seed`),
 #                       primary PDG + cross-section table location
 #                       (neutrino) or sampling `altitude` (proton).
 #
@@ -31,7 +31,7 @@
 #                       direction) are dropped — pass `--no-cut` to keep them.
 #
 # CLI flags `--nevent`, `--pdg`, `--seed` override the corresponding TOML
-# values (`pinecone` for the seed) so a single config can serve sweeps.
+# values (`seed` for the seed) so a single config can serve sweeps.
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
@@ -74,7 +74,7 @@ function parse_commandline()
             help = "Disable cutting failed events (where injection region was not visible)"
             action = :store_true
         "--seed", "-s"
-            help = "Random seed (overrides config pinecone value)"
+            help = "Random seed (overrides config seed value)"
             arg_type = Int
             default = nothing
     end
@@ -96,7 +96,7 @@ if !isnothing(args["pdg"])
     injection_config["pdg"] = args["pdg"]
 end
 if !isnothing(args["seed"])
-    injection_config["pinecone"] = args["seed"]
+    injection_config["seed"] = args["seed"]
 end
 
 println("Injection settings:")

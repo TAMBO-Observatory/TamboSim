@@ -45,8 +45,8 @@ config = TOML.parsefile(config_file)
 relativize!(config)
 
 config["injection"]["nevent"]   = NEVENT
-config["injection"]["pinecone"] = SEED
-config["proposal"]["pinecone"]  = SEED
+config["injection"]["seed"] = SEED
+config["proposal"]["seed"]  = SEED
 
 frames = load_frames(geometry_file)
 inject!(frames, config["injection"])
@@ -57,7 +57,7 @@ filter!(f -> haskey(f, "injection_final_state"), frames)
 # What the [proposal] table looks like:
 proposal_config = config["proposal"]
 keys(proposal_config) |> collect |> sort
-proposal_config["pinecone"]         # RNG seed (already overridden above)
+proposal_config["seed"]         # RNG seed (already overridden above)
 
 # =============================================================================
 # 2. PROPOSAL backend init

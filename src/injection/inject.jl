@@ -627,7 +627,7 @@ in place by:
   C, and D frames (typically loaded from a GCD bundle).
 - `config::Dict`: parsed `[injection]` TOML table. Must contain `"nevent"`;
   consults `"pdg"`, `"emin"`, `"emax"`, `"gamma"`, `"thetamin/max"`,
-  `"phimin/max"`, `"xs_location"`, and `"pinecone"` (RNG seed).
+  `"phimin/max"`, `"xs_location"`, and `"seed"` (RNG seed).
 
 # Keyword arguments
 - `prefix::String`: namespace under which states and the config snapshot
@@ -663,7 +663,7 @@ function inject_neutrinos!(
     detector_triangles = detector_bvh.triangles
     detector_areas  = area.(detector_triangles)
     detector_normals = normal.(detector_triangles)
-    Random.seed!(config["pinecone"])
+    Random.seed!(config["seed"])
 
     @llama_showprogress "Injecting" for frame in q_frames
         tr_seed = rand(UInt32)
@@ -740,7 +740,7 @@ function inject_protons!(
     )
     altitude = get(config, "altitude", 112.0) * u"km"
     detector_props = precompute_detector_properties(topography, detector_region)
-    Random.seed!(config["pinecone"])
+    Random.seed!(config["seed"])
 
     @llama_showprogress "Injecting protons" for frame in q_frames
         initial_proton, final_proton, point = inject_proton_event(

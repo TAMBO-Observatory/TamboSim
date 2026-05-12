@@ -60,7 +60,7 @@ relativize!(config)
 
 injection_config = config["injection"]
 injection_config["nevent"]   = NEVENT
-injection_config["pinecone"] = SEED
+injection_config["seed"] = SEED
 
 # The fields that drive the work:
 @show injection_config["pdg"];                            # primary species (16 = nu_tau)
@@ -69,7 +69,7 @@ injection_config["pinecone"] = SEED
 @show injection_config["thetamin"], injection_config["thetamax"];   # zenith box (degrees)
 @show injection_config["phimin"],   injection_config["phimax"];     # azimuth box (degrees)
 @show injection_config["xs_location"];                    # path to cross-section table
-@show injection_config["pinecone"];                       # RNG seed
+@show injection_config["seed"];                       # RNG seed
 @show injection_config["nevent"];                         # number of primaries to throw
 
 # =============================================================================
@@ -93,7 +93,7 @@ length(frames.q_frames)             # 50
 m_frame = frames.m_frames[end]
 sort(collect(keys(m_frame.data)))    # ["injection"]
 m_frame["injection"]["nevent"]       # 50 — round-trips from injection_config
-m_frame["injection"]["pinecone"]     # 1234
+m_frame["injection"]["seed"]     # 1234
 
 # Each Q frame now has event_id + the per-event physics keys:
 q1 = frames.q_frames[1]
@@ -255,7 +255,7 @@ relativize!(proton_config)
 
 proton_injection_config = proton_config["injection"]
 proton_injection_config["nevent"]   = NEVENT
-proton_injection_config["pinecone"] = SEED
+proton_injection_config["seed"] = SEED
 
 # The proton config is similar to that for neutrinos but 
 # adds `altitude` — the geodetic altitude at which the primary 

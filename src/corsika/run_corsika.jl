@@ -138,7 +138,7 @@ dispatches the per-particle method below.
   `"corsika_path"`, `"obs_mesh_path"`, `"terrain_mesh_path"` (optional),
   `"em_ecut"`, `"mu_ecut"`, `"hadron_ecut"`, `"hadron_model"` (optional,
   default "SIBYLL-2.3d"), `"thinning"` (optional, default 1e-6),
-  `"pinecone"` (RNG seed), and `"sbatch_command"` (only when
+  `"seed"` (RNG seed), and `"sbatch_command"` (only when
   `parallelize=true`).
 - `base_outdir`: directory under which per-event output dirs
   (`event_<id>/shower_<idx>/`) are created.
@@ -176,11 +176,11 @@ function corsika_run(
     hadron_model      = get(config, "hadron_model", "SIBYLL-2.3d")
     thinning          = get(config, "thinning", 1e-6)
 
-    if !haskey(config, "pinecone")
+    if !haskey(config, "seed")
         @warn "Deciding seed via RNG and adding to configuration"
-        config["pinecone"] = rand(UInt32)
+        config["seed"] = rand(UInt32)
     end
-    Random.seed!(config["pinecone"])
+    Random.seed!(config["seed"])
 
     sbatch_command = parallelize ? config["sbatch_command"] : ""
     ecuts = SVector{3, Float64}([config["em_ecut"], config["mu_ecut"], config["hadron_ecut"]]) * u"GeV"

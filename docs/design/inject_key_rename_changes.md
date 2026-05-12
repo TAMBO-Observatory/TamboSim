@@ -65,6 +65,23 @@ These are algebraically identical (`remaining * (-d) + detector = traveled * d +
 since `detector = earth_entry + chord_length * d`). The slab case was already unaffected
 as it never used `particle.position` in its output calculation.
 
+## 4. Rename P frames → R frames (Reconstructed)
+
+**Files:** `src/frames/frame.jl`, `src/frames/tambo_frames.jl`,
+`test/test_frames.jl`, `examples/interactive/1_frame_usage.jl`, `README.md`
+
+The per-particle stream character `'P'` was renamed to `'R'` (Reconstructed).
+Changes:
+
+- `STREAM_HIERARCHY`: `('G','C','D','M','Q','P')` → `('G','C','D','M','Q','R')`
+- `_STREAM_PROPERTY`: `:p_frames => 'P'` → `:r_frames => 'R'`
+- `_COLLAPSE_STREAMS`: `('Q','P')` → `('Q','R')`
+- All docstrings, examples, and README hierarchy descriptions updated
+- Test helper renamed `p` → `r`; `tf.p_frames` → `tf.r_frames` throughout
+
+R frames are not yet populated by the simulation pipeline — this is a
+forward-looking naming fix only.
+
 ## Tests added
 
 - `test_initial_state_at_earth_entry` (`test_simulation_api.jl`): for each survived

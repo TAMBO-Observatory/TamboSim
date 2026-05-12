@@ -62,7 +62,7 @@ frames_of_stream( frames, 'Q' )
 # 3. Key lookup and parent inheritance
 # =============================================================================
 # Each Frame is a dictionary-like container. getindex resolves keys against
-# own data first, then walks parents in G → C → D → M → Q → P order. The
+# own data first, then walks parents in G → C → D → M → Q → R order. The
 # .g_frame / .m_frame shortcuts give direct access to the immediate parent of
 # the corresponding stream.
 
@@ -99,7 +99,7 @@ keys(config) |> collect |> sort   # top-level: "injection", "proposal", "corsika
 config["injection"]               # injection knobs: energy spectrum, region, PDG, ...
 config["proposal"]                # PROPOSAL settings
 
-# The M frame carries a snapshot. For this artifact, nevent and pinecone
+# The M frame carries a snapshot. For this artifact, nevent and seed
 # were overridden by make_example_output.jl — see
 # _internal/make_example_output.jl for the producer details.
 m_frame["injection"]["nevent"]     # 50 (overridden by the producer)

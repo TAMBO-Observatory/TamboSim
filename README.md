@@ -13,7 +13,7 @@ We welcome new users of TamboSim! If you have any questions or concerns, please 
 
 ## Basics
 
-The output of any stage of TamboSim simulation is a `TamboSim.TamboFrames` collection — a vector of `TamboSim.Frame` objects representing the events and their per-stage metadata. A Frame is a hierarchical, dictionary-like container that stores simulation data and can reference parent Frames, enabling transparent key lookup up the chain across processing stages. Frames are organized into streams (`G` geometry → `C` detector configuration → `D` detector layout → `M` simulation metadata → `Q` per-event → `P` per-particle), and the Frame objects implemented here are inspired by the similar data structures used in the IceTray software of the IceCube Collaboration.
+The output of any stage of TamboSim simulation is a `TamboSim.TamboFrames` collection — a vector of `TamboSim.Frame` objects representing the events and their per-stage metadata. A Frame is a hierarchical, dictionary-like container that stores simulation data and can reference parent Frames, enabling transparent key lookup up the chain across processing stages. Frames are organized into streams (`G` geometry → `C` detector configuration → `D` detector layout → `M` simulation metadata → `Q` per-event → `R` reconstructed), and the Frame objects implemented here are inspired by the similar data structures used in the IceTray software of the IceCube Collaboration.
 
 `TamboFrames` are stored in `.jld2` files written in the native Julia binary format [`JLD2`](https://juliapackages.com/p/jld2), and `load_frames` reconstructs the parent chain from stream order on read. For example:
 ```julia

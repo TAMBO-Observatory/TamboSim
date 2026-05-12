@@ -130,14 +130,14 @@ const _STREAM_PROPERTY = Dict(
     :d_frames => 'D',
     :m_frames => 'M',
     :q_frames => 'Q',
-    :p_frames => 'P',
+    :r_frames => 'R',
 )
 
 """
-    tf.g_frames, tf.c_frames, tf.d_frames, tf.m_frames, tf.q_frames, tf.p_frames
+    tf.g_frames, tf.c_frames, tf.d_frames, tf.m_frames, tf.q_frames, tf.r_frames
 
 Property accessors that return all frames of the given stream from `tf`. One
-per stream tag in the `G → C → D → M → Q → P` hierarchy.
+per stream tag in the `G → C → D → M → Q → R` hierarchy.
 
 These mirror the singular `f.g_frame` / `f.c_frame` / etc. parent-property idiom
 on individual frames: dotted access, computed on each call. For a plain
@@ -228,7 +228,7 @@ is_valid_hierarchy(frames::AbstractVector{Frame}) = isempty(hierarchy_violations
 # Pretty-printing -------------------------------------------------------------
 
 const _CHILDREN_CAP = 3
-const _COLLAPSE_STREAMS = ('Q', 'P')
+const _COLLAPSE_STREAMS = ('Q', 'R')
 
 function Base.show(io::IO, ::MIME"text/plain", tf::TamboFrames)
     # Header: counts per stream in hierarchy order.

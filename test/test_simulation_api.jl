@@ -42,6 +42,10 @@ function run_simulation_api_tests()
         test_inject_dispatches_to_protons()
     end
 
+    @testset "neutrino initial_state position" begin
+        test_initial_state_at_earth_entry()
+    end
+
     @testset "proposal_propagation!" begin
         test_proposal_config_stored()
         test_proposal_output_keys()
@@ -164,6 +168,44 @@ function test_inject_dispatches_to_protons()
     # routed to inject_protons!.
     @test any(f -> haskey(f, "phase_space_point") &&
                    f["phase_space_point"] isa SurfaceCRPoint, q_frames)
+end
+
+# =============================================================================
+# neutrino initial_state position tests
+# =============================================================================
+
+function test_initial_state_at_earth_entry()
+    frames = load_frames(GEOMETRY_PATH)
+    inject!(frames, _injection_config(nevent=30))
+
+    q_frames = filter(f -> f.stream == 'Q', frames)
+    # Only examine frames that completed injection (have both states)
+    survived = filter(f -> haskey(f, "injection_initial_state") &&
+                           haskey(f, "injection_taurunner_output_state"), q_frames)
+    @test length(survived) > 0
+
+    for q in survived
+        istate  = q["injection_initial_state"]
+        trstate = q["injection_taurunner_output_state"]
+
+        # initial_state must not be NaN
+        @test !any(isnan, ustrip.(istate.position.point))
+
+        # The two positions must be distinct — initial is at Earth entry,
+        # taurunner_output is wherever TauRunner's stopping condition fired
+        # (somewhere along the path through the Earth, not necessarily near
+        # the detector).
+        disp = trstate.position.point .- istate.position.point
+        dist = sqrt(sum(ustrip.(u"m", disp).^2))
+        @test dist > 1.0   # at least 1 metre apart
+
+        # The displacement from initial → taurunner_output must be parallel to
+        # the neutrino direction (collinearity check via cross-product magnitude).
+        d_hat = ustrip.(istate.direction.point)
+        disp_hat = ustrip.(u"m", disp) ./ dist
+        cross_mag = sqrt(sum((d_hat × disp_hat).^2))
+        @test cross_mag < 1e-4
+    end
 end
 
 # =============================================================================

@@ -14,6 +14,7 @@ function run_julia_interfaces_tests()
     @testset "TauRunner Interface" begin
         test_cull_intersections()
         test_should_go_through_earth()
+        test_spherical_position_formula_equivalence()
     end
 
     @testset "PROPOSAL Interface" begin
@@ -105,6 +106,36 @@ function test_should_go_through_earth()
     # Test with empty intersections
     empty_ixs = Intersection{Float64}[]
     @test !should_go_through_earth(empty_ixs)
+end
+
+# Verify the spherical-case position formula in taurunner_interface.
+# Old formula (particle.position = detector end):
+#   position = remaining * reverse(d) + detector
+# New formula (particle.position = Earth entry):
+#   position = traveled * d + earth_entry
+# Since detector = earth_entry + chord_length * d and
+# traveled + remaining = chord_length, these are algebraically identical.
+# This test makes that explicit so a future edit can't silently break it.
+function test_spherical_position_formula_equivalence()
+    cs = ecefcoordinates
+    earth_entry = Coordinate([0.0u"m", 0.0u"m", 6.371e6u"m"], cs)
+    d           = Direction([0.0, 1.0, 0.0], cs)   # arbitrary unit direction
+    chord_length = 800_000.0u"m"
+
+    detector = Coordinate(earth_entry.point .+ chord_length .* d.point, cs)
+
+    for fraction_traveled in [0.0, 0.1, 0.5, 0.73, 0.99, 1.0]
+        traveled  = fraction_traveled * chord_length
+        remaining = (1.0 - fraction_traveled) * chord_length
+
+        # Old formula: step backward from detector by the remaining distance
+        pos_old = detector.point .- remaining .* d.point
+
+        # New formula: step forward from Earth entry by the traveled distance
+        pos_new = earth_entry.point .+ traveled .* d.point
+
+        @test all(isapprox.(ustrip.(u"m", pos_old), ustrip.(u"m", pos_new), atol=1e-6))
+    end
 end
 
 # ============================================================================

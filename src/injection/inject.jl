@@ -240,9 +240,11 @@ function _inject_neutrino_event_impl(
         return _create_null_neutrino_result(pdg, error_code, d, cs, T)
     end
 
-    # Sample energy and create initial state
+    # Sample energy and create initial state at the Earth entry point — the
+    # last intersection going backward along the ray from the detector.
     initial_energy = rand(pl)
-    initial_state = Particle(ParticleType(pdg), initial_energy, p, d)
+    earth_entry = last(intersections).point
+    initial_state = Particle(ParticleType(pdg), initial_energy, earth_entry, d)
 
     local close_state, final_state, point
     try
@@ -608,14 +610,17 @@ in place by:
    geometry, and writing the resulting injection states and a
    `PhaseSpacePoint` back onto the frame:
 
-   - `<prefix>_initial_state` — the hypothetical primary at the
-     detector-surface sampling point with source-spectrum energy.
-   - `<prefix>_close_state`   — TauRunner's output: the actual neutrino
-     reaching that point after Earth absorption / regeneration.
-   - `<prefix>_final_state`   — the forced CC interaction vertex inside
-     rock (omitted when no rock crossing is found along the trajectory).
-   - `phase_space_point`      — per-event phase-space coordinates consumed
-     downstream by `oneweight` / `oneweights`.
+   - `<prefix>_initial_state`          — the hypothetical primary at the
+     Earth entry point with source-spectrum energy. Position is the
+     outermost intersection of the backward ray with the terrain or
+     PREM sphere; energy is a draw from the source power law.
+   - `<prefix>_taurunner_output_state` — TauRunner's output: the particle
+     (neutrino or tau) at the point where the stopping condition fired,
+     somewhere along the path through the Earth toward the detector.
+   - `<prefix>_final_state`            — the forced CC interaction vertex
+     inside rock (omitted when no rock crossing is found along the trajectory).
+   - `phase_space_point`               — per-event phase-space coordinates
+     consumed downstream by `oneweight` / `oneweights`.
 
 # Arguments
 - `frames::TamboFrames`: the container to mutate. Must already contain G,
@@ -673,7 +678,7 @@ function inject_neutrinos!(
         )
         frame["$(prefix)_initial_state"] = istate
         if !isnan(cstate.energy)
-            frame["$(prefix)_close_state"] = cstate
+            frame["$(prefix)_taurunner_output_state"] = cstate
         end
         if !isnan(fstate.energy)
             frame["$(prefix)_final_state"] = fstate
@@ -690,8 +695,7 @@ Inject downgoing cosmic-ray protons onto the detector surface. Mutates
 `prefix` for provenance) and `config["nevent"]` Q frames. Each Q frame
 carries:
 
-- `<prefix>_initial_state` — proton at the sampled point on the detector surface
-- `<prefix>_final_state` — proton backtraced to `config["altitude"]` above
+- `<prefix>_initial_state` — proton backtraced to `config["altitude"]` above
   Earth, ready for CORSIKA injection
 - `phase_space_point::SurfaceCRPoint` — surface-injection phase-space
   coordinates consumed downstream by `oneweight` / `oneweights`.
@@ -744,8 +748,7 @@ function inject_protons!(
             altitude=altitude,
         )
         if !isnan(initial_proton.energy)
-            frame["$(prefix)_initial_state"] = initial_proton
-            frame["$(prefix)_final_state"] = final_proton
+            frame["$(prefix)_initial_state"] = final_proton
             point === nothing || (frame["phase_space_point"] = point)
         end
     end

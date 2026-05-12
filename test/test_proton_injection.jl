@@ -168,7 +168,6 @@ function test_inject_protons_produces_frames()
     filter!(f -> haskey(f, "injection_initial_state"), frames)
     q_frames = filter(f -> f.stream == 'Q', frames)
     @test all(f -> haskey(f, "injection_initial_state"), q_frames)
-    @test all(f -> haskey(f, "injection_final_state"), q_frames)
 end
 if abspath(PROGRAM_FILE) == @__FILE__
     @testset "Proton Injection" begin

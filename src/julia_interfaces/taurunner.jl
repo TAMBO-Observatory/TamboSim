@@ -99,12 +99,13 @@ function taurunner_interface(
         TR.propagate!(tr_particle, track, earth, clp;
                       condition=stopping_condition, rng=rng)
 
-        # Convert back to TamboSim format
-        # Calculate position based on track exit
+        # Convert back to TamboSim format.
+        # particle.position is the Earth entry point. Advance forward along
+        # the neutrino direction by the distance TauRunner traveled.
         earth_length = TR.length(earth)
-        distance_natural = (TR.x_to_d(track, 1.0) - TR.x_to_d(track, tr_particle.position)) * earth_length
+        distance_natural = TR.x_to_d(track, tr_particle.position) * earth_length
         distance = distance_natural / TR.units.meter * u"m"
-        position = distance * reverse(particle.direction) + particle.position
+        position = distance * particle.direction + particle.position
 
         pdg = ParticleType(Int(tr_particle.id))
         energy = tr_particle.energy / TR.units.GeV * u"GeV"

@@ -106,11 +106,11 @@ function test_frame_with_data()
 end
 
 function test_frame_with_parents()
-    g_frame = Frame('G', Dict{String,Any}("earth_path" => "/tmp/earth.h5"))
+    g_frame = Frame('G', Dict{String,Any}("geometry_hash" => UInt64(0xdeadbeef)))
     m_frame = Frame('M', Dict{String,Any}("nevent" => 100))
     m_frame.parents['G'] = g_frame
 
-    @test m_frame["earth_path"] == "/tmp/earth.h5"
+    @test m_frame["geometry_hash"] == UInt64(0xdeadbeef)
     @test m_frame["nevent"] == 100
     @test m_frame.stream == 'M'
     @test length(m_frame.parents) == 1

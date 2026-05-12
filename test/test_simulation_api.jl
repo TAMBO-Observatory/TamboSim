@@ -393,7 +393,7 @@ function test_save_geometry_self_contained()
     @test count(f -> f.stream == 'G', loaded) == 1
     lg = TamboSim._get_last_frame(loaded, 'G')
     @test length(lg["topography"]) == length(g_frame["topography"])
-    @test lg["earth_path"] == g_frame["earth_path"]
+    @test lg["geometry_hash"] == g_frame["geometry_hash"]
 end
 
 # =============================================================================

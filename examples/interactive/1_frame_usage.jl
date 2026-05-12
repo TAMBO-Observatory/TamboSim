@@ -73,13 +73,13 @@ m_frame = q_frame.m_frame
 # What's stored on each frame directly:
 sort(collect(keys(q_frame.data)))  # injection_*, proposal_*, phase_space_point, event_id
 sort(collect(keys(m_frame.data)))  # injection / proposal config snapshots
-sort(collect(keys(g_frame.data)))  # bvh, topography, prem, cs, earth_path, ...
+sort(collect(keys(g_frame.data)))  # bvh, topography, prem, cs, geometry_hash, ...
 
 # What's reachable from a Q frame via getindex (own + inherited):
 sort(collect(keys(q_frame)))
 
 q_frame["event_id"]                # own data
-q_frame["earth_path"]              # inherited from G parent
+q_frame["geometry_hash"]           # inherited from G parent
 q_frame["injection"]["nevent"]     # inherited from M parent (the inject! config snapshot)
 
 haskey(q_frame, "nonexistent_key") # false — getindex on this would throw KeyError

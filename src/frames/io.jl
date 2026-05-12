@@ -38,9 +38,6 @@ function _reconstruct_frames(raw::Vector{Tuple{Char,Dict{String,Any}}})
             haskey(parent_cache, s) && (parents[s] = parent_cache[s])
         end
         frame = Frame(stream, data, parents)
-        if stream == 'G' && haskey(data, "earth_path") && !haskey(data, "bvh")
-            load_earth!(frame)
-        end
         if stream == 'G'
             _ensure_geometry_hash!(frame)
         end

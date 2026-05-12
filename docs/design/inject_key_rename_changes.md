@@ -82,6 +82,51 @@ Changes:
 R frames are not yet populated by the simulation pipeline — this is a
 forward-looking naming fix only.
 
+## 5. Rename `pinecone` → `seed` (config key)
+
+**Files:** `src/injection/inject.jl`, `src/julia_interfaces/taurunner.jl`,
+`resources/configuration_examples/tau_neutrino_cc.toml`,
+`resources/configuration_examples/cosmic_ray_proton.toml`,
+`test/test_proton_injection.jl`, `test/test_simulation_api.jl`,
+`examples/interactive/3_injection_walkthrough.jl`,
+`examples/interactive/4_propagation_walkthrough.jl`,
+`examples/templates/3_inject.jl`, `examples/templates/4_propagate.jl`,
+`examples/templates/5_run_corsika.jl`, `examples/_internal/make_example_output.jl`
+
+The internal config key `"pinecone"` was renamed to `"seed"` throughout all
+source, test, example, and configuration files. The new name is self-documenting
+and matches the key used in the CORSIKA section.
+
+## 6. Remove `earth_path` from G frame
+
+**Files:** `src/geometry/earth.jl`, `src/frames/io.jl`,
+`test/test_frames.jl`, `test/test_simulation_api.jl`,
+`examples/interactive/1_frame_usage.jl`,
+`resources/geometry/colca_valley_3000.jld2`,
+`examples/resources/example_output.jld2`
+
+`build_gcd_bundle` previously stored the source HDF5/PLY path as
+`"earth_path"` in the G frame dict. Since G frames already carry all geometry
+data (`prem`, `topography`, `bvh`, `cs`, `geometry_hash`) and are fully
+self-contained after save, the path is redundant.
+
+Changes:
+- Removed `"earth_path" => earth_path` from the G frame dict in
+  `build_gcd_bundle`.
+- Removed the lazy-load trigger in `_reconstruct_frames` that called
+  `load_earth!` when a G frame had `earth_path` but no `bvh`. New G frames
+  always carry `bvh`, so this branch was dead for all current files. The
+  `load_earth!` function is retained as an internal utility for backward
+  compatibility with old fixtures.
+- Updated the `test_g_frame_round_trip` assertion to check `geometry_hash`
+  instead of `earth_path`.
+- Updated `test_frame_with_parents` to use `geometry_hash` as the inherited
+  key under test.
+- Updated `1_frame_usage.jl` to show `geometry_hash` as a representative
+  inherited G-frame key.
+- Regenerated `colca_valley_3000.jld2` and `example_output.jld2` to reflect
+  the new schema.
+
 ## Tests added
 
 - `test_initial_state_at_earth_entry` (`test_simulation_api.jl`): for each survived

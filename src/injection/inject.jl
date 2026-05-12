@@ -585,10 +585,12 @@ function inject!(
         return inject_neutrinos!(frames, config; prefix=prefix)
     elseif strategy == "CosmicRayInjection"
         return inject_protons!(frames, config; prefix=prefix)
+    elseif strategy == "GlashowInjection"
+        return inject_glashow!(frames, config; prefix=prefix)
     else
         error(
             "inject!: unknown strategy \"$strategy\". " *
-            "Expected \"NeutrinoInjection\" or \"CosmicRayInjection\"."
+            "Expected \"NeutrinoInjection\", \"CosmicRayInjection\", or \"GlashowInjection\"."
         )
     end
 end

@@ -35,12 +35,45 @@ function find_vertex_distance_by_distance(
     intersections::I,
     epsilon::Float64=1e-3
 ) where {T<:Real, I<:AbstractVector{Intersection{T}}}
+    accrued_d, cd_to_vertex, cd_cap, dens = _find_vertex_distance_by_distance_full(
+        direction, distance, intersections, epsilon
+    )
+    return accrued_d, cd_cap, dens
+end
+
+"""
+    find_vertex_distance_by_distance_with_cd_to_vertex(
+        direction::Direction{T},
+        distance::Quantity{T},
+        intersections::AbstractVector{Intersection{T}},
+        epsilon::Float64=1e-3
+    ) -> Tuple{Quantity{T}, Quantity{T}, Quantity{T}, Quantity{T}}
+
+Same as `find_vertex_distance_by_distance` but also returns the column depth
+*from the start of the intersection list up to the sampled vertex*. Returns
+`(distance_to_vertex, cd_to_vertex, cd_cap, density_at_vertex)`. Used by the
+Glashow injection weight, which needs the cd-to-vertex for the survival factor.
+"""
+function find_vertex_distance_by_distance_with_cd_to_vertex(
+    direction::Direction{T},
+    distance::Quantity{T},
+    intersections::I,
+    epsilon::Float64=1e-3
+) where {T<:Real, I<:AbstractVector{Intersection{T}}}
+    return _find_vertex_distance_by_distance_full(direction, distance, intersections, epsilon)
+end
+
+function _find_vertex_distance_by_distance_full(
+    direction::Direction{T},
+    distance::Quantity{T},
+    intersections::I,
+    epsilon::Float64=1e-3
+) where {T<:Real, I<:AbstractVector{Intersection{T}}}
 
     densities = @views compute_density(intersections, direction)[2:end]
     distances = @views compute_lengths(intersections)[2:end]
     @assert length(densities)==length(distances)
     @assert !isempty(densities) "intersections must have at least 2 elements"
-    column_depth = 0.0u"g/cm^2"
     d, cd = 0.0u"m", 0.0u"g/cm^2"
     for (dist, dens) in zip(distances, densities)
         if d + dist > distance
@@ -58,13 +91,13 @@ function find_vertex_distance_by_distance(
         segment_cd = dist * dens
         if segment_cd + accrued_cd > target_column_depth
             accrued_d += (target_column_depth - accrued_cd) / dens
-            return accrued_d, cd, dens
+            return accrued_d, target_column_depth, cd, dens
         end
         accrued_d += dist
         accrued_cd += segment_cd
     end
     # Fallback: return final position if loop completes (edge case)
-    return accrued_d, cd, last(densities)
+    return accrued_d, cd, cd, last(densities)
 end
 
 """

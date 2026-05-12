@@ -34,6 +34,35 @@ struct UpstreamNeutrinoInteractionPoint <: PhaseSpacePoint
     area     :: Quantity{Float64, ldim^2, typeof(u"m^2")}
 end
 
+# --- Glashow-resonance ν̄_e → τ⁻ injection ---
+
+struct GlashowPS <: PhaseSpace
+    geometry_hash :: UInt
+    pdg           :: Int
+    emin     :: Quantity{Float64, edim, typeof(u"GeV")}
+    emax     :: Quantity{Float64, edim, typeof(u"GeV")}
+    gamma    :: Float64
+    thetamin :: Float64   # rad
+    thetamax :: Float64   # rad
+    phimin   :: Float64   # rad
+    phimax   :: Float64   # rad
+    nevent   :: Int
+end
+
+struct GlashowInteractionPoint <: PhaseSpacePoint
+    E                  :: Quantity{Float64, edim, typeof(u"GeV")}            # E_ν
+    E_tau              :: Quantity{Float64, edim, typeof(u"GeV")}
+    theta              :: Float64   # rad
+    phi                :: Float64   # rad
+    area               :: Quantity{Float64, ldim^2, typeof(u"m^2")}
+    rho                :: Quantity{Float64, mdim/ldim^3, typeof(u"g/cm^3")}  # density at vertex
+    cd_cap             :: Quantity{Float64, mdim/ldim^2, typeof(u"g/cm^2")}  # cd of τ-decay-range sampling cap
+    n_e_vertex         :: Quantity{Float64, ldim^-3, typeof(u"cm^-3")}       # electron number density at vertex
+    Ne_entry_to_vertex :: Quantity{Float64, ldim^-2, typeof(u"cm^-2")}       # electron column from Earth-entry to vertex
+    sigma_glashow      :: Quantity{Float64, ldim^2, typeof(u"cm^2")}         # total Glashow σ at E_ν
+    dsigma_dEtau       :: Quantity{Float64, ldim^2/edim, typeof(u"cm^2/GeV")}# Glashow dσ/dE_τ at (E_ν, E_τ)
+end
+
 # --- Cosmic-ray injection (surface sampling) ---
 
 struct CosmicRayInjectionPS <: PhaseSpace
@@ -134,6 +163,43 @@ end
 function (ps::CosmicRayInjectionPS)(pt::SurfaceCRPoint)
     _compatible(ps, pt) || return _zero_iow
     return _surface_pdf(ps, pt)
+end
+
+# Weight functor for Glashow-resonance ν̄_e injection.
+#
+# Returns the inverse-one-weight density in [GeV⁻¹ m⁻² sr⁻¹] = p_mc / p_phys,
+# matching the convention used by `ForcedNeutrinoInteractionPoint`.
+#
+# Sampled MC variables and densities:
+#   E_ν   : p_pl(E_ν)              (1/GeV)
+#   Ω     : uniform on Ω-box        (1/sr)
+#   A     : area-weighted point     (1/m^2)
+#   y     : p_mc(y) = 3(1-y)^2      (dimensionless)  ; y = E_τ/E_ν
+#   x     : uniform in cd on        (1/(g/cm^2))
+#           [0, cd_cap]
+#
+# y → E_τ Jacobian:  p_mc(E_τ) = 3(1-y)^2 / E_ν
+# cd → x Jacobian:   p_mc(x)   = ρ / cd_cap
+#
+# Physical density (per (E_ν, Ω, A, E_τ, x)):
+#   p_phys = n_e(x) · dσ/dE_τ · exp(-N_e(0→x) · σ_glashow)
+# (CC/NC absorption on nucleons intentionally omitted; survival factor uses
+# Glashow σ only — see project plan.)
+function (ps::GlashowPS)(pt::GlashowInteractionPoint)
+    _compatible(ps, pt) || return _zero_iow
+
+    norm = pl_norm(ps.gamma, ps.emin, ps.emax)
+    mc   = norm * (pt.E / ps.emin)^(-ps.gamma)
+    Ω    = (cos(ps.thetamin) - cos(ps.thetamax)) * (ps.phimax - ps.phimin) * u"sr"
+    mc  /= Ω
+    mc  /= pt.area
+    mc  *= pt.rho / pt.cd_cap
+    y    = pt.E_tau / pt.E
+    mc  *= 3 * (1 - y)^2 / pt.E
+
+    phys = pt.n_e_vertex * pt.dsigma_dEtau * exp(-pt.Ne_entry_to_vertex * pt.sigma_glashow)
+
+    return uconvert(u"GeV^-1 * m^-2 * sr^-1", mc / phys)
 end
 
 function (ps::PhaseSpace)(pt::PhaseSpacePoint)
@@ -249,10 +315,12 @@ function build_phase_space(m::Frame; prefix::String="injection")
         return NeutrinoInjectionPS(args...)
     elseif strategy == "CosmicRayInjection"
         return CosmicRayInjectionPS(args...)
+    elseif strategy == "GlashowInjection"
+        return GlashowPS(args...)
     else
         error(
             "build_phase_space: unknown strategy \"$strategy\". " *
-            "Known strategies: \"NeutrinoInjection\", \"CosmicRayInjection\"."
+            "Known strategies: \"NeutrinoInjection\", \"CosmicRayInjection\", \"GlashowInjection\"."
         )
     end
 end

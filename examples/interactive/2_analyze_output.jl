@@ -41,7 +41,7 @@ end
 # =============================================================================
 # TamboSim extends `Base.filter!` so it operates only on Q frames: a Q frame
 # is kept if the predicate returns true; G/C/D/M frames are always preserved;
-# any P (physics) descendants of a cut Q frame are removed alongside their
+# any R (reconstructed) descendants of a cut Q frame are removed alongside their
 # parent — though that doesn't activate here, since example_output has only M+Q.
 
 # Note the `!`: in Julia, this notation denotes functions which modify their

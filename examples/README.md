@@ -90,7 +90,7 @@ need the `detector_region` and `detector_bvh` keys that
 ## Resources
 
 `resources/example_output.jld2` is a small precomputed pipeline output
-(50 nu_tau CC events through inject + PROPOSAL, fixed seed 1234, 169 KB)
+(50 nu_tau CC events through inject + PROPOSAL, fixed seed 1234)
 that all of the interactive walkthroughs load. If the on-disk schema
 ever changes, you can regenerate it with
 `_internal/make_example_output.jl`.

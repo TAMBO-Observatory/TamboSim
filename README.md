@@ -29,9 +29,9 @@ julia> qf = frames.q_frames[1]
 Frame (stream='Q', parents: M)
   keys (9):
     event_id
-    injection_close_state
     injection_final_state
     injection_initial_state
+    injection_taurunner_output_state
     phase_space_point
     proposal_continuous_losses
     proposal_decay_products

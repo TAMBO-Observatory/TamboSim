@@ -21,6 +21,9 @@ Initializes the TauRunner.jl library and its components.
 This function sets up the Earth model with PREM density profile and
 initializes the CSMS cross-sections for neutrino interactions.
 The SphericalBodyPropagator is created once and cached for reuse.
+
+`init_proposal` calls `_sync_taurunner_to_proposal_path!` after it sets the
+tables directory, so both PROPOSAL and TauRunner always use the same tables.
 """
 function tr_init()
     tables_path = joinpath(get(ENV, "TAMBO_DATA_PATH", tempdir()), "proposal_tables")
@@ -31,7 +34,7 @@ function tr_init()
     # Add extra rock layer on top for TAMBO elevation (~3km rock to sea level).
     # Density 2.6 g/cm³ matches TauRunner's PREM continental-crust value
     # (TauRunner/src/Bodies/Earth.jl, PREM_PARAMS continental crust entry) so the
-    # extension is self-consistent with the layer below it. This is distinct 
+    # extension is self-consistent with the layer below it. This is distinct
     # from TamboSim's ROCK_DENSITY = 2.65 g/cm³ (find_interaction_vertex.jl),
     # which is the standard-rock density used for in-rock vertex placement and the
     # PROPOSAL air/rock medium discriminant.
@@ -43,6 +46,19 @@ function tr_init()
     # Create and cache spherical body propagator (expensive — involves PROPOSAL init)
     _tr_sphere_clp[] = TR.SphericalBodyPropagator(_tr_earth[])
 
+    _tr_initialized[] = true
+end
+
+"""
+    _sync_taurunner_to_proposal_path!()
+
+Rebuilds `_tr_sphere_clp[]` so its PROPOSAL config JSON reflects the current
+`ENV["PROPOSAL_TABLES_PATH"]`. Called by `init_proposal` after it changes the
+tables directory, keeping TauRunner and TamboSim pointed at the same tables.
+"""
+function _sync_taurunner_to_proposal_path!()
+    isnothing(_tr_earth[]) && return
+    _tr_sphere_clp[] = TR.SphericalBodyPropagator(_tr_earth[])
     _tr_initialized[] = true
 end
 
@@ -66,7 +82,7 @@ function taurunner_interface(
 )::Particle{T} where {T<:Real, I<:AbstractVector{Intersection{T}}}
 
     if !_tr_initialized[]
-        error("TauRunner not initialized. Call tr_init() first.")
+        error("TauRunner not initialized. Call init_proposal(config) first.")
     end
 
     earth = _tr_earth[]

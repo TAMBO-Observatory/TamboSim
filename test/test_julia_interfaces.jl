@@ -19,6 +19,8 @@ function run_julia_interfaces_tests()
 
     @testset "PROPOSAL Interface" begin
         test_is_proposal_available()
+        test_init_proposal_tables_path_sync()
+        test_init_proposal_idempotent()
     end
 end
 
@@ -148,6 +150,22 @@ function test_is_proposal_available()
     @test result isa Bool
     # In the test environment, PROPOSAL likely isn't fully available
     # so we just check that the function runs without error
+end
+
+function test_init_proposal_tables_path_sync()
+    tables_path = get_tambosim_path() * "/resources/proposal_tables"
+    init_proposal(Dict("tablespath" => tables_path))
+    # ENV["PROPOSAL_TABLES_PATH"] must match what init_proposal configured so
+    # TauRunner's SphericalBodyPropagator and TamboSim's propagators share tables.
+    @test abspath(ENV["PROPOSAL_TABLES_PATH"]) == abspath(tables_path)
+end
+
+function test_init_proposal_idempotent()
+    tables_path = get_tambosim_path() * "/resources/proposal_tables"
+    init_proposal(Dict("tablespath" => tables_path))
+    # Calling a second time must not error and must leave tables path unchanged.
+    init_proposal(Dict("tablespath" => tables_path))
+    @test abspath(ENV["PROPOSAL_TABLES_PATH"]) == abspath(tables_path)
 end
 if abspath(PROGRAM_FILE) == @__FILE__
     @testset "Julia Interfaces" begin

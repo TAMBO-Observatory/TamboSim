@@ -22,7 +22,7 @@ import TamboSim: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
               TauMinus, TauPlus, NuTau, NuTauBar, Gamma,
               Intersection, SphereIntersection, TriangleIntersection,
               StochasticLoss,
-              cull_intersections, should_go_through_earth, is_proposal_available,
+              cull_intersections, should_go_through_earth, is_proposal_available, init_proposal,
               compute_rotation, validate_triangle,
               particle_mass, particle_speed, lorentz_gamma, particle_vacuum_range,
               find_trim_idxs

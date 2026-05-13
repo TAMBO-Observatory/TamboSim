@@ -45,9 +45,9 @@ function proposal_propagate(
     continuous_e = 0.0u"GeV"
     accrued_d = 0.0u"m"
     accrued_t = particle.time
-    
-    # Null particle by default: if `ixs` is empty the loop below never runs
-    # and we report a culled event (NaN energy) rather than `nothing`.
+
+    # Null particle by default. If `ixs` is empty (particle already in air),
+    # the loop below never runs and we signal a culled event via NaN energy.
     final_state = Particle(T)
 
     for (l, density) in zip(lengths, densities)

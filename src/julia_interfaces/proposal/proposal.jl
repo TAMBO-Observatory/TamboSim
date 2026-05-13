@@ -50,11 +50,14 @@ function init_proposal(config)
 
     _proposal_available[] = true
 
-    # Set up tables directory and propagate path to subprocesses (e.g. CORSIKA)
+    # Set tables directory. ENV["PROPOSAL_TABLES_PATH"] must be set before calling
+    # _sync_taurunner_to_proposal_path! so TauRunner's SphericalBodyPropagator bakes
+    # in the correct path when it is rebuilt.
     _config_dir[] = get(config, "tablespath", joinpath(get(ENV, "TAMBO_DATA_PATH", tempdir()), "proposal_tables"))
     mkpath(_config_dir[])
     PP.set_tables_path(_config_dir[])
     ENV["PROPOSAL_TABLES_PATH"] = _config_dir[]
+    _sync_taurunner_to_proposal_path!()
 
     # Generate and cache propagators for all particle types and media
     pdg_lepton_ids = [11, 13, 15, -11, -13, -15]

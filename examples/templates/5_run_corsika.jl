@@ -4,7 +4,7 @@
 # producing one event directory per Q frame under `--corsika-dir`. Wraps
 # `corsika_run`, which reads its settings from the `[corsika]` table of a
 # configuration TOML (binary path, energy cuts, hadronic model, mesh paths,
-# `pinecone` seed, optional `sbatch_command` for cluster submission).
+# `seed` seed, optional `sbatch_command` for cluster submission).
 #
 # Input:
 #   <geometry>.jld2     GCD bundle (provides topography mesh + detector
@@ -64,7 +64,7 @@ function parse_commandline()
             arg_type = String
             default = "$(tambo_path)/examples/output/corsika"
         "--seed", "-s"
-            help = "Random seed (overrides config pinecone value)"
+            help = "Random seed (overrides config seed value)"
             arg_type = Int
             default = nothing
     end
@@ -89,7 +89,7 @@ relativize!(config)
 
 corsika_config = config["corsika"]
 if !isnothing(args["seed"])
-    corsika_config["pinecone"] = args["seed"]
+    corsika_config["seed"] = args["seed"]
 end
 
 if !isfile(corsika_config["corsika_path"])

@@ -1,4 +1,4 @@
-const STREAM_HIERARCHY = ('G', 'C', 'D', 'M', 'Q', 'P')
+const STREAM_HIERARCHY = ('G', 'C', 'D', 'M', 'Q', 'R')
 
 """
     Frame
@@ -8,7 +8,7 @@ A hierarchical, dictionary-like container for simulation data.
 A `Frame` holds data in a dictionary and carries references to parent frames
 from higher-level streams. When a key is accessed, the current frame's data is
 checked first; if the key is absent, parent frames are searched in stream
-hierarchy order (G → C → D → M → Q → P).
+hierarchy order (G → C → D → M → Q → R).
 
 Q frames require an M parent (simulation meta/config always travels with events)
 but not G, C, or D parents — analysis workflows that do not need earth/detector
@@ -17,7 +17,7 @@ geometry can load M+Q frames without a GCD bundle. Accessing `.g_frame`,
 error at that point.
 
 # Fields
-- `stream::Char`: Stream type ('G' geometry, 'C' calibration, 'D' detector, 'M' meta/config, 'Q' event, 'P' physics).
+- `stream::Char`: Stream type ('G' geometry, 'C' calibration, 'D' detector, 'M' meta/config, 'Q' event, 'R' reconstructed).
 - `data::Dict{String, Any}`: Data stored in this frame.
 - `parents::Dict{Char, Frame}`: Parent frames indexed by their stream type.
 

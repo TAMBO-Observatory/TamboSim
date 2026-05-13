@@ -10,7 +10,11 @@ Propagates a particle through the Earth using the PROPOSAL.jl library.
 - `seed`: An optional seed for the random number generator.
 
 # Returns
-- A tuple: `(losses, continuous_e, secondaries, final_state)`.
+- A tuple: `(losses, continuous_e, secondaries, final_state)`. If the
+  particle's forward trajectory crosses no medium — it has already exited
+  all PREM layers and the topography mesh — nothing is propagated:
+  `losses`/`secondaries` are empty, `continuous_e` is zero, and
+  `final_state` is a null `Particle` (NaN energy).
 """
 function proposal_propagate(
     particle::Particle{T},
@@ -41,7 +45,10 @@ function proposal_propagate(
     continuous_e = 0.0u"GeV"
     accrued_d = 0.0u"m"
     accrued_t = particle.time
-    final_state = nothing
+
+    # Null particle by default. If `ixs` is empty (particle already in air),
+    # the loop below never runs and we signal a culled event via NaN energy.
+    final_state = Particle(T)
 
     for (l, density) in zip(lengths, densities)
         medium = density > 1u"g/cm^3" ? "StandardRock" : "Air"
@@ -160,7 +167,7 @@ contain `inkey` and writing four new keys per event:
 - `frames::TamboFrames`: must already have an M frame (run `inject!`
   first).
 - `config::Dict`: parsed `[proposal]` TOML table. Consults
-  `"pinecone"` (RNG seed) and any cross-section / parametrization
+  `"seed"` (RNG seed) and any cross-section / parametrization
   settings that `init_proposal` knows about.
 
 # Keyword arguments
@@ -174,6 +181,12 @@ particle's rest energy (`particle_mass(pdg) * c²`) are skipped with a
 warning: PROPOSAL requires kinetic energy > 0. The threshold is
 per-PDG, so the same call can correctly handle electron, muon, and
 tau injections.
+
+Q frames whose lepton's forward trajectory crosses no medium — it has
+already exited all PREM layers and the topography mesh (e.g. a very
+high-energy near-horizontal event whose forced interaction vertex lands
+off the mesh / above the atmosphere) — are likewise skipped, leaving no
+`<prefix>_*` keys, so downstream stages drop them.
 """
 function proposal_propagation!(
     frames::TamboFrames,
@@ -191,11 +204,11 @@ function proposal_propagation!(
     prem = g_frame["prem"]
     bvh  = g_frame["bvh"]
 
-    if !haskey(config, "pinecone")
+    if !haskey(config, "seed")
         @warn "Deciding seed via RNG and adding to configuration"
-        config["pinecone"] = rand(UInt32)
+        config["seed"] = rand(UInt32)
     end
-    Random.seed!(config["pinecone"])
+    Random.seed!(config["seed"])
 
     q_frames = filter(f -> f.stream == 'Q', frames)
 
@@ -210,6 +223,10 @@ function proposal_propagation!(
         ls, contls, decay_products, propped_state = proposal_propagate(
             final_state, prem, bvh, rand(Int32)
         )
+        # Lepton exited all media without propagating (vertex landed off-mesh /
+        # above the atmosphere). Drop the event: leave no `proposal_*` keys so
+        # downstream stages skip it via the missing-key convention.
+        isnan(propped_state.energy) && continue
         frame["$(prefix)_stochastic_losses"] = ls
         frame["$(prefix)_continuous_losses"] = contls
         frame["$(prefix)_decay_products"] = decay_products

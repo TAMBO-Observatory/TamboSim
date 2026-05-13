@@ -59,7 +59,7 @@ function parse_commandline()
             help = "Cut events where final state is inside the mountain"
             action = :store_true
         "--seed", "-s"
-            help = "Random seed (overrides config pinecone value)"
+            help = "Random seed (overrides config seed value)"
             arg_type = Int
             default = nothing
     end
@@ -84,7 +84,7 @@ relativize!(config)
 
 proposal_config = config["proposal"]
 if !isnothing(args["seed"])
-    proposal_config["pinecone"] = args["seed"]
+    proposal_config["seed"] = args["seed"]
 end
 
 frames = load_frames([geometry_file, infile])

@@ -154,16 +154,13 @@ end
 """
     load_earth!(g_frame::Frame)
 
-Reads geometry from `g_frame["earth_path"]` and populates the G frame with:
+Reads geometry from `g_frame["earth_path"]` and populates the G frame with
+`"prem"`, `"topography"`, `"bvh"`, `"cs"`, and `"geometry_hash"`. Internal
+utility retained for backward compatibility with old JLD2 fixtures that stored
+only an `earth_path` reference instead of baking geometry directly.
 
-- `"prem"`: `Vector{Sphere}` — concentric PREM layers for ray tracing
-- `"topography"`: `Vector{Triangle}` — surface mesh
-- `"bvh"`: `BVHTree` — acceleration structure over the full topography
-- `"cs"`: `CoordinateSystem` — local ENU coordinate system at the site
-
-Detector region data is NOT stored here; it belongs in the D frame.
-Dispatches to HDF5 or PLY loading based on the file extension of `earth_path`.
-For HDF5 files, also reads `g_frame["detector_key"]` if present (legacy path).
+New G frames produced by `build_gcd_bundle` always carry all geometry keys and
+never need `load_earth!` called on them.
 """
 function load_earth!(g_frame::Frame)
     location = g_frame["earth_path"]
@@ -248,7 +245,6 @@ function build_gcd_bundle(earth_path::String, detector_key::String)
     end
 
     g_frame = Frame('G', Dict{String,Any}(
-        "earth_path"    => earth_path,
         "prem"          => prem,
         "topography"    => topography,
         "bvh"           => bvh,

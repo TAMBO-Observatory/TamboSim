@@ -106,11 +106,11 @@ function test_frame_with_data()
 end
 
 function test_frame_with_parents()
-    g_frame = Frame('G', Dict{String,Any}("earth_path" => "/tmp/earth.h5"))
+    g_frame = Frame('G', Dict{String,Any}("geometry_hash" => UInt64(0xdeadbeef)))
     m_frame = Frame('M', Dict{String,Any}("nevent" => 100))
     m_frame.parents['G'] = g_frame
 
-    @test m_frame["earth_path"] == "/tmp/earth.h5"
+    @test m_frame["geometry_hash"] == UInt64(0xdeadbeef)
     @test m_frame["nevent"] == 100
     @test m_frame.stream == 'M'
     @test length(m_frame.parents) == 1
@@ -242,13 +242,13 @@ function test_cut_frames_preserves_gc()
 end
 
 function test_cut_frames_cascades_to_descendants()
-    # Q frames with P children — cutting a Q must also remove its P descendants.
+    # Q frames with R children — cutting a Q must also remove its R descendants.
     g_frame = Frame('G')
     m_frame = Frame('M', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame))
     q_keep = Frame('Q', Dict{String,Any}("value" => 50), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame))
     q_cut  = Frame('Q', Dict{String,Any}("value" => 5),  Dict{Char,Frame}('G' => g_frame, 'M' => m_frame))
-    p_keep = Frame('P', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame, 'Q' => q_keep))
-    p_cut  = Frame('P', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame, 'Q' => q_cut))
+    p_keep = Frame('R', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame, 'Q' => q_keep))
+    p_cut  = Frame('R', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame, 'M' => m_frame, 'Q' => q_cut))
     frames = TamboFrames(Frame[g_frame, m_frame, q_keep, p_keep, q_cut, p_cut])
 
     filter!(f -> f["value"] > 25, frames)
@@ -430,28 +430,28 @@ function _make_mixed_stream_frames()
     d = Frame('D')
     m = Frame('M')
     q = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('M' => m))
-    p = Frame('P')
-    (g=g, c=c, d=d, m=m, q=q, p=p)
+    r = Frame('R')
+    (g=g, c=c, d=d, m=m, q=q, r=r)
 end
 
 function test_stream_filters()
     @testset "frames_of_stream and stream-property accessors" begin
         fs = _make_mixed_stream_frames()
-        tf = TamboFrames([fs.g, fs.c, fs.d, fs.m, fs.q, fs.p])
+        tf = TamboFrames([fs.g, fs.c, fs.d, fs.m, fs.q, fs.r])
 
         @test frames_of_stream(tf, 'G') == [fs.g]
         @test frames_of_stream(tf, 'C') == [fs.c]
         @test frames_of_stream(tf, 'D') == [fs.d]
         @test frames_of_stream(tf, 'M') == [fs.m]
         @test frames_of_stream(tf, 'Q') == [fs.q]
-        @test frames_of_stream(tf, 'P') == [fs.p]
+        @test frames_of_stream(tf, 'R') == [fs.r]
 
         @test tf.g_frames == [fs.g]
         @test tf.c_frames == [fs.c]
         @test tf.d_frames == [fs.d]
         @test tf.m_frames == [fs.m]
         @test tf.q_frames == [fs.q]
-        @test tf.p_frames == [fs.p]
+        @test tf.r_frames == [fs.r]
 
         # Property names are discoverable for tab-completion.
         @test :q_frames in propertynames(tf)
@@ -477,7 +477,7 @@ function test_stream_filters_empty()
         @test isempty(tf.d_frames)
         @test isempty(tf.m_frames)
         @test isempty(tf.q_frames)
-        @test isempty(tf.p_frames)
+        @test isempty(tf.r_frames)
         @test isempty(frames_of_stream(tf, 'X'))  # arbitrary unknown letter
     end
 end

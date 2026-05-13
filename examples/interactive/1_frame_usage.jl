@@ -62,7 +62,7 @@ frames_of_stream( frames, 'Q' )
 # 3. Key lookup and parent inheritance
 # =============================================================================
 # Each Frame is a dictionary-like container. getindex resolves keys against
-# own data first, then walks parents in G → C → D → M → Q → P order. The
+# own data first, then walks parents in G → C → D → M → Q → R order. The
 # .g_frame / .m_frame shortcuts give direct access to the immediate parent of
 # the corresponding stream.
 
@@ -73,13 +73,13 @@ m_frame = q_frame.m_frame
 # What's stored on each frame directly:
 sort(collect(keys(q_frame.data)))  # injection_*, proposal_*, phase_space_point, event_id
 sort(collect(keys(m_frame.data)))  # injection / proposal config snapshots
-sort(collect(keys(g_frame.data)))  # bvh, topography, prem, cs, earth_path, ...
+sort(collect(keys(g_frame.data)))  # bvh, topography, prem, cs, geometry_hash, ...
 
 # What's reachable from a Q frame via getindex (own + inherited):
 sort(collect(keys(q_frame)))
 
 q_frame["event_id"]                # own data
-q_frame["earth_path"]              # inherited from G parent
+q_frame["geometry_hash"]           # inherited from G parent
 q_frame["injection"]["nevent"]     # inherited from M parent (the inject! config snapshot)
 
 haskey(q_frame, "nonexistent_key") # false — getindex on this would throw KeyError
@@ -99,7 +99,7 @@ keys(config) |> collect |> sort   # top-level: "injection", "proposal", "corsika
 config["injection"]               # injection knobs: energy spectrum, region, PDG, ...
 config["proposal"]                # PROPOSAL settings
 
-# The M frame carries a snapshot. For this artifact, nevent and pinecone
+# The M frame carries a snapshot. For this artifact, nevent and seed
 # were overridden by make_example_output.jl — see
 # _internal/make_example_output.jl for the producer details.
 m_frame["injection"]["nevent"]     # 50 (overridden by the producer)

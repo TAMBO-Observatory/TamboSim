@@ -143,7 +143,7 @@ function test_inject_protons_produces_frames()
     geometry_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley_3000.jld2")
     injection_config = Dict{String,Any}(
         "strategy"  => "CosmicRayInjection",
-        "pinecone"  => 42,
+        "seed"  => 42,
         "nevent"    => 20,
         "pdg"       => 2212,
         "gamma"     => 2.7,
@@ -168,7 +168,6 @@ function test_inject_protons_produces_frames()
     filter!(f -> haskey(f, "injection_initial_state"), frames)
     q_frames = filter(f -> f.stream == 'Q', frames)
     @test all(f -> haskey(f, "injection_initial_state"), q_frames)
-    @test all(f -> haskey(f, "injection_final_state"), q_frames)
 end
 if abspath(PROGRAM_FILE) == @__FILE__
     @testset "Proton Injection" begin

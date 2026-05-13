@@ -60,7 +60,7 @@ relativize!(config)
 
 injection_config = config["injection"]
 injection_config["nevent"]   = NEVENT
-injection_config["pinecone"] = SEED
+injection_config["seed"] = SEED
 
 # The fields that drive the work:
 @show injection_config["pdg"];                            # primary species (16 = nu_tau)
@@ -69,7 +69,7 @@ injection_config["pinecone"] = SEED
 @show injection_config["thetamin"], injection_config["thetamax"];   # zenith box (degrees)
 @show injection_config["phimin"],   injection_config["phimax"];     # azimuth box (degrees)
 @show injection_config["xs_location"];                    # path to cross-section table
-@show injection_config["pinecone"];                       # RNG seed
+@show injection_config["seed"];                       # RNG seed
 @show injection_config["nevent"];                         # number of primaries to throw
 
 # =============================================================================
@@ -93,7 +93,7 @@ length(frames.q_frames)             # 50
 m_frame = frames.m_frames[end]
 sort(collect(keys(m_frame.data)))    # ["injection"]
 m_frame["injection"]["nevent"]       # 50 — round-trips from injection_config
-m_frame["injection"]["pinecone"]     # 1234
+m_frame["injection"]["seed"]     # 1234
 
 # Each Q frame now has event_id + the per-event physics keys:
 q1 = frames.q_frames[1]
@@ -141,7 +141,7 @@ xs                                  # struct fields show the energy grid + σ va
 #
 # The three saved states correspond to steps (3), (4), (5):
 #
-#   injection_close_state     the *physical* state arriving at p with
+#   injection_taurunner_output_state     the *physical* state arriving at p with
 #                             direction d, with meaningful position, direction,
 #                             and energy. in a tau neutrino injection, 
 #                             this state is returned by TauRunner and can be 
@@ -158,41 +158,41 @@ xs                                  # struct fields show the energy grid + σ va
 #                             physical state.
 #
 #   injection_final_state     if a neutrino interaction had to be forced,
-#                             this state corresponds to the forced CC 
-#                             interaction vertex inside rock — a physically 
-#                             distinct point along the trajectory leading to p, 
-#                             where close_state is forced to interact. Otherwise
-#                             this is just final_state === close_state.
+#                             this state corresponds to the forced CC
+#                             interaction vertex inside rock — a physically
+#                             distinct point along the trajectory leading to p,
+#                             where taurunner_output_state is forced to interact.
+#                             Otherwise this is just final_state === taurunner_output_state.
 #
 # Frames whose sampling step (2) found no visible detector triangle, or
 # whose back-traced trajectory failed to validate, lack *_final_state —
 # see Section 6.
 
 q1["injection_initial_state"]       # bookkeeping: source-side energy attached to p
-q1["injection_close_state"]         # TauRunner output; usually a neutrino at p
-q1["injection_final_state"]         # forced CC vertex (or === close_state if tau out)
+q1["injection_taurunner_output_state"]   # TauRunner output; usually a neutrino at p
+q1["injection_final_state"]             # forced CC vertex (or === taurunner_output_state if tau out)
 
 # For events where TauRunner returns a neutrino that survived the full
 # trajectory, initial and close share position+direction; the only
 # difference is the energy. That energy gap is the Earth-absorption
 # cascade: at PeV+ the CC mean free path through rock is short, so much
 # of the source-side energy is lost in the integrated column depth.
-# TauRunner samples that loss; (initial.energy / close.energy) gives
+# TauRunner samples that loss; (initial.energy / taurunner_output.energy) gives
 # the per-event suppression.
 q1["injection_initial_state"].energy |> u"PeV"
-q1["injection_close_state"].energy |> u"PeV"
+q1["injection_taurunner_output_state"].energy |> u"PeV"
 
-# close → final is a CC interaction: final.energy = (1 - y) * close.energy
+# taurunner_output → final is a CC interaction: final.energy = (1 - y) * taurunner_output.energy
 # where y is the Bjorken inelasticity (typically tens of percent at PeV).
 q1["injection_final_state"].energy |> u"PeV"
 
 q1["injection_initial_state"].pdg    # 16 (nu_tau)
-q1["injection_close_state"].pdg      # 16 if it survived as a neutrino; ±15 if regenerated as a tau
-q1["injection_final_state"].pdg      # 15 (tau) — either the forced-CC outgoing tau or === close_state
+q1["injection_taurunner_output_state"].pdg      # 16 if it survived as a neutrino; ±15 if regenerated as a tau
+q1["injection_final_state"].pdg      # 15 (tau) — either the forced-CC outgoing tau or === taurunner_output_state
 
 # In this event, TauRunner ran all the way to p and returned a neutrino,
 # so the initial and close positions are the same.
-q1["injection_initial_state"].position == q1["injection_close_state"].position
+q1["injection_initial_state"].position == q1["injection_taurunner_output_state"].position
 
 # final lives elsewhere — at the point the neutrino interaction was 
 # forced inside rock
@@ -255,7 +255,7 @@ relativize!(proton_config)
 
 proton_injection_config = proton_config["injection"]
 proton_injection_config["nevent"]   = NEVENT
-proton_injection_config["pinecone"] = SEED
+proton_injection_config["seed"] = SEED
 
 # The proton config is similar to that for neutrinos but 
 # adds `altitude` — the geodetic altitude at which the primary 
@@ -273,15 +273,14 @@ TamboSim.inject_protons!(proton_frames, proton_injection_config)
 proton_frames                       # tree view: M frame + NEVENT Q frames
 
 # Per-Q-frame keys: same skeleton as the neutrino case, but
-#   - no `injection_close_state`  (no Earth-propagation cascade)
+#   - no `injection_taurunner_output_state`  (no Earth-propagation cascade)
+#   - no `injection_final_state`             (every primary produces a shower)
+#   - `injection_initial_state` is the proton backtraced to altitude, ready for CORSIKA
 proton_q1 = proton_frames.q_frames[1]
 sort(collect(keys(proton_q1.data)))
 
-# initial_state lives at `altitude` km; final_state is at the surface where
-# the shower starts:
 proton_q1["injection_initial_state"].pdg            # 2212 (proton)
-proton_q1["injection_initial_state"].position
-proton_q1["injection_final_state"].position
+proton_q1["injection_initial_state"].position       # position at altitude, CORSIKA input
 
 # Protons get a `phase_space_point` too — a `SurfaceCRPoint` rather than
 # the forced-CC variant the neutrino path produced. Surface CRs aren't

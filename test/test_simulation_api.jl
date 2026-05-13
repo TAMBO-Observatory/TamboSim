@@ -16,7 +16,7 @@ const XS_PATH = joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
 function _injection_config(; nevent=10)
     Dict{String,Any}(
         "strategy"    => "NeutrinoInjection",
-        "pinecone"    => 7,
+        "seed"    => 7,
         "nevent"      => nevent,
         "pdg"         => 16,
         "gamma"       => 2.0,
@@ -40,6 +40,10 @@ function run_simulation_api_tests()
         test_inject_missing_strategy_errors()
         test_inject_unknown_strategy_errors()
         test_inject_dispatches_to_protons()
+    end
+
+    @testset "neutrino initial_state position" begin
+        test_initial_state_at_earth_entry()
     end
 
     @testset "proposal_propagation!" begin
@@ -143,7 +147,7 @@ function test_inject_dispatches_to_protons()
     frames = load_frames(GEOMETRY_PATH)
     proton_config = Dict{String,Any}(
         "strategy"  => "CosmicRayInjection",
-        "pinecone"  => 42,
+        "seed"  => 42,
         "nevent"    => 5,
         "pdg"       => 2212,
         "gamma"     => 2.7,
@@ -167,6 +171,44 @@ function test_inject_dispatches_to_protons()
 end
 
 # =============================================================================
+# neutrino initial_state position tests
+# =============================================================================
+
+function test_initial_state_at_earth_entry()
+    frames = load_frames(GEOMETRY_PATH)
+    inject!(frames, _injection_config(nevent=30))
+
+    q_frames = filter(f -> f.stream == 'Q', frames)
+    # Only examine frames that completed injection (have both states)
+    survived = filter(f -> haskey(f, "injection_initial_state") &&
+                           haskey(f, "injection_taurunner_output_state"), q_frames)
+    @test length(survived) > 0
+
+    for q in survived
+        istate  = q["injection_initial_state"]
+        trstate = q["injection_taurunner_output_state"]
+
+        # initial_state must not be NaN
+        @test !any(isnan, ustrip.(istate.position.point))
+
+        # The two positions must be distinct — initial is at Earth entry,
+        # taurunner_output is wherever TauRunner's stopping condition fired
+        # (somewhere along the path through the Earth, not necessarily near
+        # the detector).
+        disp = trstate.position.point .- istate.position.point
+        dist = sqrt(sum(ustrip.(u"m", disp).^2))
+        @test dist > 1.0   # at least 1 metre apart
+
+        # The displacement from initial → taurunner_output must be parallel to
+        # the neutrino direction (collinearity check via cross-product magnitude).
+        d_hat = ustrip.(istate.direction.point)
+        disp_hat = ustrip.(u"m", disp) ./ dist
+        cross_mag = sqrt(sum((d_hat × disp_hat).^2))
+        @test cross_mag < 1e-4
+    end
+end
+
+# =============================================================================
 # proposal_propagation! tests
 # =============================================================================
 
@@ -178,7 +220,7 @@ function test_proposal_config_stored()
     filter!(f -> haskey(f, "injection_final_state"), frames)
 
     proposal_config = Dict{String,Any}(
-        "pinecone"        => 7,
+        "seed"        => 7,
         "ecut"            => -1,
         "vcut"            => 0.05,
         "do_interpolate"  => true,
@@ -202,7 +244,7 @@ function test_proposal_output_keys()
     count(f -> f.stream == 'Q', frames) > 0 || return
 
     proposal_config = Dict{String,Any}(
-        "pinecone"        => 7,
+        "seed"        => 7,
         "ecut"            => -1,
         "vcut"            => 0.05,
         "do_interpolate"  => true,
@@ -241,7 +283,7 @@ function test_proposal_skips_below_rest_energy()
     target["injection_final_state"] = Particle(EMinus, 0.1u"MeV", orig.position, orig.direction)
 
     proposal_config = Dict{String,Any}(
-        "pinecone"        => 7,
+        "seed"        => 7,
         "ecut"            => -1,
         "vcut"            => 0.05,
         "do_interpolate"  => true,
@@ -351,7 +393,7 @@ function test_save_geometry_self_contained()
     @test count(f -> f.stream == 'G', loaded) == 1
     lg = TamboSim._get_last_frame(loaded, 'G')
     @test length(lg["topography"]) == length(g_frame["topography"])
-    @test lg["earth_path"] == g_frame["earth_path"]
+    @test lg["geometry_hash"] == g_frame["geometry_hash"]
 end
 
 # =============================================================================

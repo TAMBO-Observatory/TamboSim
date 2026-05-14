@@ -1,138 +1,3 @@
-function _load_earth_h5(location::String, detectorname::String="")
-    filename, groupname = split(location, ":")
-    h5open(filename) do file
-        group = file[groupname]
-
-        longlat = deg2rad.(Tuple(read(group["location"])))
-        radii = read(group["radii"]) .* u"m"
-        rearth = radii[end]
-        cs = CoordinateSystem(longlat, rearth)
-
-        center = Coordinate(ecefcoordinates.origin, ecefcoordinates)
-        center = convert(cs, center)
-        prem = [Sphere(center, r) for r in radii]
-
-        detector_region = nothing
-        if length(detectorname) > 0
-            detector_region = read(group[detectorname])
-        end
-
-        triangles = parse_triangles(group, cs)
-        all(validate_triangle.(triangles, Ref(center))) || throw("Incorrectly oriented triangles")
-
-        bvh = BVHTree(triangles)
-
-        return prem, triangles, bvh, detector_region, cs
-    end
-end
-
-function _load_earth_ply(path::String)
-    vertices, faces, is_in_injection, radii = parse_ply(path)
-
-    radii_m = radii .* u"m"
-    rearth = radii_m[end]
-
-    longlat = Tuple(injection_longlat(vertices, faces, is_in_injection))
-    cs = CoordinateSystem(longlat, rearth)
-
-    center = Coordinate(ecefcoordinates.origin, ecefcoordinates)
-    center = convert(cs, center)
-    prem = [Sphere(center, r) for r in radii_m]
-
-    triangles = parse_triangles(vertices, faces, cs)
-    all(validate_triangle.(triangles, Ref(center))) || throw("Incorrectly oriented triangles")
-
-    bvh = BVHTree(triangles)
-    detector_region = findall(is_in_injection)
-
-    return prem, triangles, bvh, detector_region, cs
-end
-
-"""
-    injection_longlat(vertices, faces, is_in_injection) -> Vector{Float64}
-
-Computes the area-weighted mean longitude and latitude of the injection region.
-"""
-function injection_longlat(
-    vertices::Matrix{Float64},
-    faces::Matrix{Int},
-    is_in_injection::BitVector
-)
-    weighted_sum = zeros(3)
-    total_weight = 0.0
-
-    for i in axes(faces, 1)
-        is_in_injection[i] || continue
-        v1 = vertices[faces[i, 1], :]
-        v2 = vertices[faces[i, 2], :]
-        v3 = vertices[faces[i, 3], :]
-        c = (v1 + v2 + v3) / 3
-        a = 0.5 * norm(cross(v2 - v1, v3 - v1))
-        weighted_sum .+= a .* c
-        total_weight += a
-    end
-
-    return cart_to_longlat((weighted_sum ./ total_weight)...)
-end
-
-function parse_ply_header(io::IO)
-    n_verts = n_faces = n_radii = 0
-    while true
-        line = readline(io)
-        line == "end_header" && break
-        parts = split(line)
-        if length(parts) == 3 && parts[1] == "element"
-            count = parse(Int, parts[3])
-            if parts[2] == "vertex"
-                n_verts = count
-            elseif parts[2] == "face"
-                n_faces = count
-            elseif parts[2] == "radii"
-                n_radii = count
-            end
-        end
-    end
-    return n_verts, n_faces, n_radii
-end
-
-function parse_ply(path::String)
-    open(path, "r") do io
-        n_verts, n_faces, n_radii = parse_ply_header(io)
-
-        vertices = Matrix{Float64}(undef, n_verts, 3)
-        for i in 1:n_verts
-            parts = split(readline(io))
-            vertices[i, 1] = parse(Float64, parts[1])
-            vertices[i, 2] = parse(Float64, parts[2])
-            vertices[i, 3] = parse(Float64, parts[3])
-        end
-
-        faces = Matrix{Int}(undef, n_faces, 3)
-        is_in_injection = falses(n_faces)
-        for i in 1:n_faces
-            parts = split(readline(io))
-            faces[i, 1] = parse(Int, parts[2]) + 1
-            faces[i, 2] = parse(Int, parts[3]) + 1
-            faces[i, 3] = parse(Int, parts[4]) + 1
-            is_in_injection[i] = parse(Int, parts[5]) != 0
-        end
-
-        radii = Vector{Float64}(undef, n_radii)
-        for i in 1:n_radii
-            radii[i] = parse(Float64, readline(io))
-        end
-
-        return vertices, faces, is_in_injection, radii
-    end
-end
-
-function parse_triangles(
-    group::Union{HDF5.File, HDF5.Group},
-    cs::CoordinateSystem{T}
-)::Vector{Triangle{T}} where {T}
-    return parse_triangles(read(group["vertices"]), read(group["faces"]), cs)
-end
-
 function parse_triangles(
     vertices::Matrix{<:Real},
     faces::Matrix{<:Integer},
@@ -151,75 +16,8 @@ function parse_triangles(
     return triangles
 end
 
-"""
-    load_earth!(g_frame::Frame)
-
-Reads geometry from `g_frame["earth_path"]` and populates the G frame with
-`"prem"`, `"topography"`, `"bvh"`, `"cs"`, and `"geometry_hash"`. Internal
-utility retained for backward compatibility with old JLD2 fixtures that stored
-only an `earth_path` reference instead of baking geometry directly.
-
-New G frames produced by `build_gcd_bundle` always carry all geometry keys and
-never need `load_earth!` called on them.
-"""
-function load_earth!(g_frame::Frame)
-    location = g_frame["earth_path"]
-    prem, topography, bvh, _, cs = if endswith(location, ".ply")
-        _load_earth_ply(location)
-    else
-        detectorname = haskey(g_frame.data, "detector_key") ? g_frame.data["detector_key"] : ""
-        _load_earth_h5(location, detectorname)
-    end
-    new_hash = _geometry_hash(prem, topography)
-    if haskey(g_frame.data, "geometry_hash") && g_frame["geometry_hash"] != new_hash
-        @warn "geometry_hash mismatch for $(location): stored hash does not match reloaded geometry. The file may have changed since the JLD2 was written."
-    end
-    g_frame["prem"]          = prem
-    g_frame["topography"]    = topography
-    g_frame["bvh"]           = bvh
-    g_frame["cs"]            = cs
-    g_frame["geometry_hash"] = new_hash
-    return g_frame
-end
-
 CoordinateSystem(g_frame::Frame) = g_frame["cs"]
 
-"""
-    _ensure_geometry_hash!(g_frame::Frame)
-
-If `g_frame` has prem and topography but no `geometry_hash`, derive and store
-it. Defensive fallback for legacy fixtures saved before `build_gcd_bundle`
-started baking the hash in.
-"""
-function _ensure_geometry_hash!(g_frame::Frame)
-    haskey(g_frame.data, "geometry_hash") && return
-    haskey(g_frame.data, "prem") && haskey(g_frame.data, "topography") || return
-    g_frame["geometry_hash"] = _geometry_hash(g_frame["prem"], g_frame["topography"])
-end
-
-"""
-    _ensure_earth_loaded!(frames::TamboFrames)
-
-Ensures the G frame has earth geometry loaded. Calls `load_earth!` if prem is missing.
-"""
-function _ensure_earth_loaded!(frames::TamboFrames)
-    g_frame = _get_last_frame(frames, 'G')
-    if !haskey(g_frame.data, "prem")
-        load_earth!(g_frame)
-    end
-    _ensure_geometry_hash!(g_frame)
-end
-
-"""
-    build_gcd_bundle(earth_path, detector_key) -> TamboFrames
-
-Builds a self-contained GCD bundle: one G frame (full terrain), one blank C
-frame (placeholder for future calibration data), and one D frame (detector
-region indices and pre-built detector BVH).
-
-Save the result with `save_frames(path, frames, streams=('G','C','D'))` to
-produce a JLD2 that downstream runs can load without the original HDF5 file.
-"""
 function _geometry_hash(prem, topography)
     coords = Float64[]
     for s in prem
@@ -237,24 +35,60 @@ function _geometry_hash(prem, topography)
     return reinterpret(UInt64, digest[1:8])[1]
 end
 
-function build_gcd_bundle(earth_path::String, detector_key::String)
-    prem, topography, bvh, detector_region, cs = if endswith(earth_path, ".ply")
-        _load_earth_ply(earth_path)
-    else
-        _load_earth_h5(earth_path, detector_key)
-    end
+"""
+    build_gcd_bundle(
+        vertices, faces, longlat_rad, prem_radii, detector_region
+    ) -> TamboFrames
+
+Builds a self-contained GCD bundle from raw mesh data: one G frame (full
+terrain), one blank C frame, and one D frame (detector region indices and
+pre-built detector BVH).
+
+# Arguments
+- `vertices`: (n_verts, 3) matrix of ECEF positions in metres.
+- `faces`: (n_faces, 3) matrix of 1-based vertex indices.
+- `longlat_rad`: site `(longitude, latitude)` in radians.
+- `prem_radii`: PREM layer radii as `Unitful.Length` quantities, outermost last.
+- `detector_region`: 1-based face indices selecting the detector sub-region.
+
+Save the result with `save_frames(path, frames, streams=('G','C','D'))` to
+produce a JLD2 that downstream runs can load without the original source files.
+Use `dump_to_h5` and `dump_to_ply` to export derived HDF5 or binary PLY files.
+"""
+function build_gcd_bundle(
+    vertices        :: Matrix{Float64},
+    faces           :: Matrix{<:Integer},
+    longlat_rad     :: NTuple{2,Float64},
+    prem_radii      :: Vector{<:Unitful.Length},
+    detector_region :: Vector{Int}
+)
+    rearth = prem_radii[end]
+    cs     = CoordinateSystem(longlat_rad, rearth)
+
+    center = Coordinate(ecefcoordinates.origin, ecefcoordinates)
+    center = convert(cs, center)
+    prem   = [Sphere(center, r) for r in prem_radii]
+
+    triangles = parse_triangles(vertices, faces, cs)
+    all(validate_triangle.(triangles, Ref(center))) || throw("Incorrectly oriented triangles")
+
+    bvh = BVHTree(triangles)
 
     g_frame = Frame('G', Dict{String,Any}(
+        "vertices"      => vertices,
+        "faces"         => Matrix{Int}(faces),
+        "longlat_rad"   => collect(longlat_rad),
+        "prem_radii"    => prem_radii,
         "prem"          => prem,
-        "topography"    => topography,
+        "topography"    => triangles,
         "bvh"           => bvh,
         "cs"            => cs,
-        "geometry_hash" => _geometry_hash(prem, topography),
+        "geometry_hash" => _geometry_hash(prem, triangles),
     ))
 
     c_frame = Frame('C', Dict{String,Any}(), Dict{Char,Frame}('G' => g_frame))
 
-    detector_triangles = topography[detector_region]
+    detector_triangles = triangles[detector_region]
     detector_bvh       = BVHTree(detector_triangles)
     d_frame = Frame('D', Dict{String,Any}(
         "detector_region" => detector_region,
@@ -262,4 +96,196 @@ function build_gcd_bundle(earth_path::String, detector_key::String)
     ), Dict{Char,Frame}('G' => g_frame, 'C' => c_frame))
 
     return TamboFrames(Frame[g_frame, c_frame, d_frame])
+end
+
+"""
+    make_watertight(vertices, faces; depth_m=10_000.0) -> (vertices, faces)
+
+Close an open surface mesh by adding a skirt (side walls) and a bottom cap,
+inset `depth_m` metres along the radial direction from each boundary vertex.
+Returns the inputs unchanged if the mesh is already closed.
+"""
+function make_watertight(
+    vertices :: Matrix{Float64},
+    faces    :: Matrix{Int};
+    depth_m  :: Real = 10_000.0,
+)
+    edge_count = Dict{Tuple{Int,Int}, Int}()
+    for i in axes(faces, 1)
+        for (a, b) in ((faces[i,1], faces[i,2]),
+                       (faces[i,2], faces[i,3]),
+                       (faces[i,3], faces[i,1]))
+            key = minmax(a, b)
+            edge_count[key] = get(edge_count, key, 0) + 1
+        end
+    end
+    boundary_edges = [k for (k, v) in edge_count if v == 1]
+    isempty(boundary_edges) && return vertices, faces
+
+    adj = Dict{Int, Vector{Int}}()
+    for (a, b) in boundary_edges
+        push!(get!(adj, a, Int[]), b)
+        push!(get!(adj, b, Int[]), a)
+    end
+    start = minimum(keys(adj))
+    loop  = [start]
+    prev  = -1
+    cur   = start
+    while true
+        nbrs = adj[cur]
+        nxt  = nbrs[1] == prev ? nbrs[2] : nbrs[1]
+        nxt == start && break
+        push!(loop, nxt)
+        prev, cur = cur, nxt
+    end
+    n_loop = length(loop)
+
+    n_old = size(vertices, 1)
+    bot_verts = Matrix{Float64}(undef, n_loop, 3)
+    for (i, vi) in enumerate(loop)
+        v = vertices[vi, :]
+        r = norm(v)
+        bot_verts[i, :] = v .* ((r - depth_m) / r)
+    end
+    bot_center = vec(mean(bot_verts, dims=1))
+
+    new_verts      = vcat(vertices, bot_verts, bot_center')
+    bot_ring_start = n_old + 1
+    bot_center_idx = n_old + n_loop + 1
+
+    side = Matrix{Int}(undef, 2 * n_loop, 3)
+    for i in 1:n_loop
+        a     = loop[i]
+        b     = loop[mod1(i + 1, n_loop)]
+        a_bot = bot_ring_start + i - 1
+        b_bot = bot_ring_start + mod(i, n_loop)
+        side[2i-1, :] = [a, a_bot, b_bot]
+        side[2i,   :] = [a, b_bot, b    ]
+    end
+
+    bot_cap = Matrix{Int}(undef, n_loop, 3)
+    for i in 1:n_loop
+        a_bot = bot_ring_start + i - 1
+        b_bot = bot_ring_start + mod(i, n_loop)
+        bot_cap[i, :] = [a_bot, b_bot, bot_center_idx]
+    end
+
+    return new_verts, vcat(faces, side, bot_cap)
+end
+
+function _detector_subset_vf(
+    vertices        :: Matrix{Float64},
+    faces           :: Matrix{<:Integer},
+    detector_region :: Vector{Int}
+)
+    det_faces = faces[detector_region, :]
+    used      = sort(unique(vec(det_faces)))
+    remap     = Dict(old => new for (new, old) in enumerate(used))
+    sub_verts = vertices[used, :]
+    sub_faces = [remap[det_faces[i,j]] for i in axes(det_faces,1), j in 1:3]
+    return sub_verts, sub_faces
+end
+
+function _serialize_corsika_ply(
+    vertices :: Matrix{Float64},
+    faces    :: Matrix{<:Integer}
+)::Vector{UInt8}
+    buf = IOBuffer()
+    print(buf, "ply\nformat binary_little_endian 1.0\n")
+    print(buf, "element vertex $(size(vertices,1))\n")
+    print(buf, "property double x\nproperty double y\nproperty double z\n")
+    print(buf, "element face $(size(faces,1))\n")
+    print(buf, "property list uchar uint vertex_indices\n")
+    print(buf, "end_header\n")
+    for i in axes(vertices, 1)
+        write(buf, htol(vertices[i,1]), htol(vertices[i,2]), htol(vertices[i,3]))
+    end
+    for i in axes(faces, 1)
+        write(buf, UInt8(3),
+              htol(UInt32(faces[i,1]-1)),
+              htol(UInt32(faces[i,2]-1)),
+              htol(UInt32(faces[i,3]-1)))
+    end
+    return take!(buf)
+end
+
+"""
+    dump_to_h5(g_frame, d_frame, path, groupname)
+
+Write geometry from a GCD bundle to an HDF5 file under `groupname`. Creates or
+overwrites the group; the rest of the file is untouched.
+"""
+function dump_to_h5(
+    g_frame   :: Frame,
+    d_frame   :: Frame,
+    path      :: String,
+    groupname :: String
+)
+    vertices        = g_frame["vertices"]
+    faces           = g_frame["faces"]
+    longlat_rad     = g_frame["longlat_rad"]
+    prem_radii      = ustrip.(u"m", g_frame["prem_radii"])
+    detector_region = d_frame["detector_region"]
+    longlat_deg     = rad2deg.(longlat_rad)
+
+    h5open(path, "cw") do f
+        haskey(f, groupname) && delete_object(f, groupname)
+        grp              = create_group(f, groupname)
+        grp["location"]  = Float64[longlat_deg...]
+        grp["radii"]     = prem_radii
+        grp["vertices"]  = vertices
+        grp["faces"]     = faces
+        grp["detector1"] = detector_region
+    end
+end
+
+"""
+    dump_to_ply(frame, fname; max_radius_km=nothing, watertight_depth=nothing)
+
+Write a binary PLY file for CORSIKA from a G or D frame.
+
+- **G frame**: writes the full terrain mesh. Pass `max_radius_km` to crop faces
+  whose centroid exceeds that radius from the site centre. Pass `watertight_depth`
+  (metres) to close the mesh after cropping.
+- **D frame**: writes the detector-region (observation) mesh. Reads vertex/face
+  data from the parent G frame. `max_radius_km` and `watertight_depth` are unused.
+"""
+function dump_to_ply(
+    frame            :: Frame,
+    fname            :: String;
+    max_radius_km    :: Union{Real,Nothing} = nothing,
+    watertight_depth :: Union{Real,Nothing} = nothing
+)
+    if frame.stream == 'G'
+        vertices = frame["vertices"]
+        faces    = frame["faces"]
+
+        if !isnothing(max_radius_km)
+            longlat = frame["longlat_rad"]
+            center  = longlat_to_cart(longlat...) .* ustrip(u"m", frame["prem_radii"][end])
+            max_r   = Float64(max_radius_km) * 1_000.0
+            kept    = Int[i for i in axes(faces, 1)
+                          if norm((vertices[faces[i,1],:] .+
+                                   vertices[faces[i,2],:] .+
+                                   vertices[faces[i,3],:]) ./ 3 .- center) <= max_r]
+            faces    = faces[kept, :]
+            used     = sort(unique(vec(faces)))
+            remap    = Dict(old => new for (new, old) in enumerate(used))
+            vertices = vertices[used, :]
+            faces    = [remap[faces[i,j]] for i in axes(faces,1), j in 1:3]
+        end
+
+        if !isnothing(watertight_depth)
+            vertices, faces = make_watertight(vertices, faces; depth_m=watertight_depth)
+        end
+
+    elseif frame.stream == 'D'
+        g               = frame.g_frame
+        vertices, faces = _detector_subset_vf(g["vertices"], g["faces"], frame["detector_region"])
+
+    else
+        error("dump_to_ply: unsupported frame stream '$(frame.stream)'; expected 'G' or 'D'")
+    end
+
+    write(fname, _serialize_corsika_ply(vertices, faces))
 end

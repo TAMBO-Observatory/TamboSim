@@ -226,7 +226,7 @@ end
 
 """
     corsika_run!(frames::TamboFrames, config::Dict, base_outdir;
-                executor=nothing, prefix="corsika", store_paths=true)
+                executor=nothing, prefix="corsika")
 
 Orchestrate CORSIKA 8 (`tambo_shower`) over a `TamboFrames`. Strategy-
 dispatched: handles both `NeutrinoInjection` (one shower per non-neutrino
@@ -240,7 +240,8 @@ Steps performed in order:
 3. Enumerates jobs via [`plan_corsika_jobs`](@ref) — deterministic given
    `config["seed"]`.
 4. Stamps each Q frame with `q["corsika_directories"]` listing *all*
-   shower outdirs planned for that event.
+   shower outdirs planned for that event. Always done — downstream
+   `read_corsika_hits!` depends on it.
 5. For each job, builds argv via [`build_corsika_argv`](@ref) and hands
    it to `executor(argv, job)`.
 6. Removes the mesh PLYs on exit if `executor === run_local`; leaves
@@ -293,7 +294,6 @@ function corsika_run!(
     base_outdir;
     executor=nothing,
     prefix::String="corsika",
-    store_paths::Bool=true,
 )
     m_frame = _get_last_frame(frames, 'M')
     g_frame = m_frame.g_frame
@@ -315,16 +315,14 @@ function corsika_run!(
 
     jobs = plan_corsika_jobs(frames, config, base_outdir)
 
-    if store_paths
-        by_event = Dict{Int, Vector{String}}()
-        for j in jobs
-            push!(get!(by_event, j.event_id, String[]), j.outdir)
-        end
-        for q in frames.q_frames
-            event_id = q["event_id"]
-            haskey(by_event, event_id) || continue
-            q["corsika_directories"] = by_event[event_id]
-        end
+    by_event = Dict{Int, Vector{String}}()
+    for j in jobs
+        push!(get!(by_event, j.event_id, String[]), j.outdir)
+    end
+    for q in frames.q_frames
+        event_id = q["event_id"]
+        haskey(by_event, event_id) || continue
+        q["corsika_directories"] = by_event[event_id]
     end
 
     ecuts = SVector{3, Float64}([config["em_ecut"], config["mu_ecut"], config["hadron_ecut"]]) * u"GeV"

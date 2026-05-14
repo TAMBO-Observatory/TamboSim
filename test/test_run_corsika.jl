@@ -1,13 +1,13 @@
 include("testsetup.jl")
 """
 Tests for the CORSIKA orchestrator (`src/corsika/run_corsika.jl`):
-`plan_corsika_jobs`, `build_corsika_argv`, `corsika_run`, and the
+`plan_corsika_jobs`, `build_corsika_argv`, `corsika_run!`, and the
 built-in executors.
 
 Does not exercise actual CORSIKA execution (no `tambo_shower` binary in
 CI). The `run_local` executor is exercised indirectly via the
 `collect_jobs` and `dump_to_file` executors, which observe the job
-records `corsika_run` produces.
+records `corsika_run!` produces.
 """
 
 import TamboSim: _get_last_frame, inject_protons!
@@ -73,10 +73,10 @@ function run_corsika_orchestrator_tests()
     end
     # The two tests below mutate `cr_frames` (stamping M and Q frames).
     # They MUST run after the read-only tests above.
-    @testset "corsika_run stamping" begin
+    @testset "corsika_run! stamping" begin
         test_collect_jobs_stamping(cr_frames)
     end
-    @testset "corsika_run executor selection" begin
+    @testset "corsika_run! executor selection" begin
         test_dump_to_file_via_config(cr_frames)
     end
 end
@@ -202,7 +202,7 @@ function test_argv_terrain_mesh_optional(frames)
 end
 
 # ============================================================================
-# corsika_run stamping (via collect_jobs) — MUTATES `frames`
+# corsika_run! stamping (via collect_jobs) — MUTATES `frames`
 # ============================================================================
 
 function test_collect_jobs_stamping(frames)
@@ -210,7 +210,7 @@ function test_collect_jobs_stamping(frames)
     base_outdir = mktempdir()
 
     records = []
-    corsika_run(frames, cfg, base_outdir; executor=collect_jobs(records))
+    corsika_run!(frames, cfg, base_outdir; executor=collect_jobs(records))
 
     m = _get_last_frame(frames, 'M')
     @test haskey(m, "corsika")
@@ -229,7 +229,7 @@ function test_collect_jobs_stamping(frames)
 end
 
 # ============================================================================
-# corsika_run executor selection via config — MUTATES `frames`
+# corsika_run! executor selection via config — MUTATES `frames`
 # ============================================================================
 
 function test_dump_to_file_via_config(frames)
@@ -239,7 +239,7 @@ function test_dump_to_file_via_config(frames)
     cfg["executor_dump_path"] = dump_path
 
     base_outdir = mktempdir()
-    corsika_run(frames, cfg, base_outdir)
+    corsika_run!(frames, cfg, base_outdir)
 
     @test isfile(dump_path)
     lines = filter(!isempty, readlines(dump_path))

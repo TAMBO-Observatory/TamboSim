@@ -10,7 +10,7 @@
  * The shower trajectory is specified by two ECEF points passed on the command
  * line: the injection point (--inject-x/y/z, upstream, ~112 km altitude) and
  * the intercept on the detection region (--intercept-x/y/z).  In normal use
- * these coordinates are computed by the Julia corsika_run orchestrator
+ * these coordinates are computed by the Julia corsika_run! orchestrator
  * (src/corsika/run_corsika.jl), which traces the particle trajectory to the
  * detector mesh and emits the argv for this binary.
  *

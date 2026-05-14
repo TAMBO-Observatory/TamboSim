@@ -1,12 +1,12 @@
 # 5_corsika_walkthrough.jl
 #
-# Walk through what corsika_run does to a propagated TamboFrames, without
+# Walk through what corsika_run! does to a propagated TamboFrames, without
 # actually invoking the tambo_shower binary. Designed to be pasted into
 # the REPL section by section — values display themselves rather than
 # being wrapped in println.
 #
-# This walkthrough only reads — it does not call corsika_run. The point
-# is to make the inject!/propagate!/corsika_run boundary legible so a
+# This walkthrough only reads — it does not call corsika_run!. The point
+# is to make the inject!/propagate!/corsika_run! boundary legible so a
 # reader can decide where to plug in their own batch system or how to
 # inspect tambo_shower output once it exists.
 #
@@ -34,14 +34,14 @@ example_file  = joinpath(tambo_path, "examples", "resources", "example_output.jl
 frames = load_frames([geometry_file, example_file])
 
 # =============================================================================
-# 1. Inputs to corsika_run
+# 1. Inputs to corsika_run!
 # =============================================================================
-# corsika_run consumes the proposal_decay_products written by
+# corsika_run! consumes the proposal_decay_products written by
 # proposal_propagation!. Each decay product is itself a Particle (PDG +
 # energy + position + direction + time) sitting at the lepton's decay
 # vertex. Those daughters are what tambo_shower actually showers.
 
-@doc TamboSim.corsika_run
+@doc TamboSim.corsika_run!
 
 q = first(filter(f -> haskey(f, "proposal_decay_products") &&
                       !isempty(f["proposal_decay_products"]),
@@ -51,7 +51,7 @@ q = first(filter(f -> haskey(f, "proposal_decay_products") &&
 q["proposal_final_state"]            # the lepton at its decay vertex
 q["proposal_decay_products"]         # the daughters tambo_shower will simulate
 
-# The M frame is where corsika_run will stamp `m["corsika"] = config`.
+# The M frame is where corsika_run! will stamp `m["corsika"] = config`.
 # This artifact's M frame doesn't have one yet — make_example_output.jl
 # skips the CORSIKA stage:
 m_frame = frames.m_frames[end]
@@ -67,7 +67,7 @@ corsika_config = TOML.parsefile(config_path)["corsika"]
 # =============================================================================
 # 2. The orchestrator pieces
 # =============================================================================
-# corsika_run is the single public entry point, but it composes three smaller
+# corsika_run! is the single public entry point, but it composes three smaller
 # pieces that are each independently inspectable and testable:
 #
 #   plan_corsika_jobs(frames, config, base_outdir) -> Vector{NamedTuple}
@@ -85,11 +85,11 @@ corsika_config = TOML.parsefile(config_path)["corsika"]
 #       decides what to do with the built command. Selectable from the
 #       [corsika] config table via config["executor"].
 #
-# corsika_run wires these together: stamps the M frame with the config,
+# corsika_run! wires these together: stamps the M frame with the config,
 # stamps each Q frame with its planned shower outdirs, dumps the obs/terrain
 # meshes, then loops jobs through the chosen executor.
 
-@doc corsika_run
+@doc corsika_run!
 
 # =============================================================================
 # 3. Per-event work: skip neutrinos, build output paths
@@ -101,7 +101,7 @@ corsika_config = TOML.parsefile(config_path)["corsika"]
 #   <base_outdir>/event_<id padded to 6 digits>/shower_<idx>/
 #
 # where `idx` is the 1-based position of the particle in
-# proposal_decay_products (or 1 for cosmic-ray primaries). corsika_run
+# proposal_decay_products (or 1 for cosmic-ray primaries). corsika_run!
 # stamps every planned path on q["corsika_directories"] before dispatch,
 # so the frame records the full *intent* of the run regardless of which
 # executor runs.
@@ -172,26 +172,37 @@ end
 # tambo_shower itself writes a structured output tree:
 #
 #   <outdir>/
-#     config.yaml         the parameters of the run
-#     summary.yaml        present once the shower finishes (used as a
-#                         "did this complete?" sentinel by read_corsika)
-#     particles.parquet   per-particle records crossing the obs mesh
-#     profile.parquet     longitudinal shower profile
+#     particles/
+#       config.yaml         per-shower parameters (mesh bounding box, etc.)
+#       summary.yaml        present once the shower finishes (used as a
+#                           "did this complete?" sentinel by read_corsika_mesh)
+#       particles.parquet   per-particle records crossing the obs mesh
+#     profile.parquet       longitudinal shower profile
 #
 # The full schema lives in resources/corsika/src/README.md.
 
 # =============================================================================
 # 6. Reading the output back
 # =============================================================================
-# TamboSim.read_corsika scans <basedir>/shower_*/particles/ for completed
-# shower dirs and yields CorsikaEvent objects (one per particle crossing
-# the obs mesh). 6_corsika_hits.jl uses this iterator to drive its
-# detector-OBB intersection loop.
+# Two layers, mirroring the write side:
+#
+#   read_corsika_mesh(basedir, cs)
+#       String-level reader. Globs basedir/shower_*/particles/, skips any
+#       shower whose summary.yaml is missing, and streams CorsikaEvent
+#       objects (one per particle crossing the obs mesh) with positions
+#       transformed into the target CRS.
+#
+#   read_corsika_hits!(frames; …)
+#       Frame-level orchestrator. Reads q["corsika_directories"] from
+#       every Q frame (stamped by corsika_run!), reduces per-shower paths
+#       to event-level dirs via dirname, calls read_corsika_mesh on each,
+#       projects onto d_frame["detector_unit_bvh"], and stamps
+#       q["corsika_hits"]. 6_corsika_hits.jl is now a thin shim over this.
 
-@doc TamboSim.read_corsika
+@doc TamboSim.read_corsika_hits!
 
-# To exercise read_corsika and the OBB-projection step you need actual
-# tambo_shower output. The templates pipeline that produces it is:
+# To exercise read_corsika_hits! you need actual tambo_shower output.
+# The templates pipeline that produces it is:
 #
 #   julia templates/3_inject.jl
 #   julia templates/4_propagate.jl

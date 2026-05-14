@@ -114,7 +114,7 @@ A proton shower at 10^8 GeV injected from directly above the detector:
 ```
 
 In normal use the injection and intercept coordinates are computed by the Julia
-`corsika_run` orchestrator (`src/corsika/run_corsika.jl`): `plan_corsika_jobs`
+`corsika_run!` orchestrator (`src/corsika/run_corsika.jl`): `plan_corsika_jobs`
 intersects each particle trajectory with the triangulated detector region, and
 `build_corsika_argv` converts both endpoints to ECEF metres for the CLI. The
 orchestrator also generates the PLY mesh files from the JLD2 GCD bundle at run

@@ -145,7 +145,7 @@ end
 """
     run_local(argv, job)
 
-Default [`corsika_run`](@ref) executor: ensures `job.outdir` exists
+Default [`corsika_run!`](@ref) executor: ensures `job.outdir` exists
 (removing any prior contents) and runs `Cmd(argv)` synchronously.
 """
 function run_local(argv, job)
@@ -159,7 +159,7 @@ end
 """
     run_sbatch(prefix::String) -> executor
 
-Return a [`corsika_run`](@ref) executor that submits each job via
+Return a [`corsika_run!`](@ref) executor that submits each job via
 `sbatch <prefix> <argv joined by spaces>`. `prefix` carries sbatch
 options as a single string.
 """
@@ -170,7 +170,7 @@ end
 """
     dump_to_file(io::IO) -> executor
 
-Return a [`corsika_run`](@ref) executor that writes one JSONL record per
+Return a [`corsika_run!`](@ref) executor that writes one JSONL record per
 job to `io`. Each line is a JSON object with keys `event_id`, `decay_id`,
 `outdir`, and `argv` (the full argv vector). Does not create directories
 or run anything; consumable by Snakemake / OSG / `jq` / bash.
@@ -189,13 +189,13 @@ end
 """
     collect_jobs(records::Vector) -> executor
 
-Return a [`corsika_run`](@ref) executor that pushes `(; job, argv)`
+Return a [`corsika_run!`](@ref) executor that pushes `(; job, argv)`
 NamedTuples into `records` and does nothing else. Intended for the
 "collect → filter → dispatch yourself" workflow:
 
 ```julia
 records = []
-corsika_run(frames, config, base_outdir; executor=collect_jobs(records))
+corsika_run!(frames, config, base_outdir; executor=collect_jobs(records))
 records = filter(r -> r.job.primary.energy > 1u"PeV", records)
 for r in records
     run(Cmd(r.argv))   # or sbatch, or anything else
@@ -225,7 +225,7 @@ function _run_jobs(jobs, mesh_paths, ecuts, config, executor)
 end
 
 """
-    corsika_run(frames::TamboFrames, config::Dict, base_outdir;
+    corsika_run!(frames::TamboFrames, config::Dict, base_outdir;
                 executor=nothing, prefix="corsika", store_paths=true)
 
 Orchestrate CORSIKA 8 (`tambo_shower`) over a `TamboFrames`. Strategy-
@@ -258,20 +258,20 @@ instead.
 
 ```julia
 # Run locally inline:
-corsika_run(frames, config, base_outdir)
+corsika_run!(frames, config, base_outdir)
 
 # Cluster submit:
-corsika_run(frames, config, base_outdir;
+corsika_run!(frames, config, base_outdir;
             executor=run_sbatch(config["executor_sbatch_prefix"]))
 
 # Dump jobs.jsonl for an external scheduler:
 open("jobs.jsonl", "w") do io
-    corsika_run(frames, config, base_outdir; executor=dump_to_file(io))
+    corsika_run!(frames, config, base_outdir; executor=dump_to_file(io))
 end
 
 # Collect, filter, dispatch yourself:
 records = []
-corsika_run(frames, config, base_outdir; executor=collect_jobs(records))
+corsika_run!(frames, config, base_outdir; executor=collect_jobs(records))
 records = filter(r -> r.job.primary.energy > 1u"PeV", records)
 for r in records; run(Cmd(r.argv)); end
 ```
@@ -287,7 +287,7 @@ Q-frame `corsika_directories` always reflects the *full* job list from
 - `"hadron_model"`, `"thinning"`, `"nevent"`, `"use_terrain_mesh"` — optional
 - `"executor"`, `"executor_sbatch_prefix"`, `"executor_dump_path"` — optional
 """
-function corsika_run(
+function corsika_run!(
     frames::TamboFrames,
     config::Dict,
     base_outdir;

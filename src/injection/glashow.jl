@@ -139,7 +139,7 @@ function _inject_glashow_event_impl(
         # Vertex sampling: uniform in column depth within the τ-decay range cap,
         # exactly as `force_interaction_vertex` does for CC τ output.
         tau_range = particle_vacuum_range(TauMinus, e_tau)
-        distance, cd_to_vertex, cd_cap, density = find_vertex_distance_by_distance_with_cd_to_vertex(
+        distance, cd_to_vertex, cd, density = find_vertex_distance_by_distance_with_cd_to_vertex(
             revd, tau_range, intersections
         )
 
@@ -174,7 +174,7 @@ function _inject_glashow_event_impl(
             theta, phi,
             area,
             uconvert(u"g/cm^3", density),
-            uconvert(u"g/cm^2", cd_cap),
+            uconvert(u"g/cm^2", cd),
             uconvert(u"cm^-3", n_e_vertex),
             uconvert(u"cm^-2", Ne_entry_to_vertex),
             uconvert(u"cm^2", sigma),

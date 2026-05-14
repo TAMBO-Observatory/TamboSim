@@ -56,7 +56,7 @@ struct GlashowInteractionPoint <: PhaseSpacePoint
     phi                :: Float64   # rad
     area               :: Quantity{Float64, ldim^2, typeof(u"m^2")}
     rho                :: Quantity{Float64, mdim/ldim^3, typeof(u"g/cm^3")}  # density at vertex
-    cd_cap             :: Quantity{Float64, mdim/ldim^2, typeof(u"g/cm^2")}  # cd of τ-decay-range sampling cap
+    cd                 :: Quantity{Float64, mdim/ldim^2, typeof(u"g/cm^2")}  # cd of τ-decay-range sampling cap
     n_e_vertex         :: Quantity{Float64, ldim^-3, typeof(u"cm^-3")}       # electron number density at vertex
     Ne_entry_to_vertex :: Quantity{Float64, ldim^-2, typeof(u"cm^-2")}       # electron column from Earth-entry to vertex
     sigma_glashow      :: Quantity{Float64, ldim^2, typeof(u"cm^2")}         # total Glashow σ at E_ν
@@ -176,10 +176,10 @@ end
 #   A     : area-weighted point     (1/m^2)
 #   y     : p_mc(y) = 3(1-y)^2      (dimensionless)  ; y = E_τ/E_ν
 #   x     : uniform in cd on        (1/(g/cm^2))
-#           [0, cd_cap]
+#           [0, cd]
 #
 # y → E_τ Jacobian:  p_mc(E_τ) = 3(1-y)^2 / E_ν
-# cd → x Jacobian:   p_mc(x)   = ρ / cd_cap
+# cd → x Jacobian:   p_mc(x)   = ρ / cd
 #
 # Physical density (per (E_ν, Ω, A, E_τ, x)):
 #   p_phys = n_e(x) · dσ/dE_τ · exp(-N_e(0→x) · σ_glashow)
@@ -193,7 +193,7 @@ function (ps::GlashowPS)(pt::GlashowInteractionPoint)
     Ω    = (cos(ps.thetamin) - cos(ps.thetamax)) * (ps.phimax - ps.phimin) * u"sr"
     mc  /= Ω
     mc  /= pt.area
-    mc  *= pt.rho / pt.cd_cap
+    mc  *= pt.rho / pt.cd
     y    = pt.E_tau / pt.E
     mc  *= 3 * (1 - y)^2 / pt.E
 

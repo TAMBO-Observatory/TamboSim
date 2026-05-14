@@ -127,11 +127,32 @@ function make_watertight(
         push!(get!(adj, a, Int[]), b)
         push!(get!(adj, b, Int[]), a)
     end
+
+    # The walk below assumes a single closed boundary loop with every boundary
+    # vertex having exactly 2 boundary-edge neighbors. Fragmented or non-manifold
+    # meshes violate this and would walk forever -> OOM. Fail fast instead.
+    n_bad = count(nbrs -> length(nbrs) != 2, values(adj))
+    if n_bad > 0
+        n_boundary_verts = length(adj)
+        error("make_watertight: mesh has $n_bad / $n_boundary_verts boundary " *
+              "vertices with ≠ 2 boundary-edge neighbors. The mesh is " *
+              "fragmented or non-manifold (multiple boundary loops, T-junctions, " *
+              "or duplicate/unshared vertices). Boundary-loop walk only supports " *
+              "a single closed manifold loop.")
+    end
+
     start = minimum(keys(adj))
     loop  = [start]
     prev  = -1
     cur   = start
+    max_iter = length(boundary_edges) + 1
+    iter = 0
     while true
+        iter += 1
+        if iter > max_iter
+            error("make_watertight: boundary walk exceeded $max_iter steps " *
+                  "without closing. Mesh boundary topology is malformed.")
+        end
         nbrs = adj[cur]
         nxt  = nbrs[1] == prev ? nbrs[2] : nbrs[1]
         nxt == start && break

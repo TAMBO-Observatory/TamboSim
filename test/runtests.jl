@@ -3,6 +3,7 @@ include("testsetup.jl")
 # Map of testset name => (filename, run-function symbol). Order matches historical run order.
 const TESTSETS = [
     ("Geometry",                   "test_geometry.jl",                   :run_geometry_tests),
+    ("Earth",                      "test_earth.jl",                      :run_earth_tests),
     ("Ray Tracing",                "test_ray_tracing.jl",                :run_ray_tracing_tests),
     ("Samplers",                   "test_samplers.jl",                   :run_sampler_tests),
     ("Particles",                  "test_particles.jl",                  :run_particle_tests),

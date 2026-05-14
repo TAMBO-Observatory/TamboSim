@@ -105,6 +105,42 @@ function _boundary_edge_count(faces)
 end
 
 # =============================================================================
+# Binary PLY parser for round-trip tests
+# =============================================================================
+
+"""
+Parse a binary-little-endian PLY file written by `_serialize_corsika_ply`
+and return `(vertices, faces)` where vertices are `Float64` ECEF coords and
+faces are 0-based `UInt32` indices (as stored on disk).
+"""
+function _parse_binary_ply(path)
+    open(path) do io
+        nverts = 0
+        nfaces = 0
+        while !eof(io)
+            line = readline(io)
+            startswith(line, "element vertex") && (nverts = parse(Int, split(line)[3]))
+            startswith(line, "element face")   && (nfaces = parse(Int, split(line)[3]))
+            line == "end_header" && break
+        end
+        # File is row-major (x1 y1 z1 x2 y2 z2 …); read into (3, nverts) then
+        # transpose so the result matches our (nverts, 3) convention.
+        verts_T = Matrix{Float64}(undef, 3, nverts)
+        read!(io, verts_T)
+        verts = permutedims(verts_T)
+        faces = Matrix{UInt32}(undef, nfaces, 3)
+        for i in 1:nfaces
+            n = read(io, UInt8)
+            n == 0x03 || error("expected 3-vertex face, got $n")
+            faces[i, 1] = ltoh(read(io, UInt32))
+            faces[i, 2] = ltoh(read(io, UInt32))
+            faces[i, 3] = ltoh(read(io, UInt32))
+        end
+        return verts, faces
+    end
+end
+
+# =============================================================================
 # Test functions
 # =============================================================================
 
@@ -128,7 +164,10 @@ function run_earth_tests()
     @testset "dump_to_ply" begin
         test_dump_to_ply_g_frame()
         test_dump_to_ply_g_frame_max_radius()
+        test_dump_to_ply_g_frame_binary_roundtrip()
+        test_dump_to_ply_g_frame_watertight_depth()
         test_dump_to_ply_d_frame()
+        test_dump_to_ply_d_frame_binary_roundtrip()
         test_dump_to_ply_bad_stream()
     end
 end
@@ -304,6 +343,44 @@ function test_dump_to_ply_g_frame_max_radius()
     end
 end
 
+function test_dump_to_ply_g_frame_binary_roundtrip()
+    # Parses the binary payload back and asserts vertex coordinates round-trip
+    # exactly and face indices are written 0-based.
+    frames  = _test_bundle()
+    g_frame = frames.g_frames[end]
+    path    = tempname() * ".ply"
+    try
+        dump_to_ply(g_frame, path)
+        verts_out, faces_out = _parse_binary_ply(path)
+        @test verts_out == g_frame["vertices"]
+        @test Int.(faces_out) == g_frame["faces"] .- 1
+    finally
+        isfile(path) && rm(path)
+    end
+end
+
+function test_dump_to_ply_g_frame_watertight_depth()
+    # Open mesh (`_test_mesh` is a flat square — has a boundary loop). Verify
+    # that `watertight_depth` actually closes the dumped PLY and adds vertices.
+    frames  = _test_bundle()
+    g_frame = frames.g_frames[end]
+    p_open    = tempname() * ".ply"
+    p_closed  = tempname() * ".ply"
+    try
+        dump_to_ply(g_frame, p_open)
+        dump_to_ply(g_frame, p_closed; watertight_depth=10_000.0)
+        verts_o, faces_o = _parse_binary_ply(p_open)
+        verts_c, faces_c = _parse_binary_ply(p_closed)
+        @test _boundary_edge_count(Int.(faces_o) .+ 1) > 0
+        @test _boundary_edge_count(Int.(faces_c) .+ 1) == 0
+        @test size(verts_c, 1) > size(verts_o, 1)
+        @test size(faces_c, 1) > size(faces_o, 1)
+    finally
+        isfile(p_open)   && rm(p_open)
+        isfile(p_closed) && rm(p_closed)
+    end
+end
+
 function test_dump_to_ply_d_frame()
     verts, faces, det = _test_mesh()
     frames  = build_gcd_bundle(verts, faces, _TEST_LONGLAT, _TEST_PREM_RADII, det)
@@ -316,6 +393,24 @@ function test_dump_to_ply_d_frame()
         @test header[1] == "ply"
         @test _ply_face_count(header) == length(det)
         @test _ply_face_count(header) < size(faces, 1)
+    finally
+        isfile(path) && rm(path)
+    end
+end
+
+function test_dump_to_ply_d_frame_binary_roundtrip()
+    # Verify the D-frame binary payload matches `_detector_subset_vf` output.
+    verts, faces, det = _test_mesh()
+    frames  = build_gcd_bundle(verts, faces, _TEST_LONGLAT, _TEST_PREM_RADII, det)
+    d_frame = frames.d_frames[end]
+    path    = tempname() * ".ply"
+    expected_verts, expected_faces =
+        TamboSim._detector_subset_vf(verts, faces, det)
+    try
+        dump_to_ply(d_frame, path)
+        verts_out, faces_out = _parse_binary_ply(path)
+        @test verts_out == expected_verts
+        @test Int.(faces_out) == expected_faces .- 1
     finally
         isfile(path) && rm(path)
     end

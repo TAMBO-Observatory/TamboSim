@@ -222,7 +222,7 @@ function test_proposal_config_stored()
     proposal_config = Dict{String,Any}(
         "seed"        => 7,
         "ecut"            => -1,
-        "vcut"            => 0.05,
+        "vcut"            => 0.5,
         "do_interpolate"  => true,
         "do_continuous"   => true,
         "tablespath"      => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
@@ -232,7 +232,7 @@ function test_proposal_config_stored()
 
     m_frame = TamboSim._get_last_frame(frames, 'M')
     @test haskey(m_frame.data, "proposal")
-    @test m_frame.data["proposal"]["vcut"] == 0.05
+    @test m_frame.data["proposal"]["vcut"] == 0.5
 end
 
 function test_proposal_output_keys()
@@ -246,7 +246,7 @@ function test_proposal_output_keys()
     proposal_config = Dict{String,Any}(
         "seed"        => 7,
         "ecut"            => -1,
-        "vcut"            => 0.05,
+        "vcut"            => 0.5,
         "do_interpolate"  => true,
         "do_continuous"   => true,
         "tablespath"      => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
@@ -285,7 +285,7 @@ function test_proposal_skips_below_rest_energy()
     proposal_config = Dict{String,Any}(
         "seed"        => 7,
         "ecut"            => -1,
-        "vcut"            => 0.05,
+        "vcut"            => 0.5,
         "do_interpolate"  => true,
         "do_continuous"   => true,
         "tablespath"      => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),

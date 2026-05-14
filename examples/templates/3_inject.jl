@@ -55,9 +55,9 @@ function parse_commandline()
             arg_type = String
             default = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
         "--geometry", "-g"
-            help = "Path to geometry JLD2 file (produced by create_geometry.jl)"
+            help = "Path to geometry JLD2 file (produced by create_geometry.jl). Overrides config[\"geometry\"][\"geometry_path\"]."
             arg_type = String
-            default = "$(tambo_path)/resources/geometry/colca_valley_3000.jld2"
+            default = nothing
         "--outfile", "-o"
             help = "Output JLD2 file path for simulation frames"
             arg_type = String
@@ -105,7 +105,8 @@ println("  primary PDG       : $(injection_config["pdg"])")
 println("  n events to throw : $(injection_config["nevent"])")
 println("  drop failed events: $cut_failed")
 
-frames = load_frames(args["geometry"])
+geometry_file = something(args["geometry"], config["geometry"]["geometry_path"])
+frames = load_frames(geometry_file)
 inject!(frames, injection_config)
 
 if cut_failed

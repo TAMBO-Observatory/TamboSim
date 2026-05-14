@@ -44,9 +44,9 @@ function parse_commandline()
             arg_type = String
             default = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
         "--geometry", "-g"
-            help = "Path to geometry JLD2 file (provides G frame)"
+            help = "Path to geometry JLD2 file (provides G frame). Overrides config[\"geometry\"][\"geometry_path\"]."
             arg_type = String
-            default = "$(tambo_path)/resources/geometry/colca_valley_3000.jld2"
+            default = nothing
         "--infile", "-i"
             help = "Input JLD2 file with injected frames"
             arg_type = String
@@ -69,18 +69,18 @@ end
 
 args = parse_commandline()
 
-geometry_file  = args["geometry"]
 infile         = args["infile"]
 outfile        = args["outfile"]
 cut_inmountain = args["cut-inmountain"]
+
+config = TOML.parsefile(args["config"])
+relativize!(config)
+geometry_file  = something(args["geometry"], config["geometry"]["geometry_path"])
 
 println("Propagation settings:")
 println("  infile           : $infile")
 println("  outfile          : $outfile")
 println("  drop in-mountain : $cut_inmountain")
-
-config = TOML.parsefile(args["config"])
-relativize!(config)
 
 proposal_config = config["proposal"]
 if !isnothing(args["seed"])

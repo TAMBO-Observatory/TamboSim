@@ -37,6 +37,7 @@ using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
 using ProgressMeter
 using TamboSim
+using TOML
 
 function intersect_module_signed(event, bvh)
     ray = TamboSim.Ray(event.particle)
@@ -57,10 +58,14 @@ function parse_commandline()
     )
 
     @add_arg_table! s begin
-        "--geometry", "-g"
-            help = "Path to GCD bundle JLD2 with detector units placed (from 2_create_detector.jl)"
+        "--config", "-c"
+            help = "Path to configuration TOML file (provides default --geometry)"
             arg_type = String
-            default = "$(tambo_path)/resources/geometry/colca_valley_3000.jld2"
+            default = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
+        "--geometry", "-g"
+            help = "Path to GCD bundle JLD2 with detector units placed (from 2_create_detector.jl). Overrides config[\"geometry\"][\"geometry_path\"]."
+            arg_type = String
+            default = nothing
         "--infile", "-i"
             help = "Input JLD2 with CORSIKA-ready frames (from 5_run_corsika.jl)"
             arg_type = String
@@ -80,10 +85,13 @@ end
 
 args = parse_commandline()
 
-geometry_file = args["geometry"]
 infile        = args["infile"]
 corsika_dir   = args["corsika-dir"]
 outfile       = isempty(args["outfile"]) ? infile : args["outfile"]
+
+config = TOML.parsefile(args["config"])
+relativize!(config)
+geometry_file = something(args["geometry"], config["geometry"]["geometry_path"])
 
 frames = TamboSim.load_frames([geometry_file, infile])
 g_frame = frames.g_frames[end]

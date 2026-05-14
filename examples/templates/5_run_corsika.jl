@@ -48,9 +48,9 @@ function parse_commandline()
             arg_type = String
             default = "$(tambo_path)/resources/configuration_examples/tau_neutrino_cc.toml"
         "--geometry", "-g"
-            help = "Path to geometry JLD2 file (provides G + D frames)"
+            help = "Path to geometry JLD2 file (provides G + D frames). Overrides config[\"geometry\"][\"geometry_path\"]."
             arg_type = String
-            default = "$(tambo_path)/resources/geometry/colca_valley_3000.jld2"
+            default = nothing
         "--infile", "-i"
             help = "Input JLD2 with propagated frames (from 4_propagate.jl)"
             arg_type = String
@@ -74,18 +74,18 @@ end
 
 args = parse_commandline()
 
-geometry_file = args["geometry"]
 infile        = args["infile"]
 outfile       = args["outfile"]
 corsika_dir   = args["corsika-dir"]
+
+config = TOML.parsefile(args["config"])
+relativize!(config)
+geometry_file = something(args["geometry"], config["geometry"]["geometry_path"])
 
 println("CORSIKA run settings:")
 println("  infile         : $infile")
 println("  outfile        : $outfile")
 println("  per-event dirs : $corsika_dir")
-
-config = TOML.parsefile(args["config"])
-relativize!(config)
 
 corsika_config = config["corsika"]
 if !isnothing(args["seed"])

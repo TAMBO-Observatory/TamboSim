@@ -23,6 +23,43 @@ function get_git_commit_hash()::Union{String, Nothing}
 end
 
 """
+    get_git_tag() -> Union{String, Nothing}
+
+Returns the name of a Git tag pointing at the current HEAD commit of the
+TamboSim repository, or `nothing` if no tag points at HEAD. Both lightweight
+and annotated tags are considered; the first match is returned.
+"""
+function get_git_tag()::Union{String, Nothing}
+    try
+        repo = LibGit2.GitRepo(get_tambosim_path())
+        head = LibGit2.head_oid(repo)
+        for name in LibGit2.tag_list(repo)
+            commit = LibGit2.peel(LibGit2.GitCommit, LibGit2.GitObject(repo, name))
+            if LibGit2.GitHash(commit) == head
+                return name
+            end
+        end
+        return nothing
+    catch
+        return nothing
+    end
+end
+
+"""
+    is_git_dirty() -> Bool
+
+Returns `true` if the TamboSim repository working tree has uncommitted changes,
+`false` otherwise (including when the repository cannot be opened).
+"""
+function is_git_dirty()::Bool
+    try
+        return LibGit2.isdirty(LibGit2.GitRepo(get_tambosim_path()))
+    catch
+        return false
+    end
+end
+
+"""
     get_version_string() -> String
 
 Returns the TamboSim package version string as recorded in its `Project.toml`.

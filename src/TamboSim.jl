@@ -26,6 +26,8 @@ export PhaseSpace,
        ecefcoordinates,
        get_tambosim_path,
        get_git_commit_hash,
+       get_git_tag,
+       is_git_dirty,
        get_version_string,
        relativize!,
        upwards_ray_at,
@@ -84,38 +86,59 @@ Initializes the TamboSim module.
 """
 function __init__()
 
+    if isinteractive()
+        println(raw"""
+
+  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓  ▓▓  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓       ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓     █   ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓         ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓▓     ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓▓     ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓▓     ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓      ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓       ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓        ▓▓▓▓▓▓▓▓▓▓▓▓▓▓    ▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓          ▒▒▒▒▒▒▒▒▒        ▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓          ▒▒▒ ▒  ▒▒      ▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓          ▒▒▒▒  ▒▒▒      ▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓▓         ▒▒▒▒▒▒▒▒▒      ▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓▓                       ▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓           ▓▓       ▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓   ▓   ▓▓▓▓▓▓  ▓  ▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  ▓▓  ▓▓▓▓▓▓▓  ▓  ▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓  ▓▓  ▓▓▓▓▓▓▓  ▓  ▓▓▓▓▓▓▓▓▓▓
+  ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓
+
+  ████████╗ █████╗ ███╗   ███╗██████╗  ██████╗
+  ╚══██╔══╝██╔══██╗████╗ ████║██╔══██╗██╔═══██╗
+     ██║   ███████║██╔████╔██║██████╔╝██║   ██║
+     ██║   ██╔══██║██║╚██╔╝██║██╔══██╗██║   ██║
+     ██║   ██║  ██║██║ ╚═╝ ██║██████╔╝╚██████╔╝
+     ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═════╝  ╚═════╝
+                                                     """)
+    end
+
     try
         tr_init()
     catch e
         @warn "TauRunner could not be loaded. Injection not possible" exception=(e, catch_backtrace())
     end
 
-    if isinteractive()
-        commit_hash = try
-            get_git_commit_hash()
-        catch e
-            "unknown"
+    try
+        tag = get_git_tag()
+        if tag !== nothing
+            println("Version: $tag")
+        else
+            hash = something(get_git_commit_hash(), "unknown")
+            println("Git commit hash: $hash")
         end
-        println("Welcome to TAMBOSim version -0.1")
-        println("Git commit hash: $commit_hash")
-        println(raw"""
-                  /\    //\
-                 { `---'  }
-                 {  O   O  }
-          _      {  \     /}     __
-        /  \     `._`---'_/     /  \
-       /  | \  ν_τ  `~.~`  ν_τ /  | \
-      /   |  \     _.-'-.     /   |  \
-     /    |   \ .'       `.  /    |   \
-    /     |    /           \/     |    \ """)
-        println(raw"""
-        ████████╗ █████╗ ███╗   ███╗██████╗  ██████╗
-        ╚══██╔══╝██╔══██╗████╗ ████║██╔══██╗██╔═══██╗
-           ██║   ███████║██╔████╔██║██████╔╝██║   ██║
-           ██║   ██╔══██║██║╚██╔╝██║██╔══██╗██║   ██║
-           ██║   ██║  ██║██║ ╚═╝ ██║██████╔╝╚██████╔╝
-           ╚═╝   ╚═╝  ╚═╝╚═╝     ╚═╝╚═════╝  ╚═════╝
-                                                     """)
+        if is_git_dirty()
+            @warn "Working tree has uncommitted changes — version label may be inaccurate"
+        end
+    catch
+        println("Git commit hash: unknown")
     end
 end
 

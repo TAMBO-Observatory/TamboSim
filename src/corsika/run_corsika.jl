@@ -30,8 +30,8 @@ Branches on the latest M frame's `m["injection"]["strategy"]`:
 
 - `"NeutrinoInjection"`: one job per non-neutrino (`pdg ∉ {12,14,16}`)
   particle in `q["proposal_decay_products"]`.
-- `"CosmicRayInjection"`: one job per `q["injection_final_state"]`,
-  with `decay_id = 1`.
+- `"CosmicRayInjection"`: one job per `q["injection_initial_state"]`
+  (the arriving primary), with `decay_id = 1`.
 
 Jobs whose primary trajectory does not intersect the detector region are
 dropped. Seeds are derived deterministically from
@@ -65,8 +65,8 @@ function plan_corsika_jobs(frames::TamboFrames, config::Dict, base_outdir::Strin
             end
 
         elseif strategy == "CosmicRayInjection"
-            haskey(frame, "injection_final_state") || continue
-            job = _make_job(frame["injection_final_state"], event_id, 1,
+            haskey(frame, "injection_initial_state") || continue
+            job = _make_job(frame["injection_initial_state"], event_id, 1,
                             base_seed, detector_bvh, base_outdir)
             isnothing(job) && continue
             push!(jobs, job)
@@ -262,7 +262,7 @@ corsika_run(frames, config, base_outdir)
 
 # Cluster submit:
 corsika_run(frames, config, base_outdir;
-            executor=run_sbatch(config["sbatch_command"]))
+            executor=run_sbatch(config["executor_sbatch_prefix"]))
 
 # Dump jobs.jsonl for an external scheduler:
 open("jobs.jsonl", "w") do io

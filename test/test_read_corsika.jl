@@ -13,7 +13,7 @@ using Parquet2
 using Tables
 using YAML
 
-function run_corsika_tests()
+function run_read_corsika_tests()
     tambosim = get_tambosim_path()
     parquet_path = joinpath(tambosim, "test", "resources", "example_corsika.parquet")
 
@@ -268,6 +268,6 @@ function run_corsika_tests()
 end
 if abspath(PROGRAM_FILE) == @__FILE__
     @testset "CORSIKA" begin
-        run_corsika_tests()
+        run_read_corsika_tests()
     end
 end

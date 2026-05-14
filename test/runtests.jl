@@ -16,7 +16,8 @@ const TESTSETS = [
     ("Display",                    "test_coverage_extras.jl",            :run_display_tests),
     ("Injection Regression",       "test_injection_regression.jl",       :run_injection_regression_tests),
     ("Propagation Decay Fraction", "test_propagation_decay_fraction.jl", :run_propagation_decay_fraction_tests),
-    ("CORSIKA",                    "test_corsika.jl",                    :run_corsika_tests),
+    ("CORSIKA Read",               "test_read_corsika.jl",               :run_read_corsika_tests),
+    ("CORSIKA Orchestrator",       "test_run_corsika.jl",                :run_corsika_orchestrator_tests),
     ("Proton Injection",           "test_proton_injection.jl",           :run_proton_injection_tests),
     ("Simulation API",             "test_simulation_api.jl",             :run_simulation_api_tests),
 ]

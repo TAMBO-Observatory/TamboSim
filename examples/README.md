@@ -78,7 +78,7 @@ don't have a site yet, templates 1 and 2 will build one for you.
 | [`2_create_detector.jl`](templates/2_create_detector.jl) | place detector OBBs on a single GC bundle (hex grid + slope filter), write back to the D frame |
 | [`3_inject.jl`](templates/3_inject.jl) | wraps `inject!`. Loads geometry + `[injection]` config, samples primaries, writes Q frames with injection states + the per-event `phase_space_point` consumed by `oneweights` |
 | [`4_propagate.jl`](templates/4_propagate.jl) | wraps `proposal_propagation!`. Loads inject output, propagates leptons through PROPOSAL, optionally drops events that range out inside the mountain |
-| [`5_run_corsika.jl`](templates/5_run_corsika.jl) | wraps `corsika_run`. For each surviving propagation event, dispatches a `tambo_shower` job per non-neutrino decay product. Set `sbatch_command` in the TOML to submit cluster jobs |
+| [`5_run_corsika.jl`](templates/5_run_corsika.jl) | wraps `corsika_run`. For each surviving propagation event, dispatches a `tambo_shower` job per non-neutrino decay product. Set `executor = "run_sbatch"` (with `executor_sbatch_prefix`) or `executor = "dump_to_file"` in the `[corsika]` TOML for cluster / external-scheduler dispatch |
 | [`6_corsika_hits.jl`](templates/6_corsika_hits.jl) | reads CORSIKA output dirs, projects each shower particle onto the detector OBBs, writes `corsika_hits` per Q frame |
 
 Note that `6_corsika_hits.jl` is the only template that requires

@@ -537,7 +537,6 @@ end
 
 function _setup_injection(frames::TamboFrames, config::Dict, prefix::String, fname::String)
     haskey(config, "nevent") || error("$fname config must contain \"nevent\"")
-    _ensure_earth_loaded!(frames)
     g_frame = _get_last_frame(frames, 'G')
     m_parents = Dict{Char,Frame}('G' => g_frame)
     for s in ('C', 'D')

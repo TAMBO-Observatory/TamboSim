@@ -194,7 +194,6 @@ function proposal_propagation!(
     prefix::String="proposal",
     inkey::String="injection_final_state"
 )
-    _ensure_earth_loaded!(frames)
     m_frame = _get_last_frame(frames, 'M')
     g_frame = m_frame.g_frame
 

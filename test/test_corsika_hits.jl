@@ -120,6 +120,36 @@ function run_corsika_hits_tests()
         end
     end
 
+    @testset "threaded loop preserves per-Q-frame stamping" begin
+        # Each Q frame points at a distinct event dir built from the same
+        # parquet, so every Q should receive a non-empty hits vector of the
+        # same length. If the @threads loop crossed Q frames or raced on
+        # writes, we'd see missing keys, mismatched lengths, or duplicated
+        # contents across frames.
+        n_q = 16
+        frames, _, qs = _hits_frames(n_q=n_q)
+        mktempdir() do base
+            for (i, q) in enumerate(qs)
+                _, shower_dirs = _make_event_dir!(base, i, parquet_path; n_showers=1)
+                q["corsika_directories"] = shower_dirs
+            end
+
+            read_corsika_hits!(frames)
+
+            lengths = Int[]
+            for q in qs
+                @test haskey(q, "corsika_hits")
+                @test q["corsika_hits"] isa Vector{HitRec}
+                push!(lengths, length(q["corsika_hits"]))
+            end
+            # All Qs see the same parquet → identical hit counts. A race
+            # would manifest as a mismatched count, a missing stamp, or a
+            # wrong-typed value (caught by the per-frame checks above).
+            @test all(==(lengths[1]), lengths)
+            @info "read_corsika_hits! threaded test ran on $(Threads.nthreads()) threads"
+        end
+    end
+
     @testset "errors when detector_unit_bvh is absent" begin
         frames, m_frame, qs = _hits_frames(n_q=1)
         delete!(m_frame.d_frame.data, "detector_unit_bvh")

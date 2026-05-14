@@ -56,6 +56,10 @@ and stamp `q["corsika_hits"]` with the resulting hit records.
   `"corsika_hits"`.
 
 # Behavior
+- Multi-threaded over Q frames via `Threads.@threads :dynamic`. Thread count
+  is whatever Julia was started with (`JULIA_NUM_THREADS` / `--threads`); no
+  config knob. Each task writes only to its own Q frame's `corsika_hits` and
+  a thread-local vector, so no locking is required.
 - Q frames missing `"corsika_directories"` are skipped silently.
 - Per-shower paths in `corsika_directories` are reduced to their unique
   parent (event-level) dirs before reading; this works because
@@ -96,7 +100,8 @@ function read_corsika_hits!(
     HitRec = NamedTuple{(:particle, :module_index, :weight),
                        Tuple{Particle{Float64}, Int, Float64}}
 
-    for q in frames.q_frames
+    Threads.@threads :dynamic for i in eachindex(frames.q_frames)
+        q = frames.q_frames[i]
         haskey(q, "corsika_directories") || continue
         event_dirs = unique(dirname.(q["corsika_directories"]))
 

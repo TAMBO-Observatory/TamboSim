@@ -1,8 +1,7 @@
 """
     corsika_run(
         particle::Particle{T},
-        topography,
-        detector_region,
+        detector_bvh::BVHTree,
         obs_mesh_path::String,
         terrain_mesh_path::String,
         ecuts,
@@ -22,8 +21,8 @@ Finds the intersection of the particle trajectory with the detector region, then
 
 # Arguments
 - `particle::Particle{T}`: Primary particle; `position` is the injection point.
-- `topography`: Full topography mesh (vector of triangles).
-- `detector_region`: Indices of detector-region triangles within `topography`.
+- `detector_bvh::BVHTree`: BVH over the detector-region triangles (typically read
+  from the D frame's `"detector_bvh"` key).
 - `obs_mesh_path::String`: Path to the observation-region PLY file (ECEF metres).
 - `terrain_mesh_path::String`: Path to the terrain PLY file, or `""` to disable.
 - `ecuts`: Three energy cuts `(emcut, mucut, hadcut)` as `Quantity` values.
@@ -37,8 +36,7 @@ Finds the intersection of the particle trajectory with the detector region, then
 """
 function corsika_run(
     particle::Particle{T},
-    topography,
-    detector_region,
+    detector_bvh::BVHTree,
     obs_mesh_path::String,
     terrain_mesh_path::String,
     ecuts,
@@ -50,10 +48,6 @@ function corsika_run(
     hadron_model::String="SIBYLL-2.3d",
     sbatch_command=""
 ) where {T}
-
-    # Build a BVH from detector-region triangles only
-    detector_triangles = topography[detector_region]
-    detector_bvh = BVHTree(detector_triangles)
 
     # Find where the particle trajectory intersects the detector region
     ray = Ray(particle)
@@ -175,8 +169,7 @@ function corsika_run(
 
     m_frame[prefix] = config
 
-    topography      = g_frame["topography"]
-    detector_region = d_frame["detector_region"]
+    detector_bvh = d_frame["detector_bvh"]
 
     use_terrain_mesh = get(config, "use_terrain_mesh", true)
     hadron_model     = get(config, "hadron_model", "SIBYLL-2.3d")
@@ -211,8 +204,7 @@ function corsika_run(
                 try
                     corsika_run(
                         particle,
-                        topography,
-                        detector_region,
+                        detector_bvh,
                         obs_mesh_path,
                         terrain_mesh_path,
                         ecuts,

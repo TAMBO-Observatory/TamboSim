@@ -68,7 +68,7 @@ keys(m_frame.data) |> collect |> sort
 #       from the configured input key, and dispatches to the per-particle
 #       method below.
 #
-#   corsika_run(particle, topography, detector_region, obs_mesh_path,
+#   corsika_run(particle, detector_bvh, obs_mesh_path,
 #               terrain_mesh_path, ecuts, corsika_path, outdir, seed; ...)
 #       The per-particle method. Computes the trajectory → detector
 #       intersection, builds a tambo_shower CLI, and runs it (or submits

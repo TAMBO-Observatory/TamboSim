@@ -1,0 +1,43 @@
+name: Upload PROPOSAL tables
+
+on:
+  workflow_dispatch:
+
+jobs:
+  upload-tables:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.11'
+
+      - uses: julia-actions/cache@v2
+
+      - name: Install dependencies
+        run: julia --project=. -e 'import Pkg; Pkg.instantiate()'
+
+      - name: Generate PROPOSAL tables by running tests
+        run: julia --project=. test/runtests.jl
+        # Tables are written to resources/proposal_tables/ as a side effect.
+        # The run may fail on unrelated tests — we only need the tables.
+        continue-on-error: true
+
+      - name: Package tables
+        run: |
+          count=$(ls resources/proposal_tables/ | wc -l)
+          echo "Packaging $count files from resources/proposal_tables/"
+          tar -czf /tmp/proposal_tables.tar.gz -C resources proposal_tables/
+
+      - name: Delete existing release asset
+        run: gh release delete-asset proposal-tables-v1 proposal_tables.tar.gz --yes || true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload tables to release
+        run: gh release upload proposal-tables-v1 /tmp/proposal_tables.tar.gz#proposal_tables.tar.gz
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

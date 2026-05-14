@@ -15,6 +15,8 @@
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
+using HDF5
+using Unitful
 using TamboSim
 
 const GROUPNAME    = "colca_valley_3000"
@@ -23,7 +25,16 @@ const DETECTOR_KEY = "detector1"
 h5_file  = joinpath(tambo_path, "resources", "geometry", "colca_valley.h5")
 out_file = joinpath(tambo_path, "resources", "geometry", "$(GROUPNAME).jld2")
 
-frames = TamboSim.build_gcd_bundle("$h5_file:$GROUPNAME", DETECTOR_KEY)
+frames = h5open(h5_file) do file
+    g               = file[GROUPNAME]
+    vertices        = read(g["vertices"])
+    faces           = read(g["faces"])
+    longlat_deg     = read(g["location"])
+    longlat_rad     = (deg2rad(longlat_deg[1]), deg2rad(longlat_deg[2]))
+    prem_radii      = read(g["radii"]) .* u"m"
+    detector_region = read(g[DETECTOR_KEY])
+    TamboSim.build_gcd_bundle(vertices, faces, longlat_rad, prem_radii, detector_region)
+end
 save_frames(out_file, frames; streams=('G', 'C', 'D'))
 
 sz_mb = round(filesize(out_file) / 1024 / 1024, digits=1)

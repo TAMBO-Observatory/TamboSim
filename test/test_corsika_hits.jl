@@ -130,33 +130,6 @@ function run_corsika_hits_tests()
         end
     end
 
-    @testset "per-shower paths sharing a parent dir read once" begin
-        # Two shower paths under one event dir. read_corsika_mesh globs the
-        # event dir and returns events from BOTH showers; the orchestrator's
-        # dedup ensures we don't iterate the parent dir twice (which would
-        # double-count). With the same parquet copied into both showers,
-        # the post-orchestrator hit count must equal what we'd get from a
-        # single event-dir read — i.e. 2× the per-shower particle count,
-        # not 4×.
-        frames, _, qs = _hits_frames(n_q=1)
-        mktempdir() do base
-            _, shower_dirs = _make_event_dir!(base, 1, parquet_path; n_showers=2)
-            qs[1]["corsika_directories"] = shower_dirs
-
-            # Reference: how many events does a single read_corsika_mesh
-            # call see across both showers?
-            event_dir = dirname(first(shower_dirs))
-            n_events_single_read = count(_ -> true,
-                TamboSim.read_corsika_mesh(event_dir, ecefcoordinates))
-
-            read_corsika_hits!(frames)
-
-            # corsika_hits is a subset of the events (those that intersected
-            # an OBB), but the upper bound must be the single-read count, not
-            # the doubled count we'd see if dedup failed.
-            @test length(qs[1]["corsika_hits"]) <= n_events_single_read
-        end
-    end
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

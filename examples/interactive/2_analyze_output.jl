@@ -73,6 +73,35 @@ ows = oneweights(frames)
 @show length(ows);                       # one per surviving Q frame
 @show median(ows);                       # median OneWeight, with units
 
+
+# We can use the `oneweights` to compute the rate of neutrino events 
+# under a given choice of flux, for example:
+
+"""
+    Φ_nu(E)
+
+IceCube astrophysical neutrino flux (per flavor):
+Φ = 1.8e-18 (E / 100 TeV)^{-2.52} GeV^{-1} cm^{-2} s^{-1} sr^{-1}.
+"""
+function Φ_nu(E)
+    γ = 2.52
+    E0 = 100 * u"TeV"
+    norm = 1.8e-18 * u"GeV^-1 * cm^-2 * s^-1 * sr^-1"
+    return norm * (E / E0)^(-γ)
+end
+
+# You want to evaluate the flux at the energy from the `phase_space_point`, 
+# i.e. the energy of the arriving neutrino.
+fluxes = [ Φ_nu( f["phase_space_point"].E ) for f in frames.q_frames ]
+
+# Then you can compute the rate! As you can see, it is a small number:
+rates = fluxes .* ows .|> u"s^(-1)"
+total_rate = sum( rates ) |> u"yr^(-1)"
+
+# You can also compute the "error" in our calculation of the rate.
+# This is quite large because our example injection did not have very many events in it.
+total_rate_err = sqrt( sum(rates.^2) ) |> u"yr^(-1)"
+
 # =============================================================================
 # 3. Decay-product flavor classification
 # =============================================================================

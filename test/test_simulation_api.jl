@@ -221,7 +221,6 @@ function test_proposal_config_stored()
 
     proposal_config = Dict{String,Any}(
         "seed"        => 7,
-        "ecut"            => -1,
         "vcut"            => 0.5,
         "do_interpolate"  => true,
         "do_continuous"   => true,
@@ -245,7 +244,6 @@ function test_proposal_output_keys()
 
     proposal_config = Dict{String,Any}(
         "seed"        => 7,
-        "ecut"            => -1,
         "vcut"            => 0.5,
         "do_interpolate"  => true,
         "do_continuous"   => true,
@@ -284,7 +282,6 @@ function test_proposal_skips_below_rest_energy()
 
     proposal_config = Dict{String,Any}(
         "seed"        => 7,
-        "ecut"            => -1,
         "vcut"            => 0.5,
         "do_interpolate"  => true,
         "do_continuous"   => true,

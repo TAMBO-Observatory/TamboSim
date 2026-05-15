@@ -154,7 +154,7 @@ end
 
 function test_init_proposal_tables_path_sync()
     tables_path = get_tambosim_path() * "/resources/proposal_tables"
-    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5, "ecut" => -1))
+    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
     # ENV["PROPOSAL_TABLES_PATH"] must match what init_proposal configured so
     # TauRunner's SphericalBodyPropagator and TamboSim's propagators share tables.
     @test abspath(ENV["PROPOSAL_TABLES_PATH"]) == abspath(tables_path)
@@ -162,9 +162,9 @@ end
 
 function test_init_proposal_idempotent()
     tables_path = get_tambosim_path() * "/resources/proposal_tables"
-    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5, "ecut" => -1))
+    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
     # Calling a second time must not error and must leave tables path unchanged.
-    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5, "ecut" => -1))
+    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
     @test abspath(ENV["PROPOSAL_TABLES_PATH"]) == abspath(tables_path)
 end
 if abspath(PROGRAM_FILE) == @__FILE__

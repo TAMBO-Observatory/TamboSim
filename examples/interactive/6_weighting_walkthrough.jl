@@ -193,6 +193,8 @@ oneweights!(frames)
 # Multiplying a OneWeight by a flux dN/(dE·dA·dt·dΩ) (units 1/(GeV·m²·s·sr))
 # and an exposure time (s) gives the expected event count under that flux.
 
+# See 2_analyze_output.jl for an example! :) 
+
 # =============================================================================
 # 8. Multi-campaign aggregation
 # =============================================================================

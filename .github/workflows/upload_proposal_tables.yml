@@ -32,12 +32,7 @@ jobs:
           echo "Packaging $count files from resources/proposal_tables/"
           tar -czf /tmp/proposal_tables.tar.gz -C resources proposal_tables/
 
-      - name: Delete existing release asset
-        run: gh release delete-asset proposal-tables-v1 proposal_tables.tar.gz --yes || true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Upload tables to release
-        run: gh release upload proposal-tables-v1 /tmp/proposal_tables.tar.gz#proposal_tables.tar.gz
+        run: gh release upload proposal-tables-v1 /tmp/proposal_tables.tar.gz#proposal_tables.tar.gz --clobber
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -102,7 +102,7 @@ function relativize!(d::Dict)
             v_new = replace(v_new, "_TAMBO_DATA_PATH_"    => tambo_data_path)
             v_new = replace(v_new, "_TAMBO_CORSIKA_PATH_" => tambo_corsika_path)
             v_new = replace(v_new, "_TAMBO_FLUPRO_PATH_"  => tambo_flupro_path)
-            if v_new == v && contains(v, '/') && !startswith(v, '/')
+            if v_new == v && contains(v, '/') && !startswith(v, '/') && !contains(v, ' ')
                 v_new = joinpath(pkg_root, v)
             end
             d[k] = v_new

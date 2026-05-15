@@ -160,11 +160,15 @@ end
     run_sbatch(prefix::String) -> executor
 
 Return a [`corsika_run!`](@ref) executor that submits each job via
-`sbatch <prefix> <argv joined by spaces>`. `prefix` carries sbatch
-options as a single string.
+`sbatch <prefix split on whitespace> --wrap="<argv joined by spaces>"`.
+`prefix` carries sbatch options as a single whitespace-separated string;
+it is split locally because Julia backticks don't shell-split interpolated
+strings. The job command is passed through `--wrap` so sbatch executes it
+inline rather than treating it as a script path.
 """
 function run_sbatch(prefix::String)
-    return (argv, _job) -> run(`sbatch $prefix $(join(argv, " "))`)
+    prefix_args = split(prefix)
+    return (argv, _job) -> run(`sbatch $prefix_args --wrap=$(join(argv, " "))`)
 end
 
 """

@@ -108,18 +108,16 @@ A proton shower at 10^8 GeV injected from directly above the detector:
   --intercept-x 1234500.0 \
   --intercept-y -5678800.0 \
   --intercept-z 2345500.0 \
-  --obs-mesh    /path/to/colca_valley_obs_surface.ply \
-  --terrain-mesh /path/to/colca_valley_terrain.ply \
+  --obs-mesh    /path/to/obs_surface.ply \
+  --terrain-mesh /path/to/terrain.ply \
   -f output_dir
 ```
 
 In normal use the injection and intercept coordinates are computed by the Julia
 `corsika_run(particle, topography, detector_region, ...)` wrapper, which
 intersects the particle trajectory with the triangulated detector region and
-converts both endpoints to ECEF.
-
-The PLY mesh files (`colca_valley_obs_surface.ply`, `colca_valley_terrain.ply`) are
-in `resources/geometry/` in this repository.
+converts both endpoints to ECEF. The wrapper also generates the PLY mesh files
+from the JLD2 GCD bundle at run time, so no prebuilt PLYs are shipped.
 
 **Note:** the output directory must not already exist. Remove it before re-running:
 ```bash
@@ -176,8 +174,8 @@ Output is written to `<filename>/` in Parquet format:
 
 ## Notes on the terrain mesh
 
-`colca_valley_terrain.ply` (~90k vertices, ~180k triangles) is a large mesh. Building
-its BVH takes a few seconds at startup. It is used as an absorbing
+The terrain mesh can be large (e.g. ~90k vertices, ~180k triangles for the
+Colca Valley site). Building its BVH takes a few seconds at startup. It is used as an absorbing
 `ObservationMesh` — particles that strike the terrain are recorded in
 `terrain/` and removed from the simulation. Omit `--terrain-mesh` to disable it
 and run faster.

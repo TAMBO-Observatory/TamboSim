@@ -11,7 +11,7 @@ gitignored.
 ```
 resources/
 ├── configuration_examples/     example TOML configs
-├── geometry/                   site geometries (HDF5 + PLY + JLD2)
+├── geometry/                   site geometries (HDF5 + JLD2)
 ├── cross_section_tables/       neutrino-nucleon xsec tables
 └── proposal_tables/            PROPOSAL energy-loss tables (gitignored)
 ```
@@ -48,14 +48,13 @@ root.
 
 ## `geometry/`
 
-Self-contained site geometries. Each site exists in three formats
-because different parts of the pipeline consume different ones:
+Self-contained site geometries. The main format consumed by the pipeline is `.jld2`, i.e. a Geometry `G` frame. The `.h5` file is the full precision source for this file. 
+
+The CORSIKA executable `tambo_shower` requires PLY meshes for the terrain and observation surface; these are generated on demand by the CORSIKA input stage from the JLD2 bundle.
 
 | File | Format | Consumer |
 |---|---|---|
 | `<site>.h5` | HDF5 | `build_gcd_bundle` (full-precision source) |
-| `<site>_terrain.ply` | binary PLY | CORSIKA 8 (`tambo_shower`) |
-| `<site>_obs_surface.ply` | binary PLY | CORSIKA 8 observation mesh |
 | `<site>_<resolution>.jld2` | JLD2 | TamboSim runtime (loaded directly via `load_frames`) |
 
 The currently-shipped site is **Colca Valley**:
@@ -63,13 +62,11 @@ The currently-shipped site is **Colca Valley**:
   named groups; the suffix is the radial-sample count, not the triangle
   count (e.g. `colca_valley_30000` is the 30 000-sample build, which
   meshes to 179 996 triangles).
-- `colca_valley_3000.jld2` — pre-built GCD bundle from the
+- `colca_valley_3000.jld2` — pre-built test GCD bundle from the
   `colca_valley_3000` group, used as the default `--geometry` input for
   every template script.
-- `colca_valley_terrain.ply` and `colca_valley_obs_surface.ply` — the
-  CORSIKA-side meshes built from the `colca_valley_30000` group.
 
-To add a new site, run [`examples/templates/1_create_geometry.jl`](../examples/templates/1_create_geometry.jl).
+To generate a new site, see [`examples/templates/1_create_geometry.jl`](../examples/templates/1_create_geometry.jl).
 
 ## `cross_section_tables/`
 

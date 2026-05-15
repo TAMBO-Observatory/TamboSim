@@ -1,13 +1,15 @@
 # 1_create_geometry.jl
 #
-# Build a self-contained TamboSim geometry bundle for a site. Writes four files
-# under `<outdir>/`, all stemmed by `<name>`:
+# Build a self-contained TamboSim geometry bundle for a site. Writes one file
+# under `<outdir>/`:
 #
 #   <name>.jld2                Self-contained GCD bundle, loaded directly by
 #                              downstream TamboSim simulation runs
-#   <name>.h5                  HDF5 export (derived from the JLD2 bundle)
-#   <name>_terrain.ply         Binary PLY for CORSIKA's tambo_shower
-#   <name>_obs_surface.ply     Binary PLY for CORSIKA, detector region only
+#
+# Optional auxiliary outputs (`<name>.h5`, `<name>_terrain.ply`,
+# `<name>_obs_surface.ply`) are commented out below — the CORSIKA input stage
+# now dumps the PLY meshes on demand from the JLD2 bundle, and the HDF5 export
+# is a backup view of the same data. Uncomment if you want them written here.
 #
 # HDF5 schema (under group `<name>`):
 #   location   - [lon, lat] in degrees
@@ -165,10 +167,7 @@ groupname   = args["name"]
 outdir      = args["outdir"]
 mkpath(outdir)
 
-g_path          = joinpath(outdir, "$(groupname).jld2")
-h5_path         = joinpath(outdir, "$(groupname).h5")
-corsika_terrain = joinpath(outdir, "$(groupname)_terrain.ply")
-corsika_obs     = joinpath(outdir, "$(groupname)_obs_surface.ply")
+g_path = joinpath(outdir, "$(groupname).jld2")
 
 # --- Build mesh ---
 vertices, faces, detector_indices = build_terrain_patch(
@@ -198,15 +197,22 @@ println("  Reloaded — PREM layers: $n_prem  triangles: $n_tris  detector faces
 g_frame = frames.g_frames[end]
 d_frame = frames.d_frames[end]
 
-# --- 2. HDF5 export (derived) ---
-TamboSim.dump_to_h5(g_frame, d_frame, h5_path, groupname)
-println("HDF5: wrote $h5_path:$groupname")
-
-# --- 3. Binary PLYs for CORSIKA ---
-TamboSim.dump_to_ply(g_frame, corsika_terrain; watertight_depth=10_000.0)
-println("Binary PLY (terrain): wrote $corsika_terrain")
-
-TamboSim.dump_to_ply(d_frame, corsika_obs)
-println("Binary PLY (obs surface): wrote $corsika_obs")
+# --- Optional auxiliary outputs ---
+# The CORSIKA input stage auto-generates the PLY meshes from the JLD2 bundle,
+# and the HDF5 export is a backup view of the same data. Uncomment to write
+# them here as well.
+#
+# h5_path         = joinpath(outdir, "$(groupname).h5")
+# corsika_terrain = joinpath(outdir, "$(groupname)_terrain.ply")
+# corsika_obs     = joinpath(outdir, "$(groupname)_obs_surface.ply")
+#
+# TamboSim.dump_to_h5(g_frame, d_frame, h5_path, groupname)
+# println("HDF5: wrote $h5_path:$groupname")
+#
+# TamboSim.dump_to_ply(g_frame, corsika_terrain; watertight_depth=10_000.0)
+# println("Binary PLY (terrain): wrote $corsika_terrain")
+#
+# TamboSim.dump_to_ply(d_frame, corsika_obs)
+# println("Binary PLY (obs surface): wrote $corsika_obs")
 
 println("\nAll geometry files written to $outdir")

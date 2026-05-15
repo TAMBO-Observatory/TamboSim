@@ -575,12 +575,12 @@ int main(int argc, char** argv) {
     for (size_t ti = 0; ti < terrainMeshPtr->getTriangleCount(); ++ti)
       faces.push_back(terrainMeshPtr->getTriangle(ti).getVertexIndices());
 
-    // Code::Silicon is not registered in this CORSIKA build; Oxygen (Z/A=0.5)
-    // matches standard rock's bulk Z/A and is used as a proxy for SiO2.
+    // Code::Silicon is not registered in this CORSIKA build; 
+    // Set up locally using Silicon = get_nucleus_code(28, 14). .
     static media::NuclearComposition const rockComposition{
-        {Code::Oxygen}, {1.0}};
+    	{Code::Oxygen, get_nucleus_code(28, 14)}, {0.533, 0.467}};
     auto rockNode = EnvType::createNode<TriangularMesh>(std::move(insetVertices), faces);
-    rockNode->setModelProperties<MyExtraEnv<HomogeneousMedium<EnvironmentInterface>>>(
+    rockNode->setModelProperties<MyExtraEnv<media::HomogeneousMedium<EnvironmentInterface>>>(
         1.000327, earthSurface,
         media::Medium::StandardRock,
         obsField,

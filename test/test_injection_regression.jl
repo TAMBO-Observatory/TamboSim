@@ -205,7 +205,7 @@ function run_injection_regression_tests()
 
     # Phase 2: initialize PROPOSAL and propagate
     tables_path = get_tambosim_path() * "/resources/proposal_tables"
-    init_proposal(Dict("tablespath" => tables_path))
+    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
 
     @testset "Post-propagation in-air fraction" begin
         for (gamma, fstates, expected_frac) in [

@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
   pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   test:
@@ -20,12 +20,23 @@ jobs:
 
       - uses: julia-actions/cache@v2
 
-      - name: Cache PROPOSAL tables
+      - name: Restore PROPOSAL tables cache
+        id: proposal-cache
         uses: actions/cache@v4
         with:
           path: resources/proposal_tables
-          key: proposal-tables-${{ hashFiles('src/julia_interfaces/proposal/**') }}
-          restore-keys: proposal-tables-
+          key: proposal-tables-v1
+
+      - name: Download PROPOSAL tables from release
+        if: steps.proposal-cache.outputs.cache-hit != 'true'
+        run: |
+          gh release download proposal-tables-v1 \
+            --repo TAMBO-Observatory/TAMBOSim \
+            --pattern "proposal_tables.tar.gz" \
+            --dir /tmp
+          tar -xzf /tmp/proposal_tables.tar.gz -C resources/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install dependencies
         run: julia --project=. -e 'import Pkg; Pkg.instantiate()'

@@ -341,10 +341,13 @@ int main(int argc, char** argv) {
   app.add_option("-f,--filename", "Output library filename")
       ->required()
       ->default_val("tambo_library")
-      ->check(CLI::NonexistentPath)
       ->group("Output");
   bool compressOutput = false;
   app.add_flag("--compress", compressOutput, "Compress output directory to tarball")
+      ->group("Output");
+  bool forceOverwrite = false;
+  app.add_flag("--force", forceOverwrite,
+               "Wipe the output directory if it already exists")
       ->group("Output");
 
   // ---- Misc ----
@@ -566,6 +569,16 @@ int main(int argc, char** argv) {
   std::stringstream args;
   for (int i = 0; i < argc; ++i) { args << argv[i] << " "; }
   std::string const outFilename = app["--filename"]->as<std::string>();
+  if (boost::filesystem::exists(outFilename)) {
+    if (forceOverwrite) {
+      CORSIKA_LOG_WARN("Removing existing output directory: {}", outFilename);
+      boost::filesystem::remove_all(outFilename);
+    } else {
+      CORSIKA_LOG_CRITICAL("Output path already exists: {} (use --force to overwrite)",
+                           outFilename);
+      return EXIT_FAILURE;
+    }
+  }
   OutputManager output(outFilename, seed, args.str(), compressOutput);
 
   EnergyLossWriter dEdX{showerAxis, dX};

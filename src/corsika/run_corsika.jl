@@ -91,7 +91,8 @@ Build the argv vector for one invocation of `tambo_shower`.
 - `ecuts`: 3-tuple `(emcut, mucut, hadcut)` of `Quantity` energies.
 - `config::Dict`: `[corsika]` TOML table. Consults `"corsika_path"`,
   `"hadron_model"` (default `"SIBYLL-2.3d"`), `"thinning"` (default
-  `1e-6`), `"nevent"` (default `1`).
+  `1e-6`), `"nevent"` (default `1`), `"force_overwrite"` (default
+  `false`; passes `--force` to the binary).
 """
 function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, config::Dict)
     primary = job.primary
@@ -107,9 +108,10 @@ function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, conf
     emcut, mucut, hadcut = ustrip.(collect(ecuts) .|> u"GeV")
     taucut = mucut  # no separate tau cut in config; default to muon cut
 
-    hadron_model = get(config, "hadron_model", "SIBYLL-2.3d")
-    thinning     = get(config, "thinning", 1e-6)
-    nevent       = get(config, "nevent", 1)
+    hadron_model    = get(config, "hadron_model", "SIBYLL-2.3d")
+    thinning        = get(config, "thinning", 1e-6)
+    nevent          = get(config, "nevent", 1)
+    force_overwrite = get(config, "force_overwrite", false)
 
     argv = [
         config["corsika_path"],
@@ -135,6 +137,7 @@ function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, conf
     if !isempty(mesh_paths.terrain)
         append!(argv, ["--terrain-mesh", mesh_paths.terrain])
     end
+    force_overwrite && push!(argv, "--force")
     return argv
 end
 
@@ -289,7 +292,8 @@ Q-frame `corsika_directories` always reflects the *full* job list from
 # Config keys consulted
 - `"corsika_path"`, `"em_ecut"`, `"mu_ecut"`, `"hadron_ecut"` — required
 - `"seed"` — optional; randomized + stored if missing
-- `"hadron_model"`, `"thinning"`, `"nevent"`, `"use_terrain_mesh"` — optional
+- `"hadron_model"`, `"thinning"`, `"nevent"`, `"use_terrain_mesh"`,
+  `"force_overwrite"` — optional
 - `"executor"`, `"executor_sbatch_prefix"`, `"executor_dump_path"` — optional
 """
 function corsika_run!(

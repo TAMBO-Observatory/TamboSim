@@ -22,16 +22,12 @@ jobs:
       - name: Install dependencies
         run: julia --project=. -e 'import Pkg; Pkg.instantiate()'
 
-      - name: Generate PROPOSAL tables
-        run: |
-          julia --project=. -e '
-            using TamboSim
-            import TamboSim: init_proposal
-            tables_path = abspath("resources/proposal_tables")
-            mkpath(tables_path)
-            init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
-            println("Done: ", length(readdir(tables_path)), " files")
-          '
+      - name: Generate PROPOSAL tables by running PROPOSAL tests
+        run: julia --project=. test/runtests.jl "Julia Interfaces" "Injection Regression" "Propagation Decay Fraction" "Simulation API"
+        # Running actual propagation ensures all process-specific tables are generated,
+        # not just the main interpolation tables from init_proposal alone.
+        # Some tests may fail for unrelated reasons — we only need the tables.
+        continue-on-error: true
 
       - name: Package tables
         run: |

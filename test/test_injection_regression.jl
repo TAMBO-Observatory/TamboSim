@@ -106,7 +106,7 @@ function run_injection_regression_tests()
 
         # Propagate with fixed PROPOSAL seed
         tables_path = get_tambosim_path() * "/resources/proposal_tables"
-        init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
+        init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5, "ecut" => -1))
         proposal_seed = Int32(12345)
         losses, cont_e, secs, prop_final = proposal_propagate(fstate, prem, bvh, proposal_seed)
 
@@ -205,7 +205,7 @@ function run_injection_regression_tests()
 
     # Phase 2: initialize PROPOSAL and propagate
     tables_path = get_tambosim_path() * "/resources/proposal_tables"
-    init_proposal(Dict("tablespath" => tables_path))
+    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5, "ecut" => -1))
 
     @testset "Post-propagation in-air fraction" begin
         for (gamma, fstates, expected_frac) in [

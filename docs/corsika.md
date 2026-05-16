@@ -115,3 +115,91 @@ Source pointers:
 
 </details>
 
+<details>
+<summary><h3>How does CORSIKA turn PROPOSAL energy losses into air-shower particles?</h3></summary>
+
+PROPOSAL propagates muons (and taus) with exactly four cross-sections: 
+— bremsstrahlung (`BremsKelnerKokoulinPetrukhin`)
+- e⁺e⁻ pair production (`EpairKelnerKokoulinPetrukhin`)
+- ionization (`IonizBetheBlochRossi`)
+- and photonuclear (`PhotoAbramowiczLevinLevyMaor97` with `ShadowButkevichMikheyev`). 
+
+Each step, losses are split into continuous vs. stochastic by `EnergyCutSettings(emCut, v_cut, false)`: a loss is stochastic (and produces secondaries) only if its fractional size exceeds `v_cut = 0.01` or the absolute `emCut`; everything below is absorbed as a smooth dE/dx by `ContinuousProcess::doContinuous()` with no secondaries. 
+
+For a stochastic loss, `InteractionModel::doInteraction()` takes PROPOSAL's sampled secondaries and maps each onto the stack:
+
+| `InteractionType` (value) | Reachable for | PROPOSAL secondaries | CORSIKA stack mapping |
+|---|---|---|---|
+| `Undefined` (0) | any (error edge case) | none — returned only when `overall_rate == 0` | projectile re-stacked unchanged; `ProcessReturn::Ok` |
+| `Brems` (…002) | μ±, τ±, e±, γ | surviving lepton + 1 γ | lepton + `Code::Photon` |
+| `Ioniz` (…003) | μ±, τ±, e± | surviving lepton + δ-ray e⁻ | lepton + `Code::Electron` — **never stochastic in `tambo_shower`** (`v_cut=1` for ioniz forces it fully continuous) |
+| `Epair` (…004) | μ±, τ±, e± | surviving lepton + e⁻ + e⁺ | lepton + `Code::Electron` + `Code::Positron` |
+| `Photonuclear` (…005) | μ±, τ±, e± | surviving lepton + `Hadron` (81) | lepton + `Hadron` → `doHadronicPhotonInteraction()` (Rho0/Sibyll if E_loss > `heThreshold`, else Photon/SOPHIA) |
+| `MuPair` (…006) | — (cross-section not registered for any species in this build) | μ⁻ + μ⁺ | **not registered in `cross_builder` → never fires in `tambo_shower`** |
+| `WeakInt` (…009) | μ±, τ±, e± in principle | weak-partner lepton + `Hadron` | **not registered in `cross_builder` → never fires in `tambo_shower`** |
+| `Compton` (…010) | γ | scattered γ + e⁻ | `Code::Photon` + `Code::Electron` |
+| `Annihilation` (…012) | e⁺ | 2 γ (positron fully consumed) | 2× `Code::Photon` |
+| `Photopair` (…013) | γ | e⁻ + e⁺ (photon consumed) | `Code::Electron` + `Code::Positron` (subject to `CheckForLPM()`) |
+| `Photoproduction` (…014) | γ | 1 `Hadron` (full photon energy) | `Hadron` → `doHadronicPhotonInteraction()` |
+| `PhotoMuPair` (…015) | γ | μ⁻ + μ⁺ (photon consumed) | `Code::MuMinus` + `Code::MuPlus` |
+| `Photoeffect` (…016) | γ | 1 e⁻ (photon consumed) | `Code::Electron` (negligible at high E) |
+| `Particle` (…001), `Hadrons` (…007), `ContinuousEnergyLoss` (…008), `Decay` (…011) | — | internal PROPOSAL bookkeeping labels | never reach `doInteraction()`; sub-threshold loss → `ContinuousProcess::doContinuous()`; μ/τ decay → Pythia8 `decaySequence` |
+
+PROPOSAL handles the kinematics for the secondaries internally, so CORSIKA simply has to read + translate those values into new particles and add them to CORSIKA's stack. 
+
+**Some details:**
+
+- Photohadronic losses are a special case, because **PROPOSAL knows no hadron physics**. It returns only the lost energy `E_loss` and a single placeholder pseudo-particle — a `Hadron` (PDG 81). No real photon or hadrons exist at this point; the sentinel just means "a photohadronic interaction of energy `E_loss` occurred — produce its hadrons." (Both muon/tau/electron `Photonuclear` and photon `Photoproduction` emit this type-81 sentinel and take the path below.)
+CORSIKA intercepts the sentinel in `doHadronicPhotonInteraction()` and *reconstructs* a real hadronic collision from the energy bookkeeping: it synthesizes a projectile carrying the full `E_loss`, samples one target nucleon (proton or neutron, weighted by the medium's Z/A), runs that projectile + nucleon through a hadronic interaction model, and the model's emitted pions/kaons/nucleons are what go on the stack. The projectile type and model depend on the high/low-energy hadronic threshold:
+    - above `heThreshold` (default `10^1.9 ≈ 79 GeV`): the photon is treated as a ρ⁰ vector meson (Vector Meson Dominance) and injected as `Code::Rho0` into the HE model (Sibyll-2.3d in `tambo_shower`), which does not accept photon projectiles;
+    - at or below `heThreshold`: it is injected as a `Code::Photon` into the LE model (SOPHIA), which is natively a photon–nucleon photoproduction generator.
+
+- For brems/epair (and photon pair-production), `CheckForLPM()` rejection-samples the Landau–Pomeranchuk–Migdal suppression *before* secondaries are emitted; a suppressed interaction is discarded and the muon restored unchanged. This is relevant in dense media, rarely in air.
+
+- The PROPOSAL table settings (`emCut, v_cut`) are set up at CORSIKA instantiation, typically by loading in some pre-saved tables from a stable directory. CORSIKA internally has many many PROPOSAL tables, indexed by (particle species × medium × process); each table can have its own settings. See below for a description of how `tambo_shower` determines the values of the table settings.
+
+<!-- In `tambo_shower` the wiring is `corsika::proposal::Interaction emCascade(env, sophia, sibyll->getHadronInteractionModel(), heThreshold)` and `corsika::proposal::ContinuousProcess<...> emContinuousProposal(env, dEdX)`, placed in the process sequence after the hadron/decay processes. Muon decay (μ→eνν) is handled separately by Pythia8 in `decaySequence`, not by PROPOSAL. -->
+
+Source pointers (under `corsika/` in the CORSIKA 8 source tree; FASRC `/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika/corsika/`):
+
+- `corsika/modules/PROPOSAL.hpp` — per-particle cross-section builders, the `v_cut`/`emCut` settings, the ionization `p_cut_no_vcut` exception, propagated-particle list.
+- PROPOSAL `PROPOSAL/particle/Particle.h` — the `InteractionType` enum (values `1000000001`–`1000000016`).
+- `corsika/modules/proposal/InteractionModel.inl` — `doInteraction()`: the loss-type → stack-particle mapping, the PDG-81 `Hadron` interception, `CheckForLPM()`.
+- `corsika/modules/proposal/HadronicPhotonModel.inl` — `doHadronicPhotonInteraction()`: the Rho0/Photon projectile choice and the SOPHIA-vs-HE split at `heThreshold`.
+- `corsika/modules/proposal/ContinuousProcess.inl` — sub-threshold continuous dE/dx, multiple scattering, the ≤10%-energy step limiter.
+- `corsika/modules/proposal/ProposalProcessBase.inl` — table init, `getOptimizedEmCut()` / production-threshold table selection.
+- `tambo_shower.cpp` (local, [src/corsika/tambo_shower/src/](../src/corsika/tambo_shower/src/)) — `set_energy_production_threshold`, `emCascade`/`emContinuousProposal` construction, process-sequence order.
+
+</details>
+
+<details>
+<summary><h3>How does `tambo_shower` determine the PROPOSAL table settings (`emCut, v_cut`)?</h3></summary>
+
+`v_cut` is a hardcoded framework constant in `corsika/modules/PROPOSAL.hpp` (0.01, overridden to 1 for ionization via `p_cut_no_vcut`). `emCut` is derived from the `tambo_shower`'s four CLI energy cut flags: ([tambo_shower.cpp:279–295](../src/corsika/tambo_shower/src/tambo_shower.cpp#L279-L295)):
+
+| Flag | `tambo_shower` Default | Primary meaning |
+|---|---|---|
+| `--emcut`  | 10 GeV | min. kinetic energy of γ / e± |
+| `--hadcut` | 1 GeV | min. kinetic energy of hadrons |
+| `--mucut`  | 10 GeV | min. kinetic energy of muons |
+| `--taucut` | 10 GeV | min. kinetic energy of tau leptons |
+
+The primary job of these flags is unrelated to PROPOSAL: each is the **cascade kill threshold** for its particle class, wired into CORSIKA's `ParticleCut` at [line 726](../src/corsika/tambo_shower/src/tambo_shower.cpp#L726) (`ParticleCut(emcut, emcut, hadcut, mucut, taucut, …)`) — a particle is dropped from the shower once its kinetic energy falls below the threshold for its class.
+
+Their secondary job sets the PROPOSAL `emCut`. `tambo_shower` takes the minimum of all four and applies that one value uniformly as the production threshold for every tracked species ([lines 729–736](../src/corsika/tambo_shower/src/tambo_shower.cpp#L729-L736)):
+
+```cpp
+auto const prod_threshold = std::min({emcut, hadcut, mucut, taucut});
+set_energy_production_threshold(Code::Electron, prod_threshold);  // …Positron, Photon,
+set_energy_production_threshold(Code::MuMinus,  prod_threshold);  // …MuPlus, TauMinus, TauPlus
+```
+
+The framework's `getOptimizedEmCut()` then snaps `prod_threshold` onto the largest value in PROPOSAL's discrete cached-table menu `{1000, 100, 20, 10, 3, 1, 0.4, 0.25, 0.15, 0.05}` MeV that does not exceed it; that becomes the `emCut` every table is built with. 
+
+Source pointers:
+
+- `tambo_shower.cpp` (local, [src/corsika/tambo_shower/src/](../src/corsika/tambo_shower/src/)) — `--emcut/--hadcut/--mucut/--taucut` declarations (lines 279–295); `ParticleCut` construction (line 726); `prod_threshold` min and the seven `set_energy_production_threshold` calls (lines 729–736).
+- `corsika/modules/PROPOSAL.hpp` — the hardcoded `v_cut` (0.01) and the ionization `p_cut_no_vcut` (v_cut→1); not driver-configurable.
+- `corsika/modules/proposal/ProposalProcessBase.inl` — `getOptimizedEmCut()` and the discrete cached-table menu the production threshold is snapped onto.
+
+</details>

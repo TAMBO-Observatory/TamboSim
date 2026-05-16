@@ -5,9 +5,11 @@
 # Cosmic-ray protons are surface-injected primaries: every primary is
 # guaranteed to produce a shower (no forced CC interaction is needed),
 # so this config has no [proposal] section and no xs_location key —
-# inject_protons! reads the spectrum/angular fields plus the optional
-# altitude. The pdg value is recorded on the injection M frame for
-# downstream weighting via build_phase_space.
+# inject_cosmicrays! reads the spectrum/angular fields plus the optional
+# altitude. The primary species is set by `pdg` (raw PDG code) OR by an
+# `A`/`Z` pair for a nucleus — supply exactly one form. The resolved pdg
+# is recorded on the injection M frame for downstream weighting via
+# build_phase_space.
 
 [geometry]
 geometry_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_3000.jld2"
@@ -16,7 +18,8 @@ geometry_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_3000.jld2"
 strategy = "CosmicRayInjection"
 seed = 925
 nevent = 100000
-pdg = 2212
+pdg = 2212     # raw PDG code (proton). For a nucleus instead, omit `pdg`
+               # and give `A`/`Z`, e.g. `A = 16` and `Z = 8` for O-16.
 gamma = 2.7
 emin = 1.0e3 # GeV
 emax = 1.0e7 # GeV

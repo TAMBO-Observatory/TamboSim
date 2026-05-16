@@ -261,21 +261,21 @@ function dump_to_h5(
 end
 
 """
-    dump_to_ply(frame, fname; max_radius_km=nothing, watertight_depth=nothing)
+    dump_to_ply(frame, fname; max_radius_km=nothing, watertight_depth_m=nothing)
 
 Write a binary PLY file for CORSIKA from a G or D frame.
 
 - **G frame**: writes the full terrain mesh. Pass `max_radius_km` to crop faces
-  whose centroid exceeds that radius from the site centre. Pass `watertight_depth`
+  whose centroid exceeds that radius from the site centre. Pass `watertight_depth_m`
   (metres) to close the mesh after cropping.
 - **D frame**: writes the detector-region (observation) mesh. Reads vertex/face
-  data from the parent G frame. `max_radius_km` and `watertight_depth` are unused.
+  data from the parent G frame. `max_radius_km` and `watertight_depth_m` are unused.
 """
 function dump_to_ply(
-    frame            :: Frame,
-    fname            :: String;
-    max_radius_km    :: Union{Real,Nothing} = nothing,
-    watertight_depth :: Union{Real,Nothing} = nothing
+    frame              :: Frame,
+    fname              :: String;
+    max_radius_km      :: Union{Real,Nothing} = nothing,
+    watertight_depth_m :: Union{Real,Nothing} = nothing
 )
     if frame.stream == 'G'
         vertices = frame["vertices"]
@@ -296,8 +296,8 @@ function dump_to_ply(
             faces    = [remap[faces[i,j]] for i in axes(faces,1), j in 1:3]
         end
 
-        if !isnothing(watertight_depth)
-            vertices, faces = make_watertight(vertices, faces; depth_m=watertight_depth)
+        if !isnothing(watertight_depth_m)
+            vertices, faces = make_watertight(vertices, faces; depth_m=watertight_depth_m)
         end
 
     elseif frame.stream == 'D'

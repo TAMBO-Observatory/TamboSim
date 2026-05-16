@@ -318,7 +318,17 @@ function corsika_run!(
     obs_mesh_path     = joinpath(base_outdir, "obs_surface.ply")
     terrain_mesh_path = use_terrain_mesh ? joinpath(base_outdir, "terrain.ply") : ""
     dump_to_ply(d_frame, obs_mesh_path)
-    use_terrain_mesh && dump_to_ply(g_frame, terrain_mesh_path; watertight_depth=10_000.0)
+
+    # Crop the terrain mesh to a disk of radius `max_radius_km` 
+    # around the site (fewer triangles for CORSIKA), then close
+    # the open patch with a `watertight_depth_km`-deep skirt. `max_radius_km`
+    # absent => no crop (full topography). `watertight_depth_km` only has an
+    # effect once the crop opens the mesh; default 10 km matches prior behavior.
+    max_radius_km      = get(config, "max_radius_km", nothing)
+    watertight_depth_m = get(config, "watertight_depth_km", 10.0) * 1_000.0  # km -> m
+    use_terrain_mesh && dump_to_ply(g_frame, terrain_mesh_path;
+                                    max_radius_km=max_radius_km,
+                                    watertight_depth_m=watertight_depth_m)
     mesh_paths = (obs=obs_mesh_path, terrain=terrain_mesh_path)
 
     jobs = plan_corsika_jobs(frames, config, base_outdir)

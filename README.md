@@ -2,7 +2,7 @@
 # Hola y bienvenidos!
 
 Welcome to TamboSim! This is the main simulation code for the TamboSim Collaboration, and is (thus far) capable of:
-- Injecting (and forcing the interaction of) neutrinos, protons, in a realistic canyon geometry
+- Injecting (and forcing the interaction of) neutrinos, cosmic rays, in a realistic canyon geometry
 - Propagating charged leptonic secondaries through rock and air with PROPOSAL,
 - Passing particles to CORSIKA to simulate air shower propagation in a realistic canyon topography,
 - Aggregating CORSIKA hits on smaller detection units placed on that surface.

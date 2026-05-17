@@ -112,11 +112,29 @@ using Particle = StackType::particle_type;
 // When a particle exits the terrain-rock volume, the tracker sets its logical
 // node to rock.getParent() (the topmost spanned atmosphere layer), which is
 // not necessarily the layer that geometrically contains the exit point.  This
-// BoundaryCrossingProcess re-resolves the logical node to the true containing
-// node on rock exit, so the very next step uses the correct medium.  It is the
-// same full-tree getContainingNode lookup Cascade.inl performs for its own
-// post-step geometry sanity check.  Inert on every other boundary crossing
-// (one pointer compare); the full lookup runs only when leaving rock.
+// BoundaryCrossingProcess re-resolves the logical node to the correct
+// atmosphere layer on rock exit, so the very next step uses the correct
+// medium.  Inert on every other boundary crossing (one pointer compare); the
+// resolution runs only when leaving rock.
+//
+// It resolves among LAYERS, not via the full getContainingNode.  The relocator
+// only ever runs with the particle sitting exactly on the rock surface (the
+// tracker leaves it at the crossing point, not nudged outside).  There,
+// getContainingNode is the wrong tool: it consults the rock via excludes(),
+// and TriangularMesh::contains() at an on-surface point is degenerate (it
+// drops the local face via the 1um boundary padding and votes by parity of
+// the remaining crossings -- for non-convex terrain it can vote "inside"), so
+// it could resolve back to the very rock the particle is leaving and
+// ping-pong the boundary with near-zero progress.  The question we actually
+// need answered is "which atmosphere LAYER contains this point?", which is a
+// pure Sphere::contains (altitude vs the layer boundary) -- robust exactly on
+// the rock surface and structurally unable to return the rock.  The
+// atmosphere is a single-child nested-ball chain; the rock mesh is only ever
+// a non-index-0 child of its owning layer, so descending the index-0 child
+// chain while each layer's volume contains the point yields the innermost
+// containing layer (L1 below the inner boundary, L2 above, ...) without ever
+// reaching the rock.  node.getVolume().contains() is the same primitive
+// Intersect.inl and getContainingNode use.
 struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
   EnvType& env_;
   void const* rockNode_; // stable address of the terrain-rock node, or nullptr
@@ -126,10 +144,18 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
   ProcessReturn doBoundaryCrossing(TParticle& particle,
                                    typename TParticle::node_type const& from,
                                    typename TParticle::node_type const& /*to*/) {
-    if (rockNode_ != nullptr && static_cast<void const*>(&from) == rockNode_) {
-      particle.setNode(
-          env_.getUniverse()->getContainingNode(particle.getPosition()));
+    if (rockNode_ == nullptr || static_cast<void const*>(&from) != rockNode_)
+      return ProcessReturn::Ok;
+    auto const pos = particle.getPosition();
+    auto const& uk = env_.getUniverse()->getChildNodes();
+    auto* L = uk.empty() ? nullptr : uk[0].get();
+    decltype(L) layer = nullptr;
+    while (L != nullptr && L->getVolume().contains(pos)) {
+      layer = L; // innermost layer so far whose sphere contains the exit point
+      auto const& k = L->getChildNodes();
+      L = k.empty() ? nullptr : k[0].get(); // index-0 child is the next layer
     }
+    if (layer != nullptr) particle.setNode(layer);
     return ProcessReturn::Ok;
   }
 };

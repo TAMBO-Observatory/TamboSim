@@ -28,6 +28,7 @@
 #include <corsika/framework/core/Logging.hpp>
 #include <corsika/framework/core/PhysicalUnits.hpp>
 #include <corsika/framework/geometry/PhysicalGeometry.hpp>
+#include <corsika/framework/geometry/RootCoordinateSystem.hpp>
 #include <corsika/framework/geometry/Sphere.hpp>
 #include <corsika/framework/geometry/TriangularMesh.hpp>
 #include <corsika/framework/process/BoundaryCrossingProcess.hpp>
@@ -100,6 +101,7 @@
 #include <cstdlib>
 #include <cstdint>
 #include <limits>
+#include <type_traits>
 #include <string>
 
 using namespace corsika;
@@ -244,6 +246,41 @@ struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
   template <typename TParticle, typename TTrajectory>
   LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
     return std::numeric_limits<double>::infinity() * 1_m; // never limit steps
+  }
+};
+
+// DIAG (revert after): one line per mu+- step -- E, logical-node==rock?,
+// rock.contains(pos)?, ECEF position. Shows the full muon arc (rock-A exit
+// -> valley -> the SQUARE entry into rock-B -> exactly when/where
+// numericallyInside flips while logically rock = stuck-state onset). pos is
+// in the same ECEF frame as the trajectory plot, for direct correlation.
+struct MuonStorylineDiag : public ContinuousProcess<MuonStorylineDiag> {
+  void const* rockNode_;
+  explicit MuonStorylineDiag(void const* rockNode) : rockNode_(rockNode) {}
+  template <typename TParticle>
+  ProcessReturn doContinuous(Step<TParticle>& step, bool const) {
+    auto const& pre = step.getParticlePre();
+    Code const pid = pre.getPID();
+    if (pid != Code::MuMinus && pid != Code::MuPlus) return ProcessReturn::Ok;
+    auto const* nd = pre.getNode();
+    bool const isRock = (static_cast<void const*>(nd) == rockNode_);
+    bool inside = false;
+    if (rockNode_ != nullptr) {
+      using NodeT = std::remove_reference_t<decltype(*nd)>;
+      inside = reinterpret_cast<NodeT const*>(rockNode_)
+                   ->getVolume()
+                   .contains(pre.getPosition());
+    }
+    auto const c = pre.getPosition().getCoordinates(get_root_CoordinateSystem());
+    CORSIKA_LOG_INFO(
+        "DIAG-MU E={} GeV isRock={} inside={} pos=({:.1f},{:.1f},{:.1f})",
+        pre.getEnergy() / 1_GeV, (isRock ? 1 : 0), (inside ? 1 : 0),
+        c.getX() / 1_m, c.getY() / 1_m, c.getZ() / 1_m);
+    return ProcessReturn::Ok;
+  }
+  template <typename TParticle, typename TTrajectory>
+  LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
+    return std::numeric_limits<double>::infinity() * 1_m;
   }
 };
 
@@ -1021,6 +1058,7 @@ int main(int argc, char** argv) {
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
     RockExitRelocator rockRelocator{env, rockNodePtr};
     RockEMAbsorber rockEMAbsorber{rockNodePtr};
+    MuonStorylineDiag muonDiag{rockNodePtr}; // DIAG (revert after)
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut.
     // rockRelocator runs early so any later boundary-aware process in the same
@@ -1028,6 +1066,7 @@ int main(int argc, char** argv) {
     // the EM/hadron/decay processes so an e+-/gamma in rock is removed before
     // any interaction is sampled for it that step (collapsing the cascade).
     auto fullSequence = make_sequence(stackInspect, rockRelocator, rockEMAbsorber,
+                                      muonDiag,
                                       neutrinoPrimaryPythia, hadronSequence,
                                       decaySequence, emCascade, 
                                       // prodprof, 

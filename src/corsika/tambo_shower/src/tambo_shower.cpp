@@ -31,7 +31,9 @@
 #include <corsika/framework/geometry/Sphere.hpp>
 #include <corsika/framework/geometry/TriangularMesh.hpp>
 #include <corsika/framework/process/BoundaryCrossingProcess.hpp>
+#include <corsika/framework/process/ContinuousProcess.hpp>
 #include <corsika/framework/process/DynamicInteractionProcess.hpp>
+#include <corsika/framework/process/SecondariesProcess.hpp>
 #include <corsika/framework/process/ProcessSequence.hpp>
 #include <corsika/framework/process/SwitchProcessSequence.hpp>
 #include <corsika/framework/random/RNGManager.hpp>
@@ -157,6 +159,69 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
     }
     if (layer != nullptr) particle.setNode(layer);
     return ProcessReturn::Ok;
+  }
+};
+
+// Keeps the in-rock EM cascade tractable.  A multi-TeV muon's brems/pair
+// losses in 2.65 g/cm3 rock would seed an EM shower CORSIKA tracks down to
+// emcut (~1 MeV) -- ~1e6-1e8 secondaries, each stepped against the 180k-
+// triangle terrain mesh: intractable on the production budget, and
+// physically invisible (an e+-/gamma born in rock cannot escape km of rock
+// to be observed).  This process discards e+-/gamma whose logical node is
+// the rock, keeping mu/tau/hadrons/nu -- those CAN escape and seed the
+// observable air shower.  The muon's energy degradation is unaffected:
+// PROPOSAL removes E_loss from the muon at the vertex and applies
+// continuous dE/dx regardless of whether the EM child is tracked.
+//
+//  - doSecondaries erases e+-/gamma at birth when the producing
+//    interaction happened in rock.  Secondaries inherit the projectile's
+//    node at creation (GeometryNodeStackExtension: "copy Node from parent
+//    particle!"), so an in-rock interaction's EM children carry
+//    node == rock immediately.  Zero-cost removal of the rock-born
+//    exponential source.
+//  - doContinuous absorbs any e+-/gamma whose CURRENT logical node is rock,
+//    on its first step -- the comprehensive backstop that also catches EM
+//    produced in air that later travels into the rock.
+//
+// Approximation: e+-/gamma produced within ~an EM range of the rock surface
+// could in principle exit into air; we discard them too.  Negligible: EM
+// range in rock ~cm-m vs traversal hundreds m-km, and a sub-GeV EM particle
+// exiting rock is negligible vs the muon/hadrons for a TAMBO air-shower
+// observable.  No-op when the terrain mesh is disabled (rockNode_ == null).
+struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
+                        public ContinuousProcess<RockEMAbsorber> {
+  void const* rockNode_; // stable address of the terrain-rock node, or nullptr
+  explicit RockEMAbsorber(void const* rockNode) : rockNode_(rockNode) {}
+
+  static bool isEM(Code pid) {
+    return pid == Code::Electron || pid == Code::Positron || pid == Code::Photon;
+  }
+
+  template <typename TStackView>
+  void doSecondaries(TStackView& vS) {
+    if (rockNode_ == nullptr) return;
+    auto p = vS.begin();
+    while (p != vS.end()) {
+      if (isEM(p.getPID()) &&
+          static_cast<void const*>(p.getNode()) == rockNode_) {
+        p.erase();
+      }
+      ++p; // erase()+(++) is the SecondaryView idiom (cf. ParticleCut)
+    }
+  }
+
+  template <typename TParticle>
+  ProcessReturn doContinuous(Step<TParticle>& step, bool const) {
+    if (rockNode_ != nullptr && isEM(step.getParticlePre().getPID()) &&
+        static_cast<void const*>(step.getParticlePre().getNode()) == rockNode_) {
+      return ProcessReturn::ParticleAbsorbed;
+    }
+    return ProcessReturn::Ok;
+  }
+
+  template <typename TParticle, typename TTrajectory>
+  LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
+    return std::numeric_limits<double>::infinity() * 1_m; // never limit steps
   }
 };
 
@@ -929,11 +994,14 @@ int main(int argc, char** argv) {
     EMThinning thinning{emthinfrac * primaryTotalEnergy, maxW, !multithin};
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
     RockExitRelocator rockRelocator{env, rockNodePtr};
+    RockEMAbsorber rockEMAbsorber{rockNodePtr};
 
-    // Order mirrors c8_air_shower: inspector first, thinning near end before cut
+    // Order mirrors c8_air_shower: inspector first, thinning near end before cut.
     // rockRelocator runs early so any later boundary-aware process in the same
-    // crossing observes the corrected logical node.
-    auto fullSequence = make_sequence(stackInspect, rockRelocator,
+    // crossing observes the corrected logical node.  rockEMAbsorber runs before
+    // the EM/hadron/decay processes so an e+-/gamma in rock is removed before
+    // any interaction is sampled for it that step (collapsing the cascade).
+    auto fullSequence = make_sequence(stackInspect, rockRelocator, rockEMAbsorber,
                                       neutrinoPrimaryPythia, hadronSequence,
                                       decaySequence, emCascade, 
                                       // prodprof, 

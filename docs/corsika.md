@@ -86,6 +86,30 @@ Source pointers (under `corsika/` in the CORSIKA 8 source tree; FASRC `/n/holylf
 </details>
 
 <details>
+<summary><h3>Why doesn't <code>tambo_shower</code> track the EM shower a muon produces inside the terrain rock?</h3></summary>
+
+Because it is both computationally intractable and physically unobservable, so `tambo_shower` deliberately suppresses it.
+
+An Earth-skimming muon crossing the canyon rock is typically multi-TeV. In 2.65 g/cm³ standard rock its stochastic bremsstrahlung and pair-production losses are frequent and large, and each energy transfer seeds an electromagnetic shower. The radiation length of rock is ~10 cm, so CORSIKA would track that shower — recursively, e± → γ → e± — all the way down to the EM cut (`--emcut`, ~1 MeV in production). That is ~10⁶–10⁸ secondaries for a single muon crossing, each one stepped with a ray–mesh intersection against the ~180k-triangle terrain in its candidate set: it does not complete on any reasonable per-shower budget. And it is wasted work: an e±/γ created inside the rock has an EM range of ~cm–m and cannot escape the hundreds of metres to kilometres of rock the muon traverses, so it is never observed. TAMBO sees the *air* shower produced by the muon (and by the μ/τ/hadrons that can escape the rock), not the EM cascade buried inside the mountain.
+
+`tambo_shower` therefore registers `RockEMAbsorber`, a process that **discards e±/γ whose logical node is the rock**, while keeping μ±, τ±, hadrons and neutrinos (those can escape the rock and seed the observable shower). The muon's energy degradation is preserved exactly: PROPOSAL removes the lost energy from the muon at the interaction vertex and applies the continuous dE/dx independently of whether the EM secondary is subsequently tracked — so the surviving muon energy, and any μ-pair or photonuclear-hadron secondaries, are unaffected. It acts through two hooks:
+
+- **At creation (`doSecondaries`).** A secondary inherits its projectile's volume node at the moment it is added to the stack (`GeometryNodeStackExtension`: *"copy Node from parent particle!"*). So when the muon interacts while inside the rock, its e±/γ children carry `node == rock` immediately and are erased before they are ever transported — a zero-cost removal of the rock-born exponential at its source.
+- **On the first step (`doContinuous`).** Any e±/γ whose *current* logical node is the rock is absorbed (`ProcessReturn::ParticleAbsorbed`) on its first tracked step. This is the comprehensive backstop: it also catches EM particles produced in air that later travel into the rock, which the creation-time hook does not see.
+
+There is one deliberate approximation: an e±/γ produced within ~an EM range of the rock *surface* could in principle leave the rock into air, and it is discarded too. This is negligible — the EM range in rock (~cm–m) is tiny against the rock thickness the muon crosses, and a sub-GeV EM particle exiting the rock face is insignificant next to the muon and hadrons for a TAMBO air-shower observable. The process is a no-op when the terrain mesh is disabled (the rock node pointer is null), so pure-atmosphere showers are unaffected.
+
+Source pointers (under `corsika/` in the CORSIKA 8 source tree; FASRC `/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika/corsika/`):
+
+- `stack/GeometryNodeStackExtension.hpp` — `setParticleData(parent, …)` does `setNode(parent.getNode())` ("copy Node from parent particle!"), so a secondary's volume node is valid at birth and equals the projectile's; this is what makes the `doSecondaries` node test reliable.
+- `detail/framework/stack/SecondaryView.inl` — `addSecondary(proj, …)` routes secondary creation through that parent-copy path.
+- `corsika/modules/ParticleCut.hpp` / `detail/modules/ParticleCut.inl` — the in-tree precedent: a species-filtered absorber implementing both `doSecondaries` (`particle.erase()`) and `doContinuous` (`ProcessReturn::ParticleAbsorbed`); `RockEMAbsorber` mirrors its interface, keyed on the rock node instead of an energy threshold.
+- `framework/process/SecondariesProcess.hpp`, `framework/process/ContinuousProcess.hpp`, `framework/process/ProcessReturn.hpp` — the two process interfaces and the `ParticleAbsorbed` return.
+- `tambo_shower.cpp` (local, [src/corsika/tambo_shower/src/](../src/corsika/tambo_shower/src/)) — `RockEMAbsorber` definition and its placement in the process sequence (before the EM/hadron/decay processes, so an e±/γ in rock is removed before any interaction is sampled for it that step).
+
+</details>
+
+<details>
 <summary><h3>Do CORSIKA's medium lookup and tracking step-boundary detection agree on where a mesh surface is?</h3></summary>
 
 The terrain rock Q+A above relies on two mechanisms — the point→medium lookup (`getContainingNode`) and the tracking step-boundary detection (`nextIntersect`) — both resolving to the same `TriangularMesh`. However, they ask geometrically *different* questions about that surface: the medium lookup asks "is this point inside the rock?" (a point-in-mesh test), while the tracker asks "where along this trajectory does it cross the rock surface?" (a ray–surface intersection). 

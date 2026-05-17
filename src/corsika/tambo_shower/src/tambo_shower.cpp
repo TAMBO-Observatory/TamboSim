@@ -30,6 +30,7 @@
 #include <corsika/framework/geometry/PhysicalGeometry.hpp>
 #include <corsika/framework/geometry/Sphere.hpp>
 #include <corsika/framework/geometry/TriangularMesh.hpp>
+#include <corsika/framework/process/BoundaryCrossingProcess.hpp>
 #include <corsika/framework/process/DynamicInteractionProcess.hpp>
 #include <corsika/framework/process/ProcessSequence.hpp>
 #include <corsika/framework/process/SwitchProcessSequence.hpp>
@@ -107,6 +108,31 @@ using EnvType = media::Environment<EnvironmentInterface>;
 using StackType = setup::Stack<EnvType>;
 using TrackingType = setup::Tracking;
 using Particle = StackType::particle_type;
+
+// When a particle exits the terrain-rock volume, the tracker sets its logical
+// node to rock.getParent() (the topmost spanned atmosphere layer), which is
+// not necessarily the layer that geometrically contains the exit point.  This
+// BoundaryCrossingProcess re-resolves the logical node to the true containing
+// node on rock exit, so the very next step uses the correct medium.  It is the
+// same full-tree getContainingNode lookup Cascade.inl performs for its own
+// post-step geometry sanity check.  Inert on every other boundary crossing
+// (one pointer compare); the full lookup runs only when leaving rock.
+struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
+  EnvType& env_;
+  void const* rockNode_; // stable address of the terrain-rock node, or nullptr
+  RockExitRelocator(EnvType& env, void const* rockNode)
+      : env_(env), rockNode_(rockNode) {}
+  template <typename TParticle>
+  ProcessReturn doBoundaryCrossing(TParticle& particle,
+                                   typename TParticle::node_type const& from,
+                                   typename TParticle::node_type const& /*to*/) {
+    if (rockNode_ != nullptr && static_cast<void const*>(&from) == rockNode_) {
+      particle.setNode(
+          env_.getUniverse()->getContainingNode(particle.getPosition()));
+    }
+    return ProcessReturn::Ok;
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Random stream registration
@@ -558,6 +584,10 @@ int main(int argc, char** argv) {
    * from the obs mesh still traverse the rock with full physics.  The PLY
    * files are unchanged; this is a CORSIKA-side adjustment only.
    */
+  // Stable address of the terrain-rock node, captured before the ownership
+  // move so RockExitRelocator can identify rock-exit boundary crossings.
+  // Stays nullptr (relocator no-ops) when the terrain mesh is disabled.
+  void const* rockNodePtr = nullptr;
   if (useTerrainMesh) {
     constexpr double kInsetM = 1e-4; // 0.1 mm below terrain surface
     std::vector<Point> insetVertices;
@@ -599,15 +629,15 @@ int main(int argc, char** argv) {
     // an overlap-exclusion on every atmosphere layer from the innermost up to
     // the highest one the terrain actually reaches (topLayer, resolved via
     // getContainingNode at the terrain's maximum radius).  Ownership goes to
-    // topLayer (the topmost spanned layer): rock.getParent() is then a real
-    // layer -- never the universe, which would erase the particle -- and, more
-    // importantly, a particle exiting rock always lands inside its new logical
-    // node.  Above the innermost layer's boundary that node geometrically
-    // contains the particle; below it the node is a cleanly-descending ancestor
-    // (the one-level child test enters the inner layer on the next step).
-    // Owning under the innermost layer instead would leave a muon that exits
-    // rock above that boundary logically resident in a layer it is physically
-    // outside of, which the rest of nextIntersect is not written to handle.
+    // topLayer (the topmost spanned layer) so rock.getParent() is a real
+    // atmosphere layer -- never the universe, which would erase the particle.
+    // The tracker sets a rock-exiting particle's logical node to that parent
+    // regardless of where the exit point actually is; exact placement is
+    // delivered separately by RockExitRelocator (a BoundaryCrossingProcess in
+    // the process sequence) which, on every rock exit, re-resolves the logical
+    // node to the true containing node via a full-tree getContainingNode.  So
+    // the next step always uses the correct medium, and ownership only governs
+    // the getParent()-never-universe safety.
     Point const rockTop{rootCS, 0_m, 0_m, rTopM * 1_m};
     auto* topLayer = env.getUniverse()->getContainingNode(rockTop);
     using LayerPtr = decltype(env.getUniverse().get());
@@ -642,6 +672,7 @@ int main(int argc, char** argv) {
           "universe's first-child path).  Refusing to register terrain rock.");
       return EXIT_FAILURE;
     }
+    rockNodePtr = rockNode.get(); // stash stable address before ownership move
     topLayer->addChild(std::move(rockNode)); // topmost spanned layer owns it
     CORSIKA_LOG_INFO("Terrain mesh registered as standard rock volume (2.65 g/cm3, {:.2f} mm inset)",
                      kInsetM * 1e3);
@@ -871,9 +902,12 @@ int main(int argc, char** argv) {
                             : 0.5 * emthinfrac * primaryTotalEnergy / 1_GeV;
     EMThinning thinning{emthinfrac * primaryTotalEnergy, maxW, !multithin};
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
+    RockExitRelocator rockRelocator{env, rockNodePtr};
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut
-    auto fullSequence = make_sequence(stackInspect, 
+    // rockRelocator runs early so any later boundary-aware process in the same
+    // crossing observes the corrected logical node.
+    auto fullSequence = make_sequence(stackInspect, rockRelocator,
                                       neutrinoPrimaryPythia, hadronSequence,
                                       decaySequence, emCascade, 
                                       // prodprof, 

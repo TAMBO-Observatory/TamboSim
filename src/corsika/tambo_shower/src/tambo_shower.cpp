@@ -630,6 +630,13 @@ int main(int argc, char** argv) {
       if (reached) {
         topLayer->addChild(std::move(rockNode)); // topmost spanned layer owns it
       } else { // defensive: terrain top not resolved to a layer -> span all
+        CORSIKA_LOG_WARNING(
+            "Terrain top did not resolve into the atmosphere layer chain; "
+            "falling back to all-layer overlap-exclusion + innermost ownership. "
+            "Rock medium/tracking still resolve, but the rock-exit handoff is "
+            "NOT containment-clean (a muon exiting rock above the innermost "
+            "layer boundary will be logically resident in a layer it is "
+            "physically outside of). Check the atmosphere topology.");
         for (auto* L : chain) L->excludeOverlapWith(rockNode);
         chain.back()->addChild(std::move(rockNode)); // fall back: innermost owns it
       }

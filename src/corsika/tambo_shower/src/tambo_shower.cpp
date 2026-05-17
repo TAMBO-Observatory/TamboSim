@@ -619,28 +619,30 @@ int main(int argc, char** argv) {
          L = L->getChildNodes().empty() ? nullptr
                                         : L->getChildNodes()[0].get())
       chain.push_back(L); // outermost -> innermost (single-child layer chain)
+    // Both failure cases below are fatal, not recoverable: the chain-based
+    // overlap-exclusion logic assumes the atmosphere is the expected nested
+    // single-child ball chain.  If that assumption does not hold we cannot
+    // know which layers the terrain spans, and continuing would silently run
+    // a shower in which Earth-skimming particles ghost through rock with no
+    // energy loss.  Refuse to run rather than emit a misleading parquet.
     if (chain.empty()) {
       CORSIKA_LOG_ERROR("No atmosphere layers found; cannot register terrain rock.");
-    } else {
-      bool reached = false;
-      for (auto* L : chain) {
-        if (L == topLayer) reached = true;
-        if (reached) L->excludeOverlapWith(rockNode); // topLayer .. innermost
-      }
-      if (reached) {
-        topLayer->addChild(std::move(rockNode)); // topmost spanned layer owns it
-      } else { // defensive: terrain top not resolved to a layer -> span all
-        CORSIKA_LOG_WARNING(
-            "Terrain top did not resolve into the atmosphere layer chain; "
-            "falling back to all-layer overlap-exclusion + innermost ownership. "
-            "Rock medium/tracking still resolve, but the rock-exit handoff is "
-            "NOT containment-clean (a muon exiting rock above the innermost "
-            "layer boundary will be logically resident in a layer it is "
-            "physically outside of). Check the atmosphere topology.");
-        for (auto* L : chain) L->excludeOverlapWith(rockNode);
-        chain.back()->addChild(std::move(rockNode)); // fall back: innermost owns it
-      }
+      return EXIT_FAILURE;
     }
+    bool reached = false;
+    for (auto* L : chain) {
+      if (L == topLayer) reached = true;
+      if (reached) L->excludeOverlapWith(rockNode); // topLayer .. innermost
+    }
+    if (!reached) {
+      CORSIKA_LOG_ERROR(
+          "Terrain top did not resolve into the atmosphere layer chain -- the "
+          "atmosphere topology is not the expected nested single-child ball "
+          "chain (terrain above the atmosphere, or the atmosphere is not the "
+          "universe's first-child path).  Refusing to register terrain rock.");
+      return EXIT_FAILURE;
+    }
+    topLayer->addChild(std::move(rockNode)); // topmost spanned layer owns it
     CORSIKA_LOG_INFO("Terrain mesh registered as standard rock volume (2.65 g/cm3, {:.2f} mm inset)",
                      kInsetM * 1e3);
   }

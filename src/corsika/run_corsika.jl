@@ -92,7 +92,9 @@ Build the argv vector for one invocation of `tambo_shower`.
 - `config::Dict`: `[corsika]` TOML table. Consults `"corsika_path"`,
   `"hadron_model"` (default `"SIBYLL-2.3d"`), `"thinning"` (default
   `1e-6`), `"nevent"` (default `1`), `"force_overwrite"` (default
-  `false`; passes `--force` to the binary).
+  `false`; passes `--force` to the binary), `"time_command"` (default
+  unset; when set to e.g. `["/usr/bin/time", "-v"]` it is prepended to
+  argv so each `tambo_shower` call is wrapped by that timing command).
 """
 function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, config::Dict)
     primary = job.primary
@@ -138,6 +140,8 @@ function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, conf
         append!(argv, ["--terrain-mesh", mesh_paths.terrain])
     end
     force_overwrite && push!(argv, "--force")
+    time_command = string.(get(config, "time_command", String[]))
+    isempty(time_command) || (argv = vcat(time_command, argv))
     return argv
 end
 

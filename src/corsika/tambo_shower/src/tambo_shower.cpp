@@ -551,11 +551,12 @@ int main(int argc, char** argv) {
    * tracked by CORSIKA until they stop or escape.
    *
    * The rock volume boundary is shifted 0.1 mm toward Earth's center relative
-   * to the terrain mesh surface.  This guarantees that the obs mesh (which is
-   * coplanar with the terrain surface) lies in air above the rock boundary.
-   * Particles traveling downward from air are absorbed by the obs mesh before
-   * they ever reach the rock volume.  The PLY files are unchanged; this is a
-   * CORSIKA-side adjustment only.
+   * to the terrain mesh surface.  This keeps the obs mesh (which is coplanar
+   * with the terrain surface) just inside air, avoiding z-fighting between the
+   * absorbing obs mesh and the rock boundary for particles arriving at the
+   * valley floor.  Earth-skimming particles that pass through the terrain far
+   * from the obs mesh still traverse the rock with full physics.  The PLY
+   * files are unchanged; this is a CORSIKA-side adjustment only.
    */
   if (useTerrainMesh) {
     constexpr double kInsetM = 1e-4; // 0.1 mm below terrain surface
@@ -586,7 +587,17 @@ int main(int argc, char** argv) {
         obsField,
         2.65_g / (1_cm * 1_cm * 1_cm),
         rockComposition);
-    env.getUniverse()->addChild(std::move(rockNode));
+    // CRITICAL: nest the rock *inside* the atmosphere layer that owns the
+    // sub-surface (via addChildToContainingNode), not as a direct child of the
+    // universe.  getContainingNode() resolves a point's medium by descending
+    // into the first child that contains it, which yields the innermost node
+    // only when sibling sub-volumes are disjoint.  The atmosphere layers are
+    // full balls centered at Earth's center, so the outermost one is a universe
+    // child that already contains every sub-surface point; the rock must be a
+    // deeper descendant under the layer owning that region to win there while
+    // air is kept elsewhere.  This placement also lets the tracker enter the
+    // mesh -- nextIntersect only tests direct children of the current node.
+    env.getUniverse()->addChildToContainingNode(earthCenter, std::move(rockNode));
     CORSIKA_LOG_INFO("Terrain mesh registered as standard rock volume (2.65 g/cm3, {:.2f} mm inset)",
                      kInsetM * 1e3);
   }

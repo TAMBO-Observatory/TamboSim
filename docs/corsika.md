@@ -35,6 +35,31 @@ Source pointers (all under `corsika/` in the CORSIKA 8 source tree, e.g. on FASR
 </details>
 
 <details>
+<summary><h3>How does the terrain rock volume get its physics right — and why must it be nested in the innermost atmosphere layer?</h3></summary>
+
+`tambo_shower` registers the terrain as a single closed `TriangularMesh` node carrying a `HomogeneousMedium` (standard rock, 2.65 g/cm³). For a particle to actually lose energy in that rock, *two* independent CORSIKA mechanisms must both resolve to the rock node — the **point→medium lookup** and the **tracking step-boundary detection** — and both depend on *where the node sits in the volume tree*. This is what the `CRITICAL` comment at the rock-volume registration in [tambo_shower.cpp](../src/corsika/tambo_shower/src/tambo_shower.cpp) is guarding.
+
+**1. Point→medium lookup.** `getContainingNode(p)` descends, at each level, into the *first child* that `contains(p)` and recurses (see the layered-atmosphere Q+A). This returns the innermost containing node **only when sibling sub-volumes are disjoint** — a CORSIKA tree invariant the standard builders uphold, since the atmosphere is a single nested chain (one child per level). But the atmosphere layers are *filled balls* centred at Earth's centre, so the outermost — a direct child of `Universe` — already contains every point down to r=0. A rock node added as a *sibling* of the atmosphere would overlap that ball, and first-match DFS would always match the atmosphere first. `addChildToContainingNode(earthCenter, …)` instead makes the rock a child of the innermost atmosphere layer (the node that "owns the entire Earth interior" wherever nothing else claims it). The rock is then a deeper descendant on the DFS path: sub-surface points descend into rock, air points stop at the atmosphere layer — invariant preserved, carve-out wins exactly where it should.
+
+**2. Tracking step-boundary detection.** Resolving the medium at a point isn't enough — the tracker must also *end the step* at the rock surface so the medium switches mid-flight. `nextIntersect` tests only the **direct children of the particle's current logical node** for the next entry. Because the rock is a child of the innermost atmosphere layer, a particle in the low-altitude air around the terrain (whose logical node is that layer) has the rock mesh checked every step: its step ends at the rock surface, the logical node becomes the rock node, and StandardRock + PROPOSAL losses apply.
+
+**Why the two geometries stay consistent.** The curved leap-frog tracker delegates mesh intersection to the straight-line tracker, which ray-casts using the *same* BVH `intersectRayAll` and `boundaryPadding` that `TriangularMesh::contains()` uses, and decides entry-vs-exit from `contains()` itself. So step-boundary geometry and point-medium geometry cannot disagree about where the rock surface is. Non-convex terrain (a near-horizontal path that dips through a ridge and back out) is handled because entry/exit is decided per step from `contains()` and the tracker re-evaluates at every boundary crossing — no single convex entry/exit pair is assumed.
+
+In summary: the terrain node must be attached via `addChildToContainingNode` to the layer containing the terrain, not directly to the universe: both the medium lookup and the tracking entry require the rock to be a disjoint child *nested under* the atmosphere layer that owns the sub-surface.
+
+Source pointers (under `corsika/` in the CORSIKA 8 source tree; FASRC `/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika/corsika/`):
+
+- `detail/media/VolumeTreeNode.inl` (lines 36–52) — `getContainingNode(p)` recurses into the first child whose `contains()` is true; `addChildToContainingNode(p, child)` (lines 63–72) resolves `getContainingNode(p)` and attaches the child there.
+- `detail/media/LayeredSphericalAtmosphereBuilder.inl` (lines 161–170) — `assemble()` chains the atmosphere layers as a single nested-child path under `Universe`.
+- `detail/modules/tracking/Intersect.inl` (lines 59–81) — `nextIntersect` tests only the direct children of the current logical node for the next entry.
+- `detail/modules/tracking/TrackingLeapFrogCurved.inl` (lines 352–356, 358–372) — the curved tracker delegates `TriangularMesh` intersection to the straight tracker and dispatches a mesh-volume node by `dynamic_cast`.
+- `detail/modules/tracking/TrackingStraight.inl` (lines 167–238) — mesh intersection via `mesh.intersectRayAll` + `boundaryPadding`, entry/exit decided from `mesh.contains()`, consistent with the point-medium test.
+- `detail/framework/geometry/TriangularMesh.inl` (lines 63–95) — `contains()` is a 3-ray majority-vote parity test, robust for closed meshes and independent of triangle winding.
+- `tambo_shower.cpp` (local, [src/corsika/tambo_shower/src/](../src/corsika/tambo_shower/src/)) — terrain mesh registered as a StandardRock `HomogeneousMedium` and attached with `addChildToContainingNode(earthCenter, …)`.
+
+</details>
+
+<details>
 <summary><h3>What happens to particles that exit the outermost atmosphere layer?</h3></summary>
 
 They are deleted cleanly, with a log line, and no further tracking. CORSIKA 8 has an explicit erase path for this case.

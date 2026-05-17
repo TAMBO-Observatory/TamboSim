@@ -597,10 +597,17 @@ int main(int argc, char** argv) {
     // to a muon traversing it while logically resident in a different layer.
     // Make it reachable for BOTH tracking and medium lookup by registering it as
     // an overlap-exclusion on every atmosphere layer from the innermost up to
-    // the highest one the terrain actually reaches (resolved via
-    // getContainingNode at the terrain's maximum radius).  Ownership goes to the
-    // innermost layer so rock.getParent() is a real layer, never the universe --
-    // a particle that exits rock into the universe would be erased.
+    // the highest one the terrain actually reaches (topLayer, resolved via
+    // getContainingNode at the terrain's maximum radius).  Ownership goes to
+    // topLayer (the topmost spanned layer): rock.getParent() is then a real
+    // layer -- never the universe, which would erase the particle -- and, more
+    // importantly, a particle exiting rock always lands inside its new logical
+    // node.  Above the innermost layer's boundary that node geometrically
+    // contains the particle; below it the node is a cleanly-descending ancestor
+    // (the one-level child test enters the inner layer on the next step).
+    // Owning under the innermost layer instead would leave a muon that exits
+    // rock above that boundary logically resident in a layer it is physically
+    // outside of, which the rest of nextIntersect is not written to handle.
     Point const rockTop{rootCS, 0_m, 0_m, rTopM * 1_m};
     auto* topLayer = env.getUniverse()->getContainingNode(rockTop);
     using LayerPtr = decltype(env.getUniverse().get());
@@ -620,9 +627,12 @@ int main(int argc, char** argv) {
         if (L == topLayer) reached = true;
         if (reached) L->excludeOverlapWith(rockNode); // topLayer .. innermost
       }
-      if (!reached) // defensive: terrain top not resolved to a layer -> span all
+      if (reached) {
+        topLayer->addChild(std::move(rockNode)); // topmost spanned layer owns it
+      } else { // defensive: terrain top not resolved to a layer -> span all
         for (auto* L : chain) L->excludeOverlapWith(rockNode);
-      chain.back()->addChild(std::move(rockNode)); // innermost layer owns it
+        chain.back()->addChild(std::move(rockNode)); // fall back: innermost owns it
+      }
     }
     CORSIKA_LOG_INFO("Terrain mesh registered as standard rock volume (2.65 g/cm3, {:.2f} mm inset)",
                      kInsetM * 1e3);

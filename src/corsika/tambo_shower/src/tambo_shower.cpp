@@ -562,12 +562,14 @@ int main(int argc, char** argv) {
     constexpr double kInsetM = 1e-4; // 0.1 mm below terrain surface
     std::vector<Point> insetVertices;
     insetVertices.reserve(terrainMeshPtr->getVertexCount());
+    double rTopM = 0.0; // max vertex radius (m): how high the terrain reaches
     for (size_t vi = 0; vi < terrainMeshPtr->getVertexCount(); ++vi) {
       auto const c = terrainMeshPtr->getVertex(vi).getCoordinates(rootCS);
       double const x = c.getX() / 1_m;
       double const y = c.getY() / 1_m;
       double const z = c.getZ() / 1_m;
       double const r = std::sqrt(x * x + y * y + z * z);
+      if (r > rTopM) rTopM = r;
       double const scale = (r - kInsetM) / r;
       insetVertices.emplace_back(rootCS, scale * x * 1_m, scale * y * 1_m, scale * z * 1_m);
     }
@@ -587,17 +589,41 @@ int main(int argc, char** argv) {
         obsField,
         2.65_g / (1_cm * 1_cm * 1_cm),
         rockComposition);
-    // CRITICAL: nest the rock *inside* the atmosphere layer that owns the
-    // sub-surface (via addChildToContainingNode), not as a direct child of the
-    // universe.  getContainingNode() resolves a point's medium by descending
-    // into the first child that contains it, which yields the innermost node
-    // only when sibling sub-volumes are disjoint.  The atmosphere layers are
-    // full balls centered at Earth's center, so the outermost one is a universe
-    // child that already contains every sub-surface point; the rock must be a
-    // deeper descendant under the layer owning that region to win there while
-    // air is kept elsewhere.  This placement also lets the tracker enter the
-    // mesh -- nextIntersect only tests direct children of the current node.
-    env.getUniverse()->addChildToContainingNode(earthCenter, std::move(rockNode));
+    // CRITICAL: the terrain mesh straddles several spherical atmosphere layers.
+    // The tracker only tests the *current* logical node's direct children and
+    // excluded-overlap nodes -- one level, no tree descent (Intersect.inl) --
+    // and getContainingNode only consults excludes() when no child contains the
+    // point.  A rock node attached under any single layer is therefore invisible
+    // to a muon traversing it while logically resident in a different layer.
+    // Make it reachable for BOTH tracking and medium lookup by registering it as
+    // an overlap-exclusion on every atmosphere layer from the innermost up to
+    // the highest one the terrain actually reaches (resolved via
+    // getContainingNode at the terrain's maximum radius).  Ownership goes to the
+    // innermost layer so rock.getParent() is a real layer, never the universe --
+    // a particle that exits rock into the universe would be erased.
+    Point const rockTop{rootCS, 0_m, 0_m, rTopM * 1_m};
+    auto* topLayer = env.getUniverse()->getContainingNode(rockTop);
+    using LayerPtr = decltype(env.getUniverse().get());
+    std::vector<LayerPtr> chain;
+    for (LayerPtr L = env.getUniverse()->getChildNodes().empty()
+                          ? nullptr
+                          : env.getUniverse()->getChildNodes()[0].get();
+         L != nullptr;
+         L = L->getChildNodes().empty() ? nullptr
+                                        : L->getChildNodes()[0].get())
+      chain.push_back(L); // outermost -> innermost (single-child layer chain)
+    if (chain.empty()) {
+      CORSIKA_LOG_ERROR("No atmosphere layers found; cannot register terrain rock.");
+    } else {
+      bool reached = false;
+      for (auto* L : chain) {
+        if (L == topLayer) reached = true;
+        if (reached) L->excludeOverlapWith(rockNode); // topLayer .. innermost
+      }
+      if (!reached) // defensive: terrain top not resolved to a layer -> span all
+        for (auto* L : chain) L->excludeOverlapWith(rockNode);
+      chain.back()->addChild(std::move(rockNode)); // innermost layer owns it
+    }
     CORSIKA_LOG_INFO("Terrain mesh registered as standard rock volume (2.65 g/cm3, {:.2f} mm inset)",
                      kInsetM * 1e3);
   }

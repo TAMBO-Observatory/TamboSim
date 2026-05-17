@@ -170,6 +170,19 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
         reinterpret_cast<std::uintptr_t>(&from),
         reinterpret_cast<std::uintptr_t>(layer));
     if (layer != nullptr) particle.setNode(layer);
+    // Nudge the particle off the rock surface into air.  setNode alone is
+    // insufficient: the cascade re-derives the next step from getPosition(),
+    // and a particle left exactly on the rock mesh surface is geometrically
+    // ambiguous (within the 1 um TriangularMesh boundary padding used by both
+    // contains() and the straight-line ray intersect), so the next step can
+    // re-resolve it onto the rock with near-zero progress.  Displace it 2 um
+    // (2x that padding) along the momentum direction -- the particle is
+    // leaving the rock, so +direction moves it deeper into air -- so the next
+    // getTrack starts unambiguously in the resolved layer.  Cascade::step
+    // dispatches boundary-crossing processes last, immediately before it
+    // returns; there is no pre-computed next trajectory, so the mutated
+    // position is read fresh on the very next step.
+    particle.setPosition(pos + 2.0e-6 * 1_m * particle.getDirection());
     return ProcessReturn::Ok;
   }
 };
@@ -246,6 +259,68 @@ struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
   template <typename TParticle, typename TTrajectory>
   LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
     return std::numeric_limits<double>::infinity() * 1_m; // never limit steps
+  }
+};
+
+// Production safety net for the rock/air interface.  RockExitRelocator's
+// position nudge resolves the known way a particle can end up logically
+// resident in the terrain rock while geometrically outside it (a degenerate
+// on-surface re-resolution after a rock-exit boundary crossing).  This process
+// is deliberately pathway-agnostic: rather than handle a specific entry route,
+// it watches for the *invariant violation itself* -- logical node == rock yet
+// rock.contains(position) == false -- which is the signature underlying a
+// particle that bleeds StandardRock dE/dx while geometrically in air and
+// silently ranges out before reaching any readout.  A healthy rock traversal
+// has logical == rock AND contains() == true and resets the counter every
+// step; the pathology accumulates logical == rock AND !contains() for tens of
+// thousands of consecutive steps.  On crossing a generous persistence
+// threshold the run is aborted with diagnostics rather than allowed to emit a
+// complete-looking shower output in which an Earth-skimming signal particle
+// was quietly lost.  The counter is a deliberately coarse run-global burst
+// detector, not a per-particle accountant: a stuck particle steps thousands
+// of times with no interleaving secondary, so a global count is a sufficient
+// and cheap tripwire.  No-op when the terrain mesh is disabled
+// (rockNode_ == nullptr); one pointer compare per step otherwise, with the
+// contains() test reached only while a particle is logically in the rock.
+struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
+  void const* rockNode_;
+  explicit RockInterfaceTripwire(void const* rockNode) : rockNode_(rockNode) {}
+  template <typename TParticle>
+  ProcessReturn doContinuous(Step<TParticle>& step, bool const) {
+    if (rockNode_ == nullptr) return ProcessReturn::Ok;
+    auto const& pre = step.getParticlePre();
+    auto const* nd = pre.getNode();
+    if (static_cast<void const*>(nd) != rockNode_) return ProcessReturn::Ok;
+    using NodeT = std::remove_reference_t<decltype(*nd)>;
+    bool const inside = reinterpret_cast<NodeT const*>(rockNode_)
+                            ->getVolume()
+                            .contains(pre.getPosition());
+    static long stuck = 0;
+    if (inside) {
+      stuck = 0;
+      return ProcessReturn::Ok;
+    }
+    constexpr long kStuckLimit = 1000; // a real loop racks up tens of thousands
+    if (++stuck >= kStuckLimit) {
+      auto const c =
+          pre.getPosition().getCoordinates(get_root_CoordinateSystem());
+      CORSIKA_LOG_ERROR(
+          "Rock/air interface stuck state: a particle has been logically "
+          "resident in the terrain rock while geometrically OUTSIDE it for {} "
+          "consecutive steps -- it is bleeding StandardRock dE/dx in air and "
+          "will silently range out before reaching any readout.  Reached via "
+          "a path RockExitRelocator's nudge does not cover.  pid={} "
+          "E={} GeV pos=({:.1f},{:.1f},{:.1f}) m.  Aborting rather than emit "
+          "a misleading shower output.",
+          stuck, pre.getPID(), pre.getEnergy() / 1_GeV, c.getX() / 1_m,
+          c.getY() / 1_m, c.getZ() / 1_m);
+      std::exit(EXIT_FAILURE);
+    }
+    return ProcessReturn::Ok;
+  }
+  template <typename TParticle, typename TTrajectory>
+  LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
+    return std::numeric_limits<double>::infinity() * 1_m;
   }
 };
 
@@ -1058,6 +1133,7 @@ int main(int argc, char** argv) {
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
     RockExitRelocator rockRelocator{env, rockNodePtr};
     RockEMAbsorber rockEMAbsorber{rockNodePtr};
+    RockInterfaceTripwire rockTripwire{rockNodePtr};
     MuonStorylineDiag muonDiag{rockNodePtr}; // DIAG (revert after)
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut.
@@ -1065,7 +1141,10 @@ int main(int argc, char** argv) {
     // crossing observes the corrected logical node.  rockEMAbsorber runs before
     // the EM/hadron/decay processes so an e+-/gamma in rock is removed before
     // any interaction is sampled for it that step (collapsing the cascade).
+    // rockTripwire is a passive per-step invariant check (logical==rock implies
+    // contains()); it mutates nothing and only aborts on a sustained violation.
     auto fullSequence = make_sequence(stackInspect, rockRelocator, rockEMAbsorber,
+                                      rockTripwire,
                                       muonDiag,
                                       neutrinoPrimaryPythia, hadronSequence,
                                       decaySequence, emCascade, 

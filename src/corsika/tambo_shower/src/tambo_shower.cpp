@@ -160,15 +160,6 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
       auto const& k = L->getChildNodes();
       L = k.empty() ? nullptr : k[0].get(); // index-0 child is the next layer
     }
-    // DIAG (revert after): every rock-exit boundary crossing seen by the
-    // relocator -- pid/energy + from-node and resolved-layer pointers.
-    // Absence of MuMinus here == the muon never gets a clean rock-exit
-    // crossing (the grazing-exit hypothesis).
-    CORSIKA_LOG_INFO(
-        "DIAG-RELOC fired pid={} E={} GeV from={:#x} resolved={:#x}",
-        particle.getPID(), particle.getEnergy() / 1_GeV,
-        reinterpret_cast<std::uintptr_t>(&from),
-        reinterpret_cast<std::uintptr_t>(layer));
     if (layer != nullptr) particle.setNode(layer);
     // Nudge the particle off the rock surface into air.  setNode alone is
     // insufficient: the cascade re-derives the next step from getPosition(),
@@ -229,10 +220,6 @@ struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
     while (p != vS.end()) {
       if (isEM(p.getPID()) &&
           static_cast<void const*>(p.getNode()) == rockNode_) {
-        static long n = 0; // DIAG (revert after)
-        if (++n == 1 || n % 500000 == 0)
-          CORSIKA_LOG_INFO("DIAG-EMABS doSecondaries erase #{} rockNode={:#x}",
-                           n, reinterpret_cast<std::uintptr_t>(rockNode_));
         p.erase();
       }
       ++p; // erase()+(++) is the SecondaryView idiom (cf. ParticleCut)
@@ -243,14 +230,6 @@ struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
   ProcessReturn doContinuous(Step<TParticle>& step, bool const) {
     if (rockNode_ != nullptr && isEM(step.getParticlePre().getPID()) &&
         static_cast<void const*>(step.getParticlePre().getNode()) == rockNode_) {
-      static long n = 0; // DIAG (revert after)
-      if (++n == 1 || n % 500000 == 0)
-        CORSIKA_LOG_INFO(
-            "DIAG-EMABS doContinuous absorb #{} pid={} node={:#x} rockNode={:#x}",
-            n, step.getParticlePre().getPID(),
-            reinterpret_cast<std::uintptr_t>(
-                static_cast<void const*>(step.getParticlePre().getNode())),
-            reinterpret_cast<std::uintptr_t>(rockNode_));
       return ProcessReturn::ParticleAbsorbed;
     }
     return ProcessReturn::Ok;
@@ -316,41 +295,6 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
           c.getY() / 1_m, c.getZ() / 1_m);
       std::exit(EXIT_FAILURE);
     }
-    return ProcessReturn::Ok;
-  }
-  template <typename TParticle, typename TTrajectory>
-  LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
-    return std::numeric_limits<double>::infinity() * 1_m;
-  }
-};
-
-// DIAG (revert after): one line per mu+- step -- E, logical-node==rock?,
-// rock.contains(pos)?, ECEF position. Shows the full muon arc (rock-A exit
-// -> valley -> the SQUARE entry into rock-B -> exactly when/where
-// numericallyInside flips while logically rock = stuck-state onset). pos is
-// in the same ECEF frame as the trajectory plot, for direct correlation.
-struct MuonStorylineDiag : public ContinuousProcess<MuonStorylineDiag> {
-  void const* rockNode_;
-  explicit MuonStorylineDiag(void const* rockNode) : rockNode_(rockNode) {}
-  template <typename TParticle>
-  ProcessReturn doContinuous(Step<TParticle>& step, bool const) {
-    auto const& pre = step.getParticlePre();
-    Code const pid = pre.getPID();
-    if (pid != Code::MuMinus && pid != Code::MuPlus) return ProcessReturn::Ok;
-    auto const* nd = pre.getNode();
-    bool const isRock = (static_cast<void const*>(nd) == rockNode_);
-    bool inside = false;
-    if (rockNode_ != nullptr) {
-      using NodeT = std::remove_reference_t<decltype(*nd)>;
-      inside = reinterpret_cast<NodeT const*>(rockNode_)
-                   ->getVolume()
-                   .contains(pre.getPosition());
-    }
-    auto const c = pre.getPosition().getCoordinates(get_root_CoordinateSystem());
-    CORSIKA_LOG_INFO(
-        "DIAG-MU E={} GeV isRock={} inside={} pos=({:.1f},{:.1f},{:.1f})",
-        pre.getEnergy() / 1_GeV, (isRock ? 1 : 0), (inside ? 1 : 0),
-        c.getX() / 1_m, c.getY() / 1_m, c.getZ() / 1_m);
     return ProcessReturn::Ok;
   }
   template <typename TParticle, typename TTrajectory>
@@ -901,10 +845,6 @@ int main(int argc, char** argv) {
     topLayer->addChild(std::move(rockNode)); // topmost spanned layer owns it
     CORSIKA_LOG_INFO("Terrain mesh registered as standard rock volume (2.65 g/cm3, {:.2f} mm inset)",
                      kInsetM * 1e3);
-    // DIAG (revert after): the registered rock-node pointer, to identify it
-    // against the volumeNode=0x... addresses in the tracking debug trace.
-    CORSIKA_LOG_INFO("DIAG-ROCKPTR rockNodePtr={:#x}",
-                     reinterpret_cast<std::uintptr_t>(rockNodePtr));
   }
 
   /* === PRIMARY PARTICLE ID === */
@@ -1134,7 +1074,6 @@ int main(int argc, char** argv) {
     RockExitRelocator rockRelocator{env, rockNodePtr};
     RockEMAbsorber rockEMAbsorber{rockNodePtr};
     RockInterfaceTripwire rockTripwire{rockNodePtr};
-    MuonStorylineDiag muonDiag{rockNodePtr}; // DIAG (revert after)
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut.
     // rockRelocator runs early so any later boundary-aware process in the same
@@ -1145,7 +1084,6 @@ int main(int argc, char** argv) {
     // contains()); it mutates nothing and only aborts on a sustained violation.
     auto fullSequence = make_sequence(stackInspect, rockRelocator, rockEMAbsorber,
                                       rockTripwire,
-                                      muonDiag,
                                       neutrinoPrimaryPythia, hadronSequence,
                                       decaySequence, emCascade, 
                                       // prodprof, 

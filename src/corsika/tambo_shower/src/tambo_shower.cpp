@@ -152,6 +152,27 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
     if (rockNode_ == nullptr || static_cast<void const*>(&from) != rockNode_)
       return ProcessReturn::Ok;
     auto const pos = particle.getPosition();
+    // Non-convex terrain guard.  Tracking::intersect(TriangularMesh) takes the
+    // FIRST forward ray-surface hit as the exit whenever contains(pos)==true
+    // (the framework's convex-volume assumption, TrackingStraight.inl).  For
+    // the non-convex terrain mesh a straight chord can clip a surface triangle
+    // while the particle is still geometrically inside the rock body, so the
+    // tracker emits a spurious rock->layer "exit" crossing here.  Cascade::step
+    // has ALREADY run setNode(parent layer) before dispatching this process.
+    // Relocating/nudging on such a false exit starts the churn that ends in a
+    // logical==rock-but-geometrically-outside state the tracker can never
+    // resolve (it only computes forward intersections; the surface already
+    // passed is invisible) -- the muon then bleeds rock dE/dx in tiny steps
+    // until it is cut.  So if the particle is STILL inside the rock this is
+    // not a genuine exit: undo Cascade's premature setNode (re-pin to rock)
+    // and do nothing else.  Only a genuine exit (contains()==false) gets the
+    // layer re-resolve + nudge below.  &from is the rock node (guarded above);
+    // the const_cast is safe -- the volume tree owns its nodes mutably, the
+    // const& is only the BoundaryCrossingProcess callback signature.
+    if (from.getVolume().contains(pos)) {
+      particle.setNode(const_cast<typename TParticle::node_type*>(&from));
+      return ProcessReturn::Ok;
+    }
     auto const& uk = env_.getUniverse()->getChildNodes();
     auto* L = uk.empty() ? nullptr : uk[0].get();
     decltype(L) layer = nullptr;

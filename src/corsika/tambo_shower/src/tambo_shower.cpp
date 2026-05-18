@@ -163,17 +163,53 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
     if (layer != nullptr) particle.setNode(layer);
     // Nudge the particle off the rock surface into air.  setNode alone is
     // insufficient: the cascade re-derives the next step from getPosition(),
-    // and a particle left exactly on the rock mesh surface is geometrically
-    // ambiguous (within the 1 um TriangularMesh boundary padding used by both
-    // contains() and the straight-line ray intersect), so the next step can
-    // re-resolve it onto the rock with near-zero progress.  Displace it 2 um
-    // (2x that padding) along the momentum direction -- the particle is
-    // leaving the rock, so +direction moves it deeper into air -- so the next
-    // getTrack starts unambiguously in the resolved layer.  Cascade::step
+    // and the tracker leaves a rock-exiting particle numerically pinned onto
+    // the exit triangle.  The pin is intrinsic floating-point cancellation,
+    // not a bug we can localise: the endpoint is computed as
+    // start + velocity*t_mollertrumbore in the ECEF frame at radius ~6.4e6 m,
+    // so the residual off the face is O(eps_mach * 1e6 m) ~ 1 nm -- far below
+    // the 1 um TriangularMesh boundaryPadding that both contains() and the
+    // straight-line ray intersect filter with a strict '>'.  A sub-padding
+    // self-hit is therefore discarded and the next "real" exit collapses to
+    // the far mountain face km away, unreachable in interaction-limited cm
+    // steps: the particle freezes, bleeding StandardRock dE/dx in air.
+    //
+    // Displace it so it is a defined CLEARANCE off the exit face's plane,
+    // measured along the surface normal -- the maximal-clearance direction,
+    // independent of incidence angle (a fixed step along the momentum
+    // direction clears only clearance*|cos(incidence)| perpendicular, which
+    // is why a plain along-momentum nudge is not robust).  We keep the
+    // particle on its own trajectory (move along +direction, the exit
+    // direction by construction at a from==rock crossing) but rescale the
+    // along-track distance by 1/|dir.n| so the perpendicular component off
+    // the face equals kClearance.  |dir.n| (absolute value) makes this
+    // independent of the triangle's winding-defined normal sign -- CORSIKA
+    // does not canonicalise mesh normals outward, so n's sign is unreliable,
+    // but moving forward along +direction by a positive distance is always
+    // the physically correct exit move regardless of n's sign.  Cascade::step
     // dispatches boundary-crossing processes last, immediately before it
     // returns; there is no pre-computed next trajectory, so the mutated
     // position is read fresh on the very next step.
-    particle.setPosition(pos + 2.0e-6 * 1_m * particle.getDirection());
+    constexpr double kClearance = 2.0e-6;  // m, perpendicular target (2x padding)
+    constexpr double kMaxAlong = 1.0e-3;   // m, cap on along-track displacement
+    double along = kClearance;             // fallback: plain 2 um along direction
+    auto const* mesh = dynamic_cast<TriangularMesh const*>(&from.getVolume());
+    if (mesh != nullptr) {
+      auto const hits = mesh->intersectRayAll(pos, particle.getDirection());
+      if (!hits.empty()) { // sorted by distance: front() is the pin face
+        double const cosI =
+            std::abs(particle.getDirection().dot(hits.front().normal).magnitude());
+        along = (cosI > 1e-12) ? (kClearance / cosI) : kMaxAlong;
+        if (along > kMaxAlong) {
+          CORSIKA_LOG_WARN(
+              "RockExitRelocator: near-tangent rock exit (|dir.n|={}), "
+              "along-track nudge clamped to {} m (pid={} E={} GeV)",
+              cosI, kMaxAlong, particle.getPID(), particle.getEnergy() / 1_GeV);
+          along = kMaxAlong;
+        }
+      }
+    }
+    particle.setPosition(pos + along * 1_m * particle.getDirection());
     return ProcessReturn::Ok;
   }
 };

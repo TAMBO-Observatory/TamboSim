@@ -40,7 +40,6 @@
 #include <corsika/framework/random/RNGManager.hpp>
 #include <corsika/framework/random/PowerLawDistribution.hpp>
 #include <corsika/framework/utility/CorsikaFenv.hpp>
-#include <corsika/framework/utility/SaveBoostHistogram.hpp>
 
 #include <corsika/modules/writers/EnergyLossWriter.hpp>
 #include <corsika/modules/writers/InteractionWriter.hpp>
@@ -68,7 +67,6 @@
 #include <corsika/modules/Epos.hpp>
 #include <corsika/modules/EposLhcr.hpp>
 #include <corsika/modules/ObservationMesh.hpp>
-#include <corsika/modules/ObservationPlane.hpp>
 #include <corsika/modules/PROPOSAL.hpp>
 #include <corsika/modules/ParticleCut.hpp>
 #include <corsika/modules/Pythia8.hpp>
@@ -307,7 +305,7 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
     auto const* nd = pre.getNode();
     if (static_cast<void const*>(nd) != rockNode_) return ProcessReturn::Ok;
     using NodeT = std::remove_reference_t<decltype(*nd)>;
-    bool const inside = reinterpret_cast<NodeT const*>(rockNode_)
+    bool const inside = static_cast<NodeT const*>(rockNode_)
                             ->getVolume()
                             .contains(pre.getPosition());
     static long stuck = 0;
@@ -386,6 +384,11 @@ void create_5layer_colca_atmosphere(TEnvironment& env,
   builder.setNuclearComposition(media::standardAirComposition);
 
   using media::AtmosphereLayerParameters;
+  // Field order is positional: AtmosphereLayerParameters is declared
+  // { LengthType altitude; GrammageType offset; LengthType scaleHeight; }
+  // (CORSIKA7Atmospheres.hpp:66-70).  addExponentialLayer/addLinearLayer
+  // take (offset b, scaleHeight, altitude upperBoundary) -- see the
+  // params[i].offset/.scaleHeight/.altitude call order below.
   constexpr std::array<AtmosphereLayerParameters, 5> params{{
       {3.8_km,   1208.0663_g / (1_cm * 1_cm), 1045629.03_cm},
       {9.7_km,   1148.2458_g / (1_cm * 1_cm),  963788.26_cm},
@@ -571,7 +574,6 @@ int main(int argc, char** argv) {
       ->group("Output");
   app.add_option("-f,--filename", "Output library filename")
       ->required()
-      ->default_val("tambo_library")
       ->group("Output");
   bool compressOutput = false;
   app.add_flag("--compress", compressOutput, "Compress output directory to tarball")
@@ -592,10 +594,6 @@ int main(int argc, char** argv) {
       ->group("Misc");
   bool force_decay = false;
   app.add_flag("--force-decay", force_decay, "Force the primary to immediately decay")
-      ->group("Misc");
-  bool disable_interaction_hists = true;
-  app.add_flag("--disable-interaction-histograms", disable_interaction_hists,
-               "Disable saving interaction histograms")
       ->group("Misc");
   app.add_option("-v,--verbosity", "Verbosity level: warn, info, debug, trace")
       ->default_val("info")
@@ -618,7 +616,7 @@ int main(int argc, char** argv) {
     else if (lv == "trace") {
 #ifndef _C8_DEBUG_
       CORSIKA_LOG_ERROR("trace log level requires a Debug build.");
-      return 1;
+      return EXIT_FAILURE;
 #endif
       logging::set_level(logging::level::trace);
     }
@@ -628,7 +626,7 @@ int main(int argc, char** argv) {
   if (app.count("--pdg") == 0) {
     if ((app.count("-A") == 0) || (app.count("-Z") == 0)) {
       CORSIKA_LOG_ERROR("If --pdg is not provided, both -A and -Z are required.");
-      return 1;
+      return EXIT_FAILURE;
     }
   }
 
@@ -708,25 +706,10 @@ int main(int argc, char** argv) {
   double const cx = app["--intercept-x"]->as<double>();
   double const cy = app["--intercept-y"]->as<double>();
   double const cz = app["--intercept-z"]->as<double>();
-  CORSIKA_LOG_INFO("Shower core / intercept (ECEF m): ({:.1f}, {:.1f}, {:.1f})", cx, cy, cz);
-
   std::array<double, 3> eastHat, northHat, upHat;
   ecefToENU(cx, cy, cz, eastHat, northHat, upHat);
 
   /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
-  // // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
-  // //   B_E ~ -1700 nT (slightly westward)
-  // //   B_N ~ 25500 nT (mostly northward)
-  // //   B_U ~ 11000 nT (upward, southern hemisphere)
-  // // Rotate these ENU components into ECEF using the site's ENU basis vectors.
-  // constexpr double B_E_T =  -1700e-9;  // Tesla (eastward component)
-  // constexpr double B_N_T =  25500e-9;  // Tesla (northward component)
-  // constexpr double B_U_T =  11000e-9;  // Tesla (upward component)
-  // double const Bx = B_E_T * eastHat[0] + B_N_T * northHat[0] + B_U_T * upHat[0];
-  // double const By = B_E_T * eastHat[1] + B_N_T * northHat[1] + B_U_T * upHat[1];
-  // double const Bz = B_E_T * eastHat[2] + B_N_T * northHat[2] + B_U_T * upHat[2];
-  // MagneticFieldVector const obsField{rootCS, Bx * 1_T, By * 1_T, Bz * 1_T};
-
   // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
   // see https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
   constexpr double B_E =  -2.5;  // uT (eastward component)
@@ -876,7 +859,7 @@ int main(int argc, char** argv) {
     eMax = std::max(cli_energy_range[0], cli_energy_range[1]) * 1_GeV;
   } else {
     CORSIKA_LOG_CRITICAL("Must set either --energy or --energy_range.");
-    return 1;
+    return EXIT_FAILURE;
   }
 
   /* === INJECTION GEOMETRY ===
@@ -1040,14 +1023,13 @@ int main(int argc, char** argv) {
   /* === OBSERVATION MESH (absorbing: records and removes particles at valley floor) === */
   ObservationMesh<TrackingType, ParticleWriterParquet> observationLevel{
       obsMesh, 
-      true,     // absorbinb
+      true,     // absorbing
       1e-6_m,   // padding
       false,    // writeHitInfo
       true,     // recordEntry
       false,    // recordExit
     };
   output.add("particles", observationLevel);
-
 
   PrimaryWriter<TrackingType, ParticleWriterParquet> primaryWriter(obsMesh);
   output.add("primary", primaryWriter);
@@ -1120,16 +1102,6 @@ int main(int argc, char** argv) {
 
     primaryWriter.recordPrimary(primaryProperties);
     EAS.run();
-
-    if (!disable_interaction_hists) {
-      auto const hists = heCounted.getHistogram() + leIntCounted.getHistogram();
-      string const histDir = outFilename + "/interaction_hist";
-      boost::filesystem::create_directories(histDir);
-      save_hist(hists.labHist(),
-                histDir + "/inthist_lab_" + to_string(i_shower) + ".npz", true);
-      save_hist(hists.CMSHist(),
-                histDir + "/inthist_cms_" + to_string(i_shower) + ".npz", true);
-    }
   };
 
   output.startOfLibrary();

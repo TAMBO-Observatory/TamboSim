@@ -436,6 +436,203 @@ static void ecefToENU(double cx, double cy, double cz, std::array<double, 3>& ea
 }
 
 // ---------------------------------------------------------------------------
+// Mesh loading
+//
+// Loads the observation mesh and (optionally) the terrain mesh from their PLY
+// files (ECEF metres, scale 1 m, 1 um boundary padding).  When a terrain mesh
+// is present, checks that every obs-mesh vertex has a matching terrain vertex
+// within 1 mm (same-geometry sanity check; warns but does not fail).
+// ---------------------------------------------------------------------------
+struct LoadedMeshes {
+  TriangularMesh obsMesh;
+  std::unique_ptr<TriangularMesh> terrainMesh; // nullptr when terrain disabled
+  bool useTerrainMesh;
+};
+
+static LoadedMeshes loadMeshes(std::string const& obsMeshPath,
+                               std::string const& terrainMeshPath,
+                               CoordinateSystemPtr const& rootCS) {
+  CORSIKA_LOG_INFO("Loading observation mesh: {}", obsMeshPath);
+  // PLY coordinates are ECEF metres; load directly into rootCS with scale=1_m
+  TriangularMesh obsMesh = TriangularMesh::fromPLY(obsMeshPath, rootCS, 1_m, 1e-6_m);
+  CORSIKA_LOG_INFO("Observation mesh: {} vertices, {} triangles",
+                   obsMesh.getVertexCount(), obsMesh.getTriangleCount());
+
+  bool const useTerrainMesh =
+      !terrainMeshPath.empty() && boost::filesystem::exists(terrainMeshPath);
+  std::unique_ptr<TriangularMesh> terrainMeshPtr;
+  if (useTerrainMesh) {
+    CORSIKA_LOG_INFO("Loading terrain mesh: {}", terrainMeshPath);
+    terrainMeshPtr =
+        std::make_unique<TriangularMesh>(TriangularMesh::fromPLY(terrainMeshPath, rootCS,
+                                                                 1_m, 1e-6_m));
+    CORSIKA_LOG_INFO("Terrain mesh: {} vertices, {} triangles",
+                     terrainMeshPtr->getVertexCount(),
+                     terrainMeshPtr->getTriangleCount());
+  } else if (!terrainMeshPath.empty()) {
+    CORSIKA_LOG_WARN("Terrain mesh not found: {} -- terrain rock volume disabled",
+                     terrainMeshPath);
+  }
+
+  if (useTerrainMesh) {
+    // Check that every obs-mesh vertex has a matching vertex in the terrain mesh
+    // within 1 mm. This confirms the two files were generated from the same geometry.
+    constexpr double kTolM = 1e-3;
+    size_t nMismatched = 0;
+    double maxMinDist = 0.0;
+    for (size_t oi = 0; oi < obsMesh.getVertexCount(); ++oi) {
+      auto const oc = obsMesh.getVertex(oi).getCoordinates(rootCS);
+      double minDist2 = std::numeric_limits<double>::infinity();
+      for (size_t ti = 0; ti < terrainMeshPtr->getVertexCount(); ++ti) {
+        auto const tc = terrainMeshPtr->getVertex(ti).getCoordinates(rootCS);
+        double const dx = (oc.getX() - tc.getX()) / 1_m;
+        double const dy = (oc.getY() - tc.getY()) / 1_m;
+        double const dz = (oc.getZ() - tc.getZ()) / 1_m;
+        minDist2 = std::min(minDist2, dx * dx + dy * dy + dz * dz);
+      }
+      double const minDist = std::sqrt(minDist2);
+      maxMinDist = std::max(maxMinDist, minDist);
+      if (minDist > kTolM) ++nMismatched;
+    }
+    if (nMismatched > 0) {
+      CORSIKA_LOG_WARN(
+          "Obs/terrain mesh mismatch: {} of {} obs vertices have no matching terrain "
+          "vertex within {:.1f} mm (max gap = {:.3f} mm). The two PLY files may not "
+          "have been generated from the same geometry -- particles at the observation "
+          "surface may propagate through air instead of rock.",
+          nMismatched, obsMesh.getVertexCount(), kTolM * 1e3, maxMinDist * 1e3);
+    } else {
+      CORSIKA_LOG_INFO("Obs/terrain mesh alignment check passed (max vertex gap = {:.4f} mm).",
+                       maxMinDist * 1e3);
+    }
+  }
+  return LoadedMeshes{std::move(obsMesh), std::move(terrainMeshPtr), useTerrainMesh};
+}
+
+/* === TERRAIN ROCK VOLUME ===
+ * The terrain mesh is registered as a HomogeneousMedium (standard rock,
+ * 2.65 g/cm³, SiO2 composition) in the environment so that particles
+ * propagate through it with correct physics rather than being absorbed at
+ * the surface.  No readout is attached; particles that enter rock are
+ * tracked by CORSIKA until they stop or escape.
+ *
+ * The rock volume boundary is shifted 0.1 mm toward Earth's center relative
+ * to the terrain mesh surface.  This keeps the obs mesh (which is coplanar
+ * with the terrain surface) just inside air, avoiding z-fighting between the
+ * absorbing obs mesh and the rock boundary for particles arriving at the
+ * valley floor.  Earth-skimming particles that pass through the terrain far
+ * from the obs mesh still traverse the rock with full physics.  The PLY
+ * files are unchanged; this is a CORSIKA-side adjustment only.
+ *
+ * Returns ok=false on a fatal atmosphere-topology error (caller must abort).
+ * On success rockNodePtr is the stable terrain-rock node address, captured
+ * before the ownership move so RockExitRelocator can identify rock-exit
+ * boundary crossings; it stays nullptr (relocator no-ops) when the terrain
+ * mesh is disabled.
+ */
+struct TerrainRockResult {
+  bool ok;                 // false => fatal atmosphere-topology error, abort
+  void const* rockNodePtr; // stable rock-node address, nullptr when disabled
+};
+
+static TerrainRockResult registerTerrainRock(EnvType& env,
+                                              CoordinateSystemPtr const& rootCS,
+                                              Point const& earthSurface,
+                                              MagneticFieldVector const& obsField,
+                                              bool useTerrainMesh,
+                                              TriangularMesh const* terrainMesh) {
+  if (!useTerrainMesh) return {true, nullptr};
+  constexpr double kInsetM = 1e-4; // 0.1 mm below terrain surface
+  std::vector<Point> insetVertices;
+  insetVertices.reserve(terrainMesh->getVertexCount());
+  double rTopM = 0.0; // max vertex radius (m): how high the terrain reaches
+  for (size_t vi = 0; vi < terrainMesh->getVertexCount(); ++vi) {
+    auto const c = terrainMesh->getVertex(vi).getCoordinates(rootCS);
+    double const x = c.getX() / 1_m;
+    double const y = c.getY() / 1_m;
+    double const z = c.getZ() / 1_m;
+    double const r = std::sqrt(x * x + y * y + z * z);
+    if (r > rTopM) rTopM = r;
+    double const scale = (r - kInsetM) / r;
+    insetVertices.emplace_back(rootCS, scale * x * 1_m, scale * y * 1_m, scale * z * 1_m);
+  }
+  std::vector<std::array<size_t, 3>> faces;
+  faces.reserve(terrainMesh->getTriangleCount());
+  for (size_t ti = 0; ti < terrainMesh->getTriangleCount(); ++ti)
+    faces.push_back(terrainMesh->getTriangle(ti).getVertexIndices());
+
+  // Code::Silicon is not registered in this CORSIKA build;
+  // Set up locally using Silicon = get_nucleus_code(28, 14).
+  static media::NuclearComposition const rockComposition{
+      {Code::Oxygen, get_nucleus_code(28, 14)}, {0.533, 0.467}};
+  auto rockNode = EnvType::createNode<TriangularMesh>(std::move(insetVertices), faces);
+  rockNode->setModelProperties<MyExtraEnv<media::HomogeneousMedium<EnvironmentInterface>>>(
+      1.000327, earthSurface,
+      media::Medium::StandardRock,
+      obsField,
+      2.65_g / (1_cm * 1_cm * 1_cm),
+      rockComposition);
+  // CRITICAL: the terrain mesh straddles several spherical atmosphere layers.
+  // The tracker only tests the *current* logical node's direct children and
+  // excluded-overlap nodes -- one level, no tree descent (Intersect.inl) --
+  // and getContainingNode only consults excludes() when no child contains the
+  // point.  A rock node attached under any single layer is therefore invisible
+  // to a muon traversing it while logically resident in a different layer.
+  // Make it reachable for BOTH tracking and medium lookup by registering it as
+  // an overlap-exclusion on every atmosphere layer from the innermost up to
+  // the highest one the terrain actually reaches (topLayer, resolved via
+  // getContainingNode at the terrain's maximum radius).  Ownership goes to
+  // topLayer (the topmost spanned layer) so rock.getParent() is a real
+  // atmosphere layer -- never the universe, which would erase the particle.
+  // The tracker sets a rock-exiting particle's logical node to that parent
+  // regardless of where the exit point actually is; exact placement is
+  // delivered separately by RockExitRelocator (a BoundaryCrossingProcess in
+  // the process sequence) which, on every rock exit, re-resolves the logical
+  // node to the true containing node via a full-tree getContainingNode.  So
+  // the next step always uses the correct medium, and ownership only governs
+  // the getParent()-never-universe safety.
+  Point const rockTop{rootCS, 0_m, 0_m, rTopM * 1_m};
+  auto* topLayer = env.getUniverse()->getContainingNode(rockTop);
+  using LayerPtr = decltype(env.getUniverse().get());
+  std::vector<LayerPtr> chain;
+  for (LayerPtr L = env.getUniverse()->getChildNodes().empty()
+                        ? nullptr
+                        : env.getUniverse()->getChildNodes()[0].get();
+       L != nullptr;
+       L = L->getChildNodes().empty() ? nullptr
+                                      : L->getChildNodes()[0].get())
+    chain.push_back(L); // outermost -> innermost (single-child layer chain)
+  // Both failure cases below are fatal, not recoverable: the chain-based
+  // overlap-exclusion logic assumes the atmosphere is the expected nested
+  // single-child ball chain.  If that assumption does not hold we cannot
+  // know which layers the terrain spans, and continuing would silently run
+  // a shower in which Earth-skimming particles ghost through rock with no
+  // energy loss.  Refuse to run rather than emit a misleading parquet.
+  if (chain.empty()) {
+    CORSIKA_LOG_ERROR("No atmosphere layers found; cannot register terrain rock.");
+    return {false, nullptr};
+  }
+  bool reached = false;
+  for (auto* L : chain) {
+    if (L == topLayer) reached = true;
+    if (reached) L->excludeOverlapWith(rockNode); // topLayer .. innermost
+  }
+  if (!reached) {
+    CORSIKA_LOG_ERROR(
+        "Terrain top did not resolve into the atmosphere layer chain -- the "
+        "atmosphere topology is not the expected nested single-child ball "
+        "chain (terrain above the atmosphere, or the atmosphere is not the "
+        "universe's first-child path).  Refusing to register terrain rock.");
+    return {false, nullptr};
+  }
+  void const* const rockNodePtr = rockNode.get(); // stable address before move
+  topLayer->addChild(std::move(rockNode)); // topmost spanned layer owns it
+  CORSIKA_LOG_INFO("Terrain mesh registered as standard rock volume (2.65 g/cm3, {:.2f} mm inset)",
+                   kInsetM * 1e3);
+  return {true, rockNodePtr};
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 int main(int argc, char** argv) {
@@ -449,7 +646,7 @@ int main(int argc, char** argv) {
       "2, https://doi.org/10.1007/s41781-018-0013-0");
 
   // ---- Primary ID ----
-  int A = 0, Z = 0, nevent = 0;
+  int A = 0, Z = 0;
   std::vector<double> cli_energy_range;
 
   auto opt_Z = app.add_option("-Z", Z, "Atomic number for primary")
@@ -568,7 +765,7 @@ int main(int argc, char** argv) {
       ->group("Thinning");
 
   // ---- Output ----
-  app.add_option("-N,--nevent", nevent, "Number of showers to simulate")
+  app.add_option("-N,--nevent", "Number of showers to simulate")
       ->default_val(1)
       ->check(CLI::PositiveNumber)
       ->group("Output");
@@ -641,62 +838,11 @@ int main(int argc, char** argv) {
   // media::GeomagneticModel wmm(earthCenter, corsika_data("GeoMag/WMM.COF"));
 
   /* === LOAD MESHES === */
-  std::string const obsMeshPath = app["--obs-mesh"]->as<std::string>();
-  CORSIKA_LOG_INFO("Loading observation mesh: {}", obsMeshPath);
-  // PLY coordinates are ECEF metres; load directly into rootCS with scale=1_m
-  TriangularMesh obsMesh = TriangularMesh::fromPLY(obsMeshPath, rootCS, 1_m, 1e-6_m);
-  CORSIKA_LOG_INFO("Observation mesh: {} vertices, {} triangles",
-                   obsMesh.getVertexCount(), obsMesh.getTriangleCount());
-
-  std::string const terrainMeshPath = app["--terrain-mesh"]->as<std::string>();
-  bool const useTerrainMesh =
-      !terrainMeshPath.empty() && boost::filesystem::exists(terrainMeshPath);
-  std::unique_ptr<TriangularMesh> terrainMeshPtr;
-  if (useTerrainMesh) {
-    CORSIKA_LOG_INFO("Loading terrain mesh: {}", terrainMeshPath);
-    terrainMeshPtr =
-        std::make_unique<TriangularMesh>(TriangularMesh::fromPLY(terrainMeshPath, rootCS,
-                                                                 1_m, 1e-6_m));
-    CORSIKA_LOG_INFO("Terrain mesh: {} vertices, {} triangles",
-                     terrainMeshPtr->getVertexCount(),
-                     terrainMeshPtr->getTriangleCount());
-  } else if (!terrainMeshPath.empty()) {
-    CORSIKA_LOG_WARN("Terrain mesh not found: {} -- terrain rock volume disabled",
-                     terrainMeshPath);
-  }
-
-  if (useTerrainMesh) {
-    // Check that every obs-mesh vertex has a matching vertex in the terrain mesh
-    // within 1 mm. This confirms the two files were generated from the same geometry.
-    constexpr double kTolM = 1e-3;
-    size_t nMismatched = 0;
-    double maxMinDist = 0.0;
-    for (size_t oi = 0; oi < obsMesh.getVertexCount(); ++oi) {
-      auto const oc = obsMesh.getVertex(oi).getCoordinates(rootCS);
-      double minDist2 = std::numeric_limits<double>::infinity();
-      for (size_t ti = 0; ti < terrainMeshPtr->getVertexCount(); ++ti) {
-        auto const tc = terrainMeshPtr->getVertex(ti).getCoordinates(rootCS);
-        double const dx = (oc.getX() - tc.getX()) / 1_m;
-        double const dy = (oc.getY() - tc.getY()) / 1_m;
-        double const dz = (oc.getZ() - tc.getZ()) / 1_m;
-        minDist2 = std::min(minDist2, dx * dx + dy * dy + dz * dz);
-      }
-      double const minDist = std::sqrt(minDist2);
-      maxMinDist = std::max(maxMinDist, minDist);
-      if (minDist > kTolM) ++nMismatched;
-    }
-    if (nMismatched > 0) {
-      CORSIKA_LOG_WARN(
-          "Obs/terrain mesh mismatch: {} of {} obs vertices have no matching terrain "
-          "vertex within {:.1f} mm (max gap = {:.3f} mm). The two PLY files may not "
-          "have been generated from the same geometry -- particles at the observation "
-          "surface may propagate through air instead of rock.",
-          nMismatched, obsMesh.getVertexCount(), kTolM * 1e3, maxMinDist * 1e3);
-    } else {
-      CORSIKA_LOG_INFO("Obs/terrain mesh alignment check passed (max vertex gap = {:.4f} mm).",
-                       maxMinDist * 1e3);
-    }
-  }
+  LoadedMeshes loadedMeshes = loadMeshes(app["--obs-mesh"]->as<std::string>(),
+                                         app["--terrain-mesh"]->as<std::string>(),
+                                         rootCS);
+  TriangularMesh& obsMesh = loadedMeshes.obsMesh;
+  bool const useTerrainMesh = loadedMeshes.useTerrainMesh;
 
   /* === INTERCEPT POINT AND ENU FRAME ===
    * The intercept is the pre-computed intersection of the particle trajectory
@@ -729,114 +875,12 @@ int main(int argc, char** argv) {
       env, earthCenter, 1.000327, earthSurface,
       media::Medium::AirDry1Atm, obsField);
 
-  /* === TERRAIN ROCK VOLUME ===
-   * The terrain mesh is registered as a HomogeneousMedium (standard rock,
-   * 2.65 g/cm³, SiO2 composition) in the environment so that particles
-   * propagate through it with correct physics rather than being absorbed at
-   * the surface.  No readout is attached; particles that enter rock are
-   * tracked by CORSIKA until they stop or escape.
-   *
-   * The rock volume boundary is shifted 0.1 mm toward Earth's center relative
-   * to the terrain mesh surface.  This keeps the obs mesh (which is coplanar
-   * with the terrain surface) just inside air, avoiding z-fighting between the
-   * absorbing obs mesh and the rock boundary for particles arriving at the
-   * valley floor.  Earth-skimming particles that pass through the terrain far
-   * from the obs mesh still traverse the rock with full physics.  The PLY
-   * files are unchanged; this is a CORSIKA-side adjustment only.
-   */
-  // Stable address of the terrain-rock node, captured before the ownership
-  // move so RockExitRelocator can identify rock-exit boundary crossings.
-  // Stays nullptr (relocator no-ops) when the terrain mesh is disabled.
-  void const* rockNodePtr = nullptr;
-  if (useTerrainMesh) {
-    constexpr double kInsetM = 1e-4; // 0.1 mm below terrain surface
-    std::vector<Point> insetVertices;
-    insetVertices.reserve(terrainMeshPtr->getVertexCount());
-    double rTopM = 0.0; // max vertex radius (m): how high the terrain reaches
-    for (size_t vi = 0; vi < terrainMeshPtr->getVertexCount(); ++vi) {
-      auto const c = terrainMeshPtr->getVertex(vi).getCoordinates(rootCS);
-      double const x = c.getX() / 1_m;
-      double const y = c.getY() / 1_m;
-      double const z = c.getZ() / 1_m;
-      double const r = std::sqrt(x * x + y * y + z * z);
-      if (r > rTopM) rTopM = r;
-      double const scale = (r - kInsetM) / r;
-      insetVertices.emplace_back(rootCS, scale * x * 1_m, scale * y * 1_m, scale * z * 1_m);
-    }
-    std::vector<std::array<size_t, 3>> faces;
-    faces.reserve(terrainMeshPtr->getTriangleCount());
-    for (size_t ti = 0; ti < terrainMeshPtr->getTriangleCount(); ++ti)
-      faces.push_back(terrainMeshPtr->getTriangle(ti).getVertexIndices());
-
-    // Code::Silicon is not registered in this CORSIKA build; 
-    // Set up locally using Silicon = get_nucleus_code(28, 14). .
-    static media::NuclearComposition const rockComposition{
-    	{Code::Oxygen, get_nucleus_code(28, 14)}, {0.533, 0.467}};
-    auto rockNode = EnvType::createNode<TriangularMesh>(std::move(insetVertices), faces);
-    rockNode->setModelProperties<MyExtraEnv<media::HomogeneousMedium<EnvironmentInterface>>>(
-        1.000327, earthSurface,
-        media::Medium::StandardRock,
-        obsField,
-        2.65_g / (1_cm * 1_cm * 1_cm),
-        rockComposition);
-    // CRITICAL: the terrain mesh straddles several spherical atmosphere layers.
-    // The tracker only tests the *current* logical node's direct children and
-    // excluded-overlap nodes -- one level, no tree descent (Intersect.inl) --
-    // and getContainingNode only consults excludes() when no child contains the
-    // point.  A rock node attached under any single layer is therefore invisible
-    // to a muon traversing it while logically resident in a different layer.
-    // Make it reachable for BOTH tracking and medium lookup by registering it as
-    // an overlap-exclusion on every atmosphere layer from the innermost up to
-    // the highest one the terrain actually reaches (topLayer, resolved via
-    // getContainingNode at the terrain's maximum radius).  Ownership goes to
-    // topLayer (the topmost spanned layer) so rock.getParent() is a real
-    // atmosphere layer -- never the universe, which would erase the particle.
-    // The tracker sets a rock-exiting particle's logical node to that parent
-    // regardless of where the exit point actually is; exact placement is
-    // delivered separately by RockExitRelocator (a BoundaryCrossingProcess in
-    // the process sequence) which, on every rock exit, re-resolves the logical
-    // node to the true containing node via a full-tree getContainingNode.  So
-    // the next step always uses the correct medium, and ownership only governs
-    // the getParent()-never-universe safety.
-    Point const rockTop{rootCS, 0_m, 0_m, rTopM * 1_m};
-    auto* topLayer = env.getUniverse()->getContainingNode(rockTop);
-    using LayerPtr = decltype(env.getUniverse().get());
-    std::vector<LayerPtr> chain;
-    for (LayerPtr L = env.getUniverse()->getChildNodes().empty()
-                          ? nullptr
-                          : env.getUniverse()->getChildNodes()[0].get();
-         L != nullptr;
-         L = L->getChildNodes().empty() ? nullptr
-                                        : L->getChildNodes()[0].get())
-      chain.push_back(L); // outermost -> innermost (single-child layer chain)
-    // Both failure cases below are fatal, not recoverable: the chain-based
-    // overlap-exclusion logic assumes the atmosphere is the expected nested
-    // single-child ball chain.  If that assumption does not hold we cannot
-    // know which layers the terrain spans, and continuing would silently run
-    // a shower in which Earth-skimming particles ghost through rock with no
-    // energy loss.  Refuse to run rather than emit a misleading parquet.
-    if (chain.empty()) {
-      CORSIKA_LOG_ERROR("No atmosphere layers found; cannot register terrain rock.");
-      return EXIT_FAILURE;
-    }
-    bool reached = false;
-    for (auto* L : chain) {
-      if (L == topLayer) reached = true;
-      if (reached) L->excludeOverlapWith(rockNode); // topLayer .. innermost
-    }
-    if (!reached) {
-      CORSIKA_LOG_ERROR(
-          "Terrain top did not resolve into the atmosphere layer chain -- the "
-          "atmosphere topology is not the expected nested single-child ball "
-          "chain (terrain above the atmosphere, or the atmosphere is not the "
-          "universe's first-child path).  Refusing to register terrain rock.");
-      return EXIT_FAILURE;
-    }
-    rockNodePtr = rockNode.get(); // stash stable address before ownership move
-    topLayer->addChild(std::move(rockNode)); // topmost spanned layer owns it
-    CORSIKA_LOG_INFO("Terrain mesh registered as standard rock volume (2.65 g/cm3, {:.2f} mm inset)",
-                     kInsetM * 1e3);
-  }
+  /* === TERRAIN ROCK VOLUME (see registerTerrainRock above) === */
+  auto const rock = registerTerrainRock(env, rootCS, earthSurface, obsField,
+                                        useTerrainMesh,
+                                        loadedMeshes.terrainMesh.get());
+  if (!rock.ok) return EXIT_FAILURE;
+  void const* const rockNodePtr = rock.rockNodePtr;
 
   /* === PRIMARY PARTICLE ID === */
   Code beamCode;

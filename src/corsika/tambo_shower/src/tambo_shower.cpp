@@ -1156,7 +1156,7 @@ int main(int argc, char** argv) {
                                       // prodprof, 
                                       emContinuous,
                                       longprof, sequence,
-    // trackWriter,  // uncomment together with the block above 
+                                      // trackWriter,  
                                       inter_writer, 
                                       thinning, cut);
 

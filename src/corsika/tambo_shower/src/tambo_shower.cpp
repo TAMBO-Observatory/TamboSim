@@ -645,6 +645,7 @@ int main(int argc, char** argv) {
       "Particle Cascades in Astroparticle Physics\", Comput. Softw. Big Sci. 3 (2019) "
       "2, https://doi.org/10.1007/s41781-018-0013-0");
 
+  #pragma region CLI options
   // ---- Primary ID ----
   int A = 0, Z = 0;
   std::vector<double> cli_energy_range;
@@ -802,6 +803,9 @@ int main(int argc, char** argv) {
       ->check(CLI::IsMember({"neutral", "NC", "charged", "CC", "both"}))
       ->group("Misc");
 
+  #pragma endregion
+
+  #pragma region Parse + validate
   CLI11_PARSE(app, argc, argv);
 
   // ---- Verbosity ----
@@ -830,6 +834,9 @@ int main(int argc, char** argv) {
   // ---- Random streams ----
   auto seed = registerRandomStreams(app["--seed"]->as<long>());
 
+  #pragma endregion
+
+  #pragma region Environment
   /* === ENVIRONMENT === */
   EnvType env;
   CoordinateSystemPtr const& rootCS = env.getCoordinateSystem();
@@ -837,6 +844,9 @@ int main(int argc, char** argv) {
   Point const earthSurface{rootCS, 0_m, 0_m, constants::EarthRadius::Mean};
   // media::GeomagneticModel wmm(earthCenter, corsika_data("GeoMag/WMM.COF"));
 
+  #pragma endregion
+
+  #pragma region Load meshes
   /* === LOAD MESHES === */
   LoadedMeshes loadedMeshes = loadMeshes(app["--obs-mesh"]->as<std::string>(),
                                          app["--terrain-mesh"]->as<std::string>(),
@@ -844,6 +854,9 @@ int main(int argc, char** argv) {
   TriangularMesh& obsMesh = loadedMeshes.obsMesh;
   bool const useTerrainMesh = loadedMeshes.useTerrainMesh;
 
+  #pragma endregion
+
+  #pragma region Intercept + ENU
   /* === INTERCEPT POINT AND ENU FRAME ===
    * The intercept is the pre-computed intersection of the particle trajectory
    * with the detector region, passed in ECEF metres from the Julia caller.
@@ -855,6 +868,9 @@ int main(int argc, char** argv) {
   std::array<double, 3> eastHat, northHat, upHat;
   ecefToENU(cx, cy, cz, eastHat, northHat, upHat);
 
+  #pragma endregion
+
+  #pragma region Atmosphere
   /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
   // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
   // see https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
@@ -875,6 +891,9 @@ int main(int argc, char** argv) {
       env, earthCenter, 1.000327, earthSurface,
       media::Medium::AirDry1Atm, obsField);
 
+  #pragma endregion
+
+  #pragma region Terrain rock volume
   /* === TERRAIN ROCK VOLUME (see registerTerrainRock above) === */
   auto const rock = registerTerrainRock(env, rootCS, earthSurface, obsField,
                                         useTerrainMesh,
@@ -882,6 +901,9 @@ int main(int argc, char** argv) {
   if (!rock.ok) return EXIT_FAILURE;
   void const* const rockNodePtr = rock.rockNodePtr;
 
+  #pragma endregion
+
+  #pragma region Primary particle ID
   /* === PRIMARY PARTICLE ID === */
   Code beamCode;
   if (app.count("--pdg") > 0) {
@@ -906,6 +928,9 @@ int main(int argc, char** argv) {
     return EXIT_FAILURE;
   }
 
+  #pragma endregion
+
+  #pragma region Injection geometry
   /* === INJECTION GEOMETRY ===
    * The injection point and shower-core intercept are provided directly in
    * ECEF metres. The shower direction is the unit vector from inject to intercept.
@@ -937,6 +962,9 @@ int main(int argc, char** argv) {
   CORSIKA_LOG_INFO("Injection distance: {:.1f} km", dnorm / 1000.);
   CORSIKA_LOG_INFO("Propagation direction (ECEF): ({:.4f}, {:.4f}, {:.4f})", pnx, pny, pnz);
 
+  #pragma endregion
+
+  #pragma region Output manager
   /* === OUTPUT MANAGER === */
   std::stringstream args;
   for (int i = 0; i < argc; ++i) { args << argv[i] << " "; }
@@ -963,6 +991,9 @@ int main(int argc, char** argv) {
   // TrackWriter<TrackWriterParquet> trackWriter;
   // output.add("tracks", trackWriter);
 
+  #pragma endregion
+
+  #pragma region Physics processes
   /* === PHYSICS PROCESSES === */
   DynamicInteractionProcess<StackType> heModel;
   set<Code> const trackedParticles =
@@ -1064,6 +1095,9 @@ int main(int argc, char** argv) {
   auto hadronSequence =
       make_select(EnergySwitch(heThreshold), leIntCounted, heCounted);
 
+  #pragma endregion
+
+  #pragma region Observation mesh
   /* === OBSERVATION MESH (absorbing: records and removes particles at valley floor) === */
   ObservationMesh<TrackingType, ParticleWriterParquet> observationLevel{
       obsMesh, 
@@ -1081,6 +1115,9 @@ int main(int argc, char** argv) {
   InteractionWriter<TrackingType, ParticleWriterParquet> inter_writer(showerAxis, obsMesh);
   output.add("interactions", inter_writer);
 
+  #pragma endregion
+
+  #pragma region Shower loop
   /* === SHOWER LOOP === */
   // Per-shower quantities extracted from CLI to avoid repeated parsing
   double const emthinfrac = app["--emthin"]->as<double>();
@@ -1159,5 +1196,6 @@ int main(int argc, char** argv) {
   }
 
   output.endOfLibrary();
+  #pragma endregion
   return EXIT_SUCCESS;
 }

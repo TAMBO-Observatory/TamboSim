@@ -713,34 +713,6 @@ int main(int argc, char** argv) {
   std::array<double, 3> eastHat, northHat, upHat;
   ecefToENU(cx, cy, cz, eastHat, northHat, upHat);
 
-  /* === ESCAPE PLANE: 1 mm below the lowest point of the observation mesh ===
-   *
-   * The plane is perpendicular to the upward radial direction at the
-   * area-weighted centroid of the observation mesh (i.e. normal = upHat).
-   * "Lowest" is measured as the minimum projection of obs-mesh vertices
-   * onto upHat, which is the vertical distance from Earth centre.
-   * Absorbing: particles that escape the obs mesh are recorded and removed
-   * here instead of propagating indefinitely.
-   */
-  double minVertProj = std::numeric_limits<double>::infinity();
-  for (size_t vi = 0; vi < obsMesh.getVertexCount(); ++vi) {
-    auto const coords = obsMesh.getVertex(vi).getCoordinates(rootCS);
-    double const proj = coords.getX() / 1_m * upHat[0]
-                      + coords.getY() / 1_m * upHat[1]
-                      + coords.getZ() / 1_m * upHat[2];
-    minVertProj = std::min(minVertProj, proj);
-  }
-  double const escapePlaneDist = minVertProj - 0.001; // 1 mm below lowest vertex
-  Point const escapePlaneCenter{rootCS,
-      escapePlaneDist * upHat[0] * 1_m,
-      escapePlaneDist * upHat[1] * 1_m,
-      escapePlaneDist * upHat[2] * 1_m};
-  DirectionVector const escapeNormal{rootCS, {upHat[0], upHat[1], upHat[2]}};
-  DirectionVector const escapeRefDir{rootCS, {eastHat[0], eastHat[1], eastHat[2]}};
-  Plane const escapePlane{escapePlaneCenter, escapeNormal};
-  CORSIKA_LOG_INFO("Escape plane distance from Earth centre: {:.1f} m  ({:.1f} mm below lowest obs vertex)",
-                   escapePlaneDist, 1.0);
-
   /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
   // // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
   // //   B_E ~ -1700 nT (slightly westward)
@@ -1076,10 +1048,6 @@ int main(int argc, char** argv) {
     };
   output.add("particles", observationLevel);
 
-  /* === ESCAPE PLANE (absorbing: catches particles that miss the obs mesh) === */
-  ObservationPlane<TrackingType, ParticleWriterParquet> escapeLevel{
-      escapePlane, escapeRefDir, true, 1e-6_m};
-  output.add("escape", escapeLevel);
 
   PrimaryWriter<TrackingType, ParticleWriterParquet> primaryWriter(obsMesh);
   output.add("primary", primaryWriter);
@@ -1170,7 +1138,7 @@ int main(int argc, char** argv) {
     HEPEnergyType const E = (eMax == eMin)
         ? eMin
         : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
-    auto obsMeshSequence = make_sequence(observationLevel, escapeLevel);
+    auto obsMeshSequence = make_sequence(observationLevel);
     runOneShower(obsMeshSequence, i, E);
   }
 

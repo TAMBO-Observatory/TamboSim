@@ -32,11 +32,15 @@ cd "$suite_dir" || exit 1
 # The binary, built in-tree (see README.md for the build command):
 export TAMBO_SHOWER_BIN="${TAMBO_SHOWER_BIN:-$tambosim_dir/src/corsika/tambo_shower/src/build/tambo_shower}"
 
-# Where all suite output goes:
-export TAMBO_TEST_OUTDIR="${TAMBO_TEST_OUTDIR:-/n/holylfs05/LABS/arguelles_delgado_lab/Users/kcarloni/research_projects/tambo/simulation/corsika_suite_out}"
+# Where all suite output goes — a gitignored subfolder of the suite by default,
+# so the suite is self-contained. On FASRC the checkout is on holylfs, so this
+# stays on holylfs (the network FS the parquet readers already expect).
+export TAMBO_TEST_OUTDIR="${TAMBO_TEST_OUTDIR:-$suite_dir/out}"
 
-# Canonical geometry — Phase 0 builds it here from the committed HDF5 if absent:
-export TAMBO_TEST_GEOMETRY="${TAMBO_TEST_GEOMETRY:-$TAMBO_TEST_OUTDIR/canonical_geometry.jld2}"
+# Canonical geometry — Phase 0 builds it here from the committed HDF5 if absent.
+# Kept beside the suite (not inside out/) so clearing the output preserves this
+# expensive-to-rebuild cache.
+export TAMBO_TEST_GEOMETRY="${TAMBO_TEST_GEOMETRY:-$suite_dir/canonical_geometry.jld2}"
 
 # PROPOSAL interpolation tables — Julia side (tau propagation in injection):
 export TAMBO_PROPOSAL_TABLES="${TAMBO_PROPOSAL_TABLES:-/n/holylfs05/LABS/arguelles_delgado_lab/Users/kcarloni/research_projects/tambo/simulation/proposal_tables}"

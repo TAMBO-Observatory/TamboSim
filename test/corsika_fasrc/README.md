@@ -94,7 +94,8 @@ phases above:
 
 The Slurm log (`tambo_shower_test_<jobid>.log`) ends with a `@testset` summary
 naming the failed tier and config. To dig into one shower, under
-`$TAMBO_TEST_OUTDIR/<config>/event_*/shower_*`:
+`test/corsika_fasrc/out/<config>/event_*/shower_*` (or wherever
+`$TAMBO_TEST_OUTDIR` points):
 
 - `<outdir>.log` — the binary's full stdout/stderr for that shower.
 - `<outdir>.rc`  — its exit code.

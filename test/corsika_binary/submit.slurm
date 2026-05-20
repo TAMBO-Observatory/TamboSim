@@ -10,7 +10,7 @@
 #   Phase 4  assert    — tiered checks over the output             (Julia)
 # The job exits non-zero if the Tier 0 checks or any assertion fail.
 #
-#   sbatch test/corsika_fasrc/submit.slurm
+#   sbatch test/corsika_binary/submit.slurm
 #
 #SBATCH --job-name=tambo_shower_test
 #SBATCH --partition=arguelles_delgado

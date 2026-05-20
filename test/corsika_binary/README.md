@@ -13,7 +13,7 @@ as a single Slurm job — not in local CI.
 
 The test suite can be run (on Harvard's FAS research computing server) via:
 ```
-sbatch test/corsika_fasrc/submit.slurm
+sbatch test/corsika_binary/submit.slurm
 ```
 
 This shell script contains five phases, run by the numbered scripts:
@@ -94,7 +94,7 @@ phases above:
 
 The Slurm log (`tambo_shower_test_<jobid>.log`) ends with a `@testset` summary
 naming the failed tier and config. To dig into one shower, under
-`test/corsika_fasrc/out/<config>/event_*/shower_*` (or wherever
+`test/corsika_binary/out/<config>/event_*/shower_*` (or wherever
 `$TAMBO_TEST_OUTDIR` points):
 
 - `<outdir>.log` — the binary's full stdout/stderr for that shower.
@@ -111,7 +111,7 @@ the configured parallelism, and the slowest individual showers. To regenerate
 it for an existing run:
 
 ```
-julia test/corsika_fasrc/timing_overview.jl
+julia test/corsika_binary/timing_overview.jl
 ```
 
 with `TAMBO_TEST_OUTDIR` pointing at that run's output. Use it to check the
@@ -123,7 +123,7 @@ Tier 4b is skipped until `baselines/<config>.toml` exists. To create the
 baseline from a run you trust:
 
 ```
-julia test/corsika_fasrc/make_baselines.jl
+julia test/corsika_binary/make_baselines.jl
 ```
 
 with `TAMBO_TEST_OUTDIR` pointing at that run's output, then commit the
@@ -138,7 +138,7 @@ It is produced once, by Monte Carlo, with PROPOSAL (the same muon-transport
 code `tambo_shower` uses in rock):
 
 ```
-julia test/corsika_fasrc/calibrate_muon_survival.jl
+julia test/corsika_binary/calibrate_muon_survival.jl
 ```
 
 with `TAMBO_PROPOSAL_TABLES` set. Commit the resulting

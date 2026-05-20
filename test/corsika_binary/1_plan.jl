@@ -35,7 +35,7 @@ const CONFIG_DIR = joinpath(@__DIR__, "configs")
 env_or_error(key, what) = begin
     v = get(ENV, key, "")
     isempty(v) && error("$key is not set — required for $what. See " *
-                         "test/corsika_fasrc/README.md")
+                         "test/corsika_binary/README.md")
     v
 end
 

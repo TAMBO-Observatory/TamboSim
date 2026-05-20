@@ -131,7 +131,7 @@ rm -rf output_dir
 |--------|-------------|---------|
 | `-Z -A` | Atomic number and mass of primary | required (or `--pdg`) |
 | `-p,--pdg` | Primary PDG code (e.g. 2212=proton, 22=gamma) | required (or `-Z -A`) |
-| `-E` | Primary energy (GeV) | required |
+| `-E,--energy` | Primary energy (GeV) | required (or `--energy_range`) |
 | `--inject-x/y/z` | Injection point in ECEF metres | required |
 | `--intercept-x/y/z` | Shower-core intercept on detection region in ECEF metres | required |
 | `--obs-mesh` | Path to observation-region PLY (ECEF m) | required |
@@ -152,31 +152,37 @@ The PLY files and the `--inject-x/y/z` / `--intercept-x/y/z` values must all be
 in Earth-Centered Earth-Fixed (ECEF) coordinates in metres. CORSIKA 8's root
 coordinate system is also ECEF, so vertices are loaded directly with `scale=1_m`.
 
-The injection geometry is computed as follows:
+The injection point (`--inject-x/y/z`) and the shower-core intercept
+(`--intercept-x/y/z`) are supplied directly on the command line in ECEF
+metres — the binary does not compute them. The shower propagation direction
+is the normalized vector from the injection point to the intercept, and a
+local ENU (East-North-Up) frame is derived at the intercept to orient the
+geomagnetic field.
 
-1. The area-weighted centroid of the observation mesh triangles is computed in ECEF.
-2. The local ENU (East-North-Up) frame is derived at that centroid.
-3. The shower propagation direction is resolved in ECEF from the requested zenith
-   and azimuth (azimuth measured clockwise from North).
-4. The injection point is the intersection of the upstream ray from the centroid
-   with the sphere at Earth radius + `--injection-altitude`.
+In normal use both points come from the Julia `corsika_run!` orchestrator
+(see Step 3).
 
 ## Output
 
-Output is written to `<filename>/` in Parquet format:
+Output is written to `<filename>/`, one subdirectory per writer:
 
-- `particles/` — particles crossing the observation mesh
-- `terrain/` — particles absorbed by the terrain mesh (if loaded)
-- `escape/` — particles that exit below the observation mesh without hitting it
-- `primary/` — primary particle record
-- `energyloss/`, `profile/`, `production_profile/` — longitudinal profiles
-- `interactions/` — first-interaction record
-- `interaction_hist/` — per-shower interaction histograms (numpy `.npz`)
+- `particles/` — particles crossing the observation mesh (`particles.parquet`)
+- `profile/` — longitudinal shower profile (`profile.parquet`)
+- `energyloss/` — longitudinal energy-deposit profile (`dEdX.parquet`)
+- `interactions/` — first-interaction secondaries (`interactions.parquet`)
+- `primary/` — primary-particle record (`summary.yaml` only; this writer
+  emits no parquet)
+
+A top-level `config.yaml` (run configuration) and `summary.yaml` (shower
+count, seed, timing) are written alongside the subdirectories.
 
 ## Notes on the terrain mesh
 
-The terrain mesh can be large (e.g. ~90k vertices, ~180k triangles for the
-Colca Valley site). Building its BVH takes a few seconds at startup. It is used as an absorbing
-`ObservationMesh` — particles that strike the terrain are recorded in
-`terrain/` and removed from the simulation. Omit `--terrain-mesh` to disable it
-and run faster.
+The terrain mesh can be large (~90k vertices, ~180k triangles for the Colca
+Valley site); building its BVH takes a few seconds at startup. It is
+registered as a `HomogeneousMedium` standard-rock volume (2.65 g/cm³):
+particles propagate *through* it with rock physics rather than being absorbed
+at the surface, and no readout is attached. Dedicated boundary-crossing
+processes — `RockExitRelocator`, `RockEMAbsorber`, `RockInterfaceTripwire` —
+handle the rock/air interface. Omit `--terrain-mesh` to disable the rock
+volume.

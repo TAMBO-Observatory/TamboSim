@@ -1,0 +1,42 @@
+# Test case: the full neutrino physics chain.
+#
+# A tau neutrino interacts (CC) in the Earth, the tau propagates and
+# decays, and the decay products are fed to tambo_shower. This is the only
+# case exercising the NeutrinoInjection strategy and tau-decay-product
+# primaries — the physics chain the whole TAMBO experiment depends on.
+#
+# `nevent` here is the number of neutrinos *injected*; only a fraction
+# yield a shower (no final-state lepton / tau decays before the detector /
+# decay products miss the detector region). `max_showers` caps how many of
+# the resulting jobs the suite actually runs, for a bounded runtime.
+
+name = "nu_tau_injection"
+description = "Full neutrino chain: nu_tau -> tau -> decay -> air shower, 100 TeV."
+max_showers = 8        # cap planned showers (injection yield is stochastic)
+
+[injection]
+strategy = "NeutrinoInjection"
+seed     = 925
+nevent   = 80          # neutrinos injected (cheap); a fraction become showers
+pdg      = 16          # nu_tau
+gamma    = 1.5
+emin     = 1.0e5       # GeV
+emax     = 1.001e5     # GeV
+thetamin = 65          # deg
+thetamax = 125
+phimin   = 179
+phimax   = 180
+
+[proposal]
+seed          = 925
+ecut          = -1     # GeV; negative = infinity (ionization-only threshold)
+vcut          = 1.0e-2
+do_continuous = true
+
+[corsika]
+seed         = 925
+thinning     = 1.0e-6
+hadron_model = "SIBYLL-2.3d"
+em_ecut      = 0.001
+hadron_ecut  = 0.05
+mu_ecut      = 0.05

@@ -21,7 +21,19 @@
 
 set -uo pipefail
 
-suite_dir=$(dirname "$(realpath "${BASH_SOURCE[0]}")")
+# Locate the suite directory. Under Slurm, BASH_SOURCE points at the per-job
+# spool copy of this script (/var/slurmd/spool/...), not the submitted file —
+# so recover the real path from scontrol. The numbered phase scripts are
+# invoked by basename, so this must resolve to the repo copy regardless of
+# where `sbatch` was run from.
+if [[ -n "${SLURM_JOB_ID:-}" ]]; then
+    script=$(scontrol show job "$SLURM_JOB_ID" | sed -n 's/^ *Command=//p' \
+             | awk '{print $1}')
+    [[ "$script" != /* ]] && script="${SLURM_SUBMIT_DIR:-$PWD}/$script"
+else
+    script="${BASH_SOURCE[0]}"
+fi
+suite_dir=$(dirname "$(realpath "$script")")
 tambosim_dir=$(realpath "$suite_dir/../..")
 cd "$suite_dir" || exit 1
 
@@ -43,7 +55,7 @@ export TAMBO_TEST_OUTDIR="${TAMBO_TEST_OUTDIR:-$suite_dir/out}"
 export TAMBO_TEST_GEOMETRY="${TAMBO_TEST_GEOMETRY:-$suite_dir/canonical_geometry.jld2}"
 
 # PROPOSAL interpolation tables — Julia side (tau propagation in injection):
-export TAMBO_PROPOSAL_TABLES="${TAMBO_PROPOSAL_TABLES:-/n/holylfs05/LABS/arguelles_delgado_lab/Users/kcarloni/research_projects/tambo/simulation/proposal_tables}"
+export TAMBO_PROPOSAL_TABLES="${TAMBO_PROPOSAL_TABLES:-/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/proposal_tables_jl}"
 # PROPOSAL tables — binary side: tambo_shower looks in $CORSIKA_DATA/PROPOSAL.
 export CORSIKA_DATA="${CORSIKA_DATA:-/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika/corsika-install/share/corsika/data}"
 

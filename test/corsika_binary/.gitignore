@@ -1,5 +1,6 @@
 # Suite output — all CORSIKA shower output, per-shower logs, baselines runs.
 out/
+.timer.out
 
 # Canonical geometry cache — built by Phase 0 from the committed HDF5.
 canonical_geometry.jld2

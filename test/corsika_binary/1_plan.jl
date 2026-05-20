@@ -153,8 +153,9 @@ function plan_one(config_path, env)
     corsika_cfg["force_overwrite"] = true
 
     # collect_jobs gives the full (job, argv) list so we can cap the count
-    # and append a determinism repeat before serialising.
-    records = Tuple[]
+    # and append a determinism repeat before serialising. Its records are
+    # `(; job, argv)` NamedTuples — not Tuples.
+    records = NamedTuple[]
     corsika_run!(frames, corsika_cfg, base_outdir;
                  executor = collect_jobs(records))
 

@@ -95,6 +95,11 @@ assert_rc=$?
 echo "=== Timing overview ==="
 julia timing_overview.jl || true
 
+# The mesh PLYs only feed Phase 3 (the binary's --obs-mesh / --terrain-mesh);
+# nothing in Phase 4 reads them. Phase 1 regenerates them on any re-run.
+echo "=== Cleanup: removing intermediate mesh PLYs ==="
+rm -f "$TAMBO_TEST_OUTDIR"/*/obs_surface.ply "$TAMBO_TEST_OUTDIR"/*/terrain.ply
+
 echo "==========================================================="
 if [[ $cli_rc -eq 0 && $assert_rc -eq 0 ]]; then
     echo "SUITE PASSED"

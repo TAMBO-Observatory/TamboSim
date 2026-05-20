@@ -159,6 +159,12 @@ function plan_one(config_path, env)
     corsika_run!(frames, corsika_cfg, base_outdir;
                  executor = collect_jobs(records))
 
+    # Save the injected frames for offline analysis (rock-traversal geometry,
+    # event plotting). Written after corsika_run! so the Q frames carry the
+    # `corsika_directories` key it stamps. M+Q only — reload the geometry from
+    # canonical_geometry.jld2 separately for the BVH.
+    save_frames(joinpath(base_outdir, "injection.jld2"), frames; streams = ('M', 'Q'))
+
     if haskey(cfg, "max_showers")
         n = min(length(records), cfg["max_showers"])
         records = records[1:n]

@@ -21,7 +21,7 @@ This shell script contains five phases, run by the numbered scripts:
 | Phase | Script | What it does |
 |-------|--------|--------------|
 | 0 — geometry | `0_make_geometry.jl` | if needed, builds the canonical GCD bundle from the committed `resources/geometry/colca_valley.h5` |
-| 1 — plan | `1_plan.jl` | checks prerequisites, injects primaries, plans CORSIKA jobs → `jobs.jsonl` |
+| 1 — plan | `1_plan.jl` | checks prerequisites, injects primaries, plans CORSIKA jobs → `jobs.jsonl`, saves injected frames → `injection.jld2` |
 | 2 — CLI | `2_cli_tests.sh` | CLI argument-contract checks — the Tier 0 checks (no showers run) |
 | 3 — run | `3_run_showers.sh` | replays every planned shower, in parallel (`xargs -P`) |
 | 4 — assert | `4_assert.jl` | the tiered physics / geometry checks (Tiers 1–4) over the output |

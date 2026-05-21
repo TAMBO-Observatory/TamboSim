@@ -31,7 +31,7 @@ It depends on what you came here to do.
 |---|---|---|
 | **Read TamboSim output** — load a `.jld2`, navigate the frame container, compute weights, classify decays | [`interactive/1_frame_usage.jl`](interactive/1_frame_usage.jl) | [`interactive/2_analyze_output.jl`](interactive/2_analyze_output.jl) |
 | **Run the full pipeline for yourself** — build a site, place modules, inject events, propagate, shower, project hits | [`templates/1_create_geometry.jl`](templates/1_create_geometry.jl) | templates 2 → 6, in order |
-| **Understand how TamboSim works internally** — `inject!`, `proposal_propagation!`, `corsika_run`, weighting, OBB placement | [`interactive/3_injection_walkthrough.jl`](interactive/3_injection_walkthrough.jl) | walkthroughs 4, 5, 6, 7 |
+| **Understand how TamboSim works internally** — `inject!`, `proposal_propagation!`, `corsika_run!`, weighting, OBB placement | [`interactive/3_injection_walkthrough.jl`](interactive/3_injection_walkthrough.jl) | walkthroughs 4, 5, 6, 7 |
 
 If you're new to TamboSim entirely, **start with `interactive/1_frame_usage.jl`** — every other walkthrough assumes you've seen how a `TamboFrames` container is laid out and how key inheritance works.
 
@@ -49,7 +49,7 @@ having to regenerate any artifacts first.
 | [`2_analyze_output.jl`](interactive/2_analyze_output.jl) | filter to air decays, compute one-weights via `oneweights(tf)`, compute rates of neutrino events using one-weights, and classify decay-product flavor |
 | [`3_injection_walkthrough.jl`](interactive/3_injection_walkthrough.jl) | what `inject!` does: samplers + cross section, the sampling-inversion trick, the three injection states, the `phase_space_point` handoff to weighting |
 | [`4_propagation_walkthrough.jl`](interactive/4_propagation_walkthrough.jl) | what `proposal_propagation!` does: PROPOSAL backend init, per-event call, the four output keys, the per-PDG rest-energy guard |
-| [`5_corsika_walkthrough.jl`](interactive/5_corsika_walkthrough.jl) | what `corsika_run` does: per-event work, trajectory→detector intersect, the `tambo_shower` CLI shape (read-only — does not invoke the binary) |
+| [`5_corsika_walkthrough.jl`](interactive/5_corsika_walkthrough.jl) | what `corsika_run!` does: per-event work, trajectory→detector intersect, the `tambo_shower` CLI shape (read-only — does not invoke the binary) |
 | [`6_weighting_walkthrough.jl`](interactive/6_weighting_walkthrough.jl) | what `oneweights(tf)` does: PhaseSpace + PhaseSpacePoint structs, the two-method `_compatible` check, the per-event density functor, multi-campaign aggregation |
 | [`7_detector_layout.jl`](interactive/7_detector_layout.jl) | how `templates/2_create_detector.jl` places OBBs: area-weighted plane, hex grid with tilt correction, vertical projection, per-point OBB construction with slope filter |
 
@@ -78,7 +78,7 @@ don't have a site yet, templates 1 and 2 will build one for you.
 | [`2_create_detector.jl`](templates/2_create_detector.jl) | place detector OBBs on a single GC bundle (hex grid + slope filter), write back to the D frame |
 | [`3_inject.jl`](templates/3_inject.jl) | wraps `inject!`. Loads geometry + `[injection]` config, samples primaries, writes Q frames with injection states + the per-event `phase_space_point` consumed by `oneweights` |
 | [`4_propagate.jl`](templates/4_propagate.jl) | wraps `proposal_propagation!`. Loads inject output, propagates leptons through PROPOSAL, optionally drops events that range out inside the mountain |
-| [`5_run_corsika.jl`](templates/5_run_corsika.jl) | wraps `corsika_run`. For each surviving propagation event, dispatches a `tambo_shower` job per non-neutrino decay product. Set `sbatch_command` in the TOML to submit cluster jobs |
+| [`5_run_corsika.jl`](templates/5_run_corsika.jl) | wraps `corsika_run!`. For each surviving propagation event, dispatches a `tambo_shower` job per non-neutrino decay product. Set `executor = "run_sbatch"` (with `executor_sbatch_prefix`) or `executor = "dump_to_file"` in the `[corsika]` TOML for cluster / external-scheduler dispatch |
 | [`6_corsika_hits.jl`](templates/6_corsika_hits.jl) | reads CORSIKA output dirs, projects each shower particle onto the detector OBBs, writes `corsika_hits` per Q frame |
 
 Note that `6_corsika_hits.jl` is the only template that requires

@@ -1,65 +1,103 @@
+
 """
-    corsika_run(
-        particle::Particle{T},
-        detector_bvh::BVHTree,
-        obs_mesh_path::String,
-        terrain_mesh_path::String,
-        ecuts,
-        corsika_path::String,
-        outdir::String,
-        seed::Int64;
-        thinning::Float64=1e-6,
-        nevent::Int=1,
-        hadron_model::String="SIBYLL-2.3d",
-        sbatch_command=""
-    ) where {T}
+    _make_job(particle, event_id, decay_id, base_seed, detector_bvh, base_outdir)
 
-Run `tambo_shower` (CORSIKA 8 mesh-based) for a primary particle.
-
-Finds the intersection of the particle trajectory with the detector region, then calls
-`tambo_shower` with `--inject-x/y/z` and `--intercept-x/y/z`, both in ECEF metres.
-
-# Arguments
-- `particle::Particle{T}`: Primary particle; `position` is the injection point.
-- `detector_bvh::BVHTree`: BVH over the detector-region triangles (typically read
-  from the D frame's `"detector_bvh"` key).
-- `obs_mesh_path::String`: Path to the observation-region PLY file (ECEF metres).
-- `terrain_mesh_path::String`: Path to the terrain PLY file, or `""` to disable.
-- `ecuts`: Three energy cuts `(emcut, mucut, hadcut)` as `Quantity` values.
-- `corsika_path::String`: Path to the `tambo_shower` executable.
-- `outdir::String`: Output directory (removed and recreated if it already exists).
-- `seed::Int64`: Random seed (0 = auto).
-- `thinning::Float64`: EM thinning fraction (passed as `--emthin`). Default `1e-6`.
-- `nevent::Int`: Number of showers to simulate. Default 1.
-- `hadron_model::String`: High-energy hadronic model name. Default `"SIBYLL-2.3d"`.
-- `sbatch_command`: Optional sbatch prefix for cluster submission.
+Build a single CORSIKA job record. Returns `nothing` if `particle`'s
+trajectory does not intersect `detector_bvh`. Internal helper for
+[`plan_corsika_jobs`](@ref).
 """
-function corsika_run(
-    particle::Particle{T},
-    detector_bvh::BVHTree,
-    obs_mesh_path::String,
-    terrain_mesh_path::String,
-    ecuts,
-    corsika_path::String,
-    outdir::String,
-    seed::Int64;
-    thinning::Float64=1e-6,
-    nevent::Int=1,
-    hadron_model::String="SIBYLL-2.3d",
-    sbatch_command=""
-) where {T}
-
-    # Find where the particle trajectory intersects the detector region
+function _make_job(particle, event_id, decay_id, base_seed, detector_bvh, base_outdir)
     ray = Ray(particle)
     isect = find_intersect(ray, detector_bvh)
-    if isnothing(isect)
-        @warn "corsika_run (mesh): no intersection with detector region; skipping $outdir"
-        return
-    end
+    isnothing(isect) && return nothing
+    seed = Int(abs(hash((base_seed, event_id, decay_id))) % typemax(Int32))
+    outdir = joinpath(base_outdir,
+                      "event_$(lpad(event_id, 6, '0'))",
+                      "shower_$(decay_id)")
+    return (; event_id, decay_id, primary=particle, intercept=isect.point, seed, outdir)
+end
 
-    # Convert injection position and intercept to ECEF metres
-    inject_ecef    = convert(ecefcoordinates, particle.position)
-    intercept_ecef = convert(ecefcoordinates, isect.point)
+"""
+    plan_corsika_jobs(frames::TamboFrames, config::Dict, base_outdir::String)
+        -> Vector{NamedTuple}
+
+Strategy-dispatched job enumeration for CORSIKA. Returns one NamedTuple
+per shower to dispatch, with fields
+`(event_id, decay_id, primary, intercept, seed, outdir)`. `outdir` is the
+absolute path `<base_outdir>/event_<padded>/shower_<idx>/`.
+
+Branches on the latest M frame's `m["injection"]["strategy"]`:
+
+- `"NeutrinoInjection"`: one job per non-neutrino (`pdg ∉ {12,14,16}`)
+  particle in `q["proposal_decay_products"]`.
+- `"CosmicRayInjection"`: one job per `q["injection_initial_state"]`
+  (the arriving primary), with `decay_id = 1`.
+
+Jobs whose primary trajectory does not intersect the detector region are
+dropped. Seeds are derived deterministically from
+`hash((config["seed"], event_id, decay_id))`, so re-running
+`plan_corsika_jobs` on the same inputs yields identical jobs with identical
+seeds.
+
+Reads `detector_bvh` from the D frame attached to the latest M frame.
+"""
+function plan_corsika_jobs(frames::TamboFrames, config::Dict, base_outdir::String)
+
+    m_frame = _get_last_frame(frames, 'M')
+    d_frame = m_frame.d_frame
+    detector_bvh = d_frame["detector_bvh"]
+
+    strategy = m_frame["injection"]["strategy"]
+    base_seed = config["seed"]
+
+    jobs = NamedTuple[]
+    for frame in frames.q_frames
+        event_id = frame["event_id"]
+        
+        if strategy == "NeutrinoInjection"
+            haskey(frame, "proposal_decay_products") || continue
+            for (idx, particle) in enumerate(frame["proposal_decay_products"])
+                abs(Int(particle.pdg)) in (12, 14, 16) && continue
+                job = _make_job(particle, event_id, idx, base_seed,
+                                detector_bvh, base_outdir)
+                isnothing(job) && continue
+                push!(jobs, job)
+            end
+
+        elseif strategy == "CosmicRayInjection"
+            haskey(frame, "injection_initial_state") || continue
+            job = _make_job(frame["injection_initial_state"], event_id, 1,
+                            base_seed, detector_bvh, base_outdir)
+            isnothing(job) && continue
+            push!(jobs, job)
+            
+        else
+            error("plan_corsika_jobs: unknown injection strategy $(strategy)")
+        end
+    end
+    return jobs
+end
+
+"""
+    build_corsika_argv(job, mesh_paths, ecuts, config) -> Vector{String}
+
+Build the argv vector for one invocation of `tambo_shower`. 
+
+# Arguments
+- `job::NamedTuple`: one element from [`plan_corsika_jobs`](@ref). Uses
+  `job.primary`, `job.intercept`, `job.seed`, `job.outdir`.
+- `mesh_paths::NamedTuple`: `(obs, terrain)`; `terrain` may be `""` to
+  disable the terrain mesh.
+- `ecuts`: 3-tuple `(emcut, mucut, hadcut)` of `Quantity` energies.
+- `config::Dict`: `[corsika]` TOML table. Consults `"corsika_path"`,
+  `"hadron_model"` (default `"SIBYLL-2.3d"`), `"thinning"` (default
+  `1e-6`), `"nevent"` (default `1`), `"force_overwrite"` (default
+  `false`; passes `--force` to the binary).
+"""
+function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, config::Dict)
+    primary = job.primary
+    inject_ecef    = convert(ecefcoordinates, primary.position)
+    intercept_ecef = convert(ecefcoordinates, job.intercept)
     injectX    = ustrip(u"m", inject_ecef.point[1])
     injectY    = ustrip(u"m", inject_ecef.point[2])
     injectZ    = ustrip(u"m", inject_ecef.point[3])
@@ -70,161 +108,279 @@ function corsika_run(
     emcut, mucut, hadcut = ustrip.(collect(ecuts) .|> u"GeV")
     taucut = mucut  # no separate tau cut in config; default to muon cut
 
-    if isdir(outdir)
-        rm(outdir, recursive=true)
-    end
+    hadron_model    = get(config, "hadron_model", "SIBYLL-2.3d")
+    thinning        = get(config, "thinning", 1e-6)
+    nevent          = get(config, "nevent", 1)
+    force_overwrite = get(config, "force_overwrite", false)
 
-    cmd_parts = [
-        corsika_path,
-        "--pdg",         string(Int(particle.pdg)),
-        "--energy",      string(ustrip(particle.energy |> u"GeV")),
+    argv = [
+        config["corsika_path"],
+        "--pdg",         string(Int(primary.pdg)),
+        "--energy",      string(ustrip(primary.energy |> u"GeV")),
         "--inject-x",    string(injectX),
         "--inject-y",    string(injectY),
         "--inject-z",    string(injectZ),
         "--intercept-x", string(interceptX),
         "--intercept-y", string(interceptY),
         "--intercept-z", string(interceptZ),
-        "--obs-mesh",    obs_mesh_path,
+        "--obs-mesh",    mesh_paths.obs,
         "--emcut",       string(emcut),
         "--hadcut",      string(hadcut),
         "--mucut",       string(mucut),
         "--taucut",      string(taucut),
         "-M",            hadron_model,
         "-N",            string(nevent),
-        "--seed",        string(seed),
+        "--seed",        string(job.seed),
         "--emthin",      string(thinning),
-        "-f",            outdir,
+        "-f",            job.outdir,
     ]
-    if !isempty(terrain_mesh_path)
-        append!(cmd_parts, ["--terrain-mesh", terrain_mesh_path])
+    if !isempty(mesh_paths.terrain)
+        append!(argv, ["--terrain-mesh", mesh_paths.terrain])
     end
+    force_overwrite && push!(argv, "--force")
+    return argv
+end
 
-    if isempty(sbatch_command)
-        run(Cmd(cmd_parts))
-    else
-        run(`sbatch $sbatch_command $(join(cmd_parts, " "))`)
+# =============================================================================
+# Built-in executors
+# =============================================================================
+
+"""
+    run_local(argv, job)
+
+Default [`corsika_run!`](@ref) executor: ensures `job.outdir` exists
+(removing any prior contents) and runs `Cmd(argv)` synchronously.
+"""
+function run_local(argv, job)
+    if isdir(job.outdir)
+        rm(job.outdir, recursive=true)
+    end
+    mkpath(job.outdir)
+    run(Cmd(argv))
+end
+
+"""
+    run_sbatch(prefix::String) -> executor
+
+Return a [`corsika_run!`](@ref) executor that submits each job via
+`sbatch <prefix split on whitespace> --wrap="<argv joined by spaces>"`.
+`prefix` carries sbatch options as a single whitespace-separated string;
+it is split locally because Julia backticks don't shell-split interpolated
+strings. The job command is passed through `--wrap` so sbatch executes it
+inline rather than treating it as a script path.
+"""
+function run_sbatch(prefix::String)
+    prefix_args = split(prefix)
+    return (argv, _job) -> run(`sbatch $prefix_args --wrap=$(join(argv, " "))`)
+end
+
+"""
+    dump_to_file(io::IO) -> executor
+
+Return a [`corsika_run!`](@ref) executor that writes one JSONL record per
+job to `io`. Each line is a JSON object with keys `event_id`, `decay_id`,
+`outdir`, and `argv` (the full argv vector). Does not create directories
+or run anything; consumable by Snakemake / OSG / `jq` / bash.
+"""
+function dump_to_file(io::IO)
+    return function (argv, job)
+        record = (event_id=job.event_id,
+                  decay_id=job.decay_id,
+                  outdir=job.outdir,
+                  argv=argv)
+        JSON3.write(io, record)
+        write(io, '\n')
     end
 end
 
 """
-    corsika_run(
-        frames::TamboFrames,
-        config::Dict,
-        base_outdir;
-        prefix::String="corsika",
-        inkey::String="proposal_decay_products",
-        parallelize=false,
-        store_paths=true
-    )
+    collect_jobs(records::Vector) -> executor
 
-Run CORSIKA 8 (`tambo_shower`) on the decay products from PROPOSAL,
-producing one output directory per (event, decay-product) pair under
-`base_outdir`. Mutates `frames` by snapshotting `config` onto the
-existing M frame under `prefix`. For each Q frame containing `inkey`,
-loops over its `<inkey>` particles (skipping neutrinos by PDG) and
-dispatches the per-particle method below.
+Return a [`corsika_run!`](@ref) executor that pushes `(; job, argv)`
+NamedTuples into `records` and does nothing else. Intended for the
+"collect → filter → dispatch yourself" workflow:
 
-Mesh files (`obs_surface.ply` and, if `use_terrain_mesh` is true,
-`terrain.ply`) are derived from the G/D frames and written to
-`base_outdir` before the shower loop. When `parallelize=false` they are
-removed after the loop completes. When `parallelize=true` they are left
-in place because the submitted cluster jobs have not yet run; the caller
-is responsible for cleaning up `base_outdir` once all jobs finish.
-
-# Arguments
-- `frames::TamboFrames`: must already have an M frame and at least one
-  Q frame with `inkey` populated (typically run after
-  `proposal_propagation!`).
-- `config::Dict`: parsed `[corsika]` TOML table. Consults
-  `"corsika_path"`, `"em_ecut"`, `"mu_ecut"`, `"hadron_ecut"`,
-  `"hadron_model"` (optional, default `"SIBYLL-2.3d"`),
-  `"thinning"` (optional, default `1e-6`),
-  `"use_terrain_mesh"` (optional, default `true`),
-  `"seed"` (RNG seed), and `"sbatch_command"` (only when
-  `parallelize=true`).
-- `base_outdir`: directory under which per-event output dirs
-  (`event_<id>/shower_<idx>/`) are created.
-
-# Keyword arguments
-- `prefix::String`: namespace for the config snapshot. Default `"corsika"`.
-- `inkey::String`: Q-frame key carrying the particles to shower.
-  Default `"proposal_decay_products"`.
-- `parallelize::Bool`: if `true`, prefix the binary invocation with
-  `config["sbatch_command"]` for cluster submission.
-- `store_paths::Bool`: if `true`, write a `"corsika_directories"` key on
-  each Q frame listing every shower output dir dispatched for that event.
+```julia
+records = []
+corsika_run!(frames, config, base_outdir; executor=collect_jobs(records))
+records = filter(r -> r.job.primary.energy > 1u"PeV", records)
+for r in records
+    run(Cmd(r.argv))   # or sbatch, or anything else
+end
+```
 """
-function corsika_run(
+function collect_jobs(records::Vector)
+    return (argv, job) -> push!(records, (; job, argv))
+end
+
+"""
+    _run_jobs(jobs, mesh_paths, ecuts, config, executor)
+
+Internal dispatch loop. For each job in `jobs`, build the argv vector and
+hand `(argv, job)` to `executor`. Failures in `executor` are caught and
+logged, not propagated.
+"""
+function _run_jobs(jobs, mesh_paths, ecuts, config, executor)
+    for job in jobs
+        argv = build_corsika_argv(job, mesh_paths, ecuts, config)
+        try
+            executor(argv, job)
+        catch e
+            @warn "CORSIKA dispatch failed for event $(job.event_id) shower $(job.decay_id)" exception=e
+        end
+    end
+end
+
+"""
+    corsika_run!(frames::TamboFrames, config::Dict, base_outdir;
+                executor=nothing, prefix="corsika")
+
+Orchestrate CORSIKA 8 (`tambo_shower`) over a `TamboFrames`. Strategy-
+dispatched: handles both `NeutrinoInjection` (one shower per non-neutrino
+decay product) and `CosmicRayInjection` (one shower per primary).
+
+Steps performed in order:
+
+1. Stamps `config` onto the M frame at `m[prefix]`.
+2. Dumps `obs_surface.ply` and (optionally) `terrain.ply` under
+   `base_outdir`.
+3. Enumerates jobs via [`plan_corsika_jobs`](@ref) — deterministic given
+   `config["seed"]`.
+4. Stamps each Q frame with `q["corsika_directories"]` listing *all*
+   shower outdirs planned for that event. Always done — downstream
+   `read_corsika_hits!` depends on it.
+5. For each job, builds argv via [`build_corsika_argv`](@ref) and hands
+   it to `executor(argv, job)`.
+6. Removes the mesh PLYs on exit if `executor === run_local`; leaves
+   them in place otherwise (other executors may run later).
+
+# Executor selection
+
+If `executor` is `nothing` (default), it is resolved from
+`config["executor"]`. Built-ins: `"run_local"` (default), `"run_sbatch"`
+(requires `executor_sbatch_prefix`), `"dump_to_file"` (requires
+`executor_dump_path`). A Julia caller may pass a function directly
+instead.
+
+# Caller patterns
+
+```julia
+# Run locally inline:
+corsika_run!(frames, config, base_outdir)
+
+# Cluster submit:
+corsika_run!(frames, config, base_outdir;
+            executor=run_sbatch(config["executor_sbatch_prefix"]))
+
+# Dump jobs.jsonl for an external scheduler:
+open("jobs.jsonl", "w") do io
+    corsika_run!(frames, config, base_outdir; executor=dump_to_file(io))
+end
+
+# Collect, filter, dispatch yourself:
+records = []
+corsika_run!(frames, config, base_outdir; executor=collect_jobs(records))
+records = filter(r -> r.job.primary.energy > 1u"PeV", records)
+for r in records; run(Cmd(r.argv)); end
+```
+
+# Intent vs actuality
+
+Q-frame `corsika_directories` always reflects the *full* job list from
+`plan_corsika_jobs`, regardless of what the executor actually dispatches.
+
+# Config keys consulted
+- `"corsika_path"`, `"em_ecut"`, `"mu_ecut"`, `"hadron_ecut"` — required
+- `"seed"` — optional; randomized + stored if missing
+- `"hadron_model"`, `"thinning"`, `"nevent"`, `"use_terrain_mesh"`,
+  `"force_overwrite"` — optional
+- `"executor"`, `"executor_sbatch_prefix"`, `"executor_dump_path"` — optional
+"""
+function corsika_run!(
     frames::TamboFrames,
     config::Dict,
     base_outdir;
+    executor=nothing,
     prefix::String="corsika",
-    inkey::String="proposal_decay_products",
-    parallelize=false,
-    store_paths=true
 )
     m_frame = _get_last_frame(frames, 'M')
     g_frame = m_frame.g_frame
     d_frame = m_frame.d_frame
-
     m_frame[prefix] = config
-
-    detector_bvh = d_frame["detector_bvh"]
-
-    use_terrain_mesh = get(config, "use_terrain_mesh", true)
-    hadron_model     = get(config, "hadron_model", "SIBYLL-2.3d")
-    thinning         = get(config, "thinning", 1e-6)
 
     if !haskey(config, "seed")
         @warn "Deciding seed via RNG and adding to configuration"
         config["seed"] = rand(UInt32)
     end
-    Random.seed!(config["seed"])
 
-    sbatch_command = parallelize ? config["sbatch_command"] : ""
-    ecuts = SVector{3, Float64}([config["em_ecut"], config["mu_ecut"], config["hadron_ecut"]]) * u"GeV"
-
+    use_terrain_mesh = get(config, "use_terrain_mesh", true)
     mkpath(base_outdir)
     obs_mesh_path     = joinpath(base_outdir, "obs_surface.ply")
     terrain_mesh_path = use_terrain_mesh ? joinpath(base_outdir, "terrain.ply") : ""
     dump_to_ply(d_frame, obs_mesh_path)
-    use_terrain_mesh && dump_to_ply(g_frame, terrain_mesh_path; watertight_depth=10_000.0)
+
+    # Crop the terrain mesh to a disk of radius `max_radius_km` 
+    # around the site (fewer triangles for CORSIKA), then close
+    # the open patch with a `watertight_depth_km`-deep skirt. `max_radius_km`
+    # absent => no crop (full topography). `watertight_depth_km` only has an
+    # effect once the crop opens the mesh; default 10 km matches prior behavior.
+    max_radius_km      = get(config, "max_radius_km", nothing)
+    watertight_depth_m = get(config, "watertight_depth_km", 10.0) * 1_000.0  # km -> m
+    use_terrain_mesh && dump_to_ply(g_frame, terrain_mesh_path;
+                                    max_radius_km=max_radius_km,
+                                    watertight_depth_m=watertight_depth_m)
+    mesh_paths = (obs=obs_mesh_path, terrain=terrain_mesh_path)
+
+    jobs = plan_corsika_jobs(frames, config, base_outdir)
+
+    by_event = Dict{Int, Vector{String}}()
+    for j in jobs
+        push!(get!(by_event, j.event_id, String[]), j.outdir)
+    end
+    for q in frames.q_frames
+        event_id = q["event_id"]
+        haskey(by_event, event_id) || continue
+        q["corsika_directories"] = by_event[event_id]
+    end
+
+    ecuts = SVector{3, Float64}([config["em_ecut"], config["mu_ecut"], config["hadron_ecut"]]) * u"GeV"
+
+    # Decide whether to clean up meshes on exit. Only run_local is guaranteed
+    # to have finished its work before this function returns.
+    cleanup_meshes = executor === run_local ||
+                     (isnothing(executor) && get(config, "executor", "run_local") == "run_local")
 
     try
-        for frame in filter(f -> f.stream == 'Q', frames)
-            haskey(frame, inkey) || continue
-            paths = String[]
-            decay_products = frame[inkey]
-            for (idx, particle) in enumerate(decay_products)
-                abs(Int(particle.pdg)) in [12, 14, 16] && continue
-                output_dir = "$(base_outdir)/event_$(lpad(frame["event_id"], 6, '0'))/shower_$(idx)/"
-                push!(paths, output_dir)
-                isdir(output_dir) && continue
-                seed = Int(rand(UInt32))
-                try
-                    corsika_run(
-                        particle,
-                        detector_bvh,
-                        obs_mesh_path,
-                        terrain_mesh_path,
-                        ecuts,
-                        config["corsika_path"],
-                        output_dir,
-                        seed;
-                        thinning=thinning,
-                        hadron_model=hadron_model,
-                        sbatch_command=sbatch_command
-                    )
-                catch e
-                    @warn "CORSIKA failed for event $(frame["event_id"]) shower $(idx)" exception=e
+        if !isnothing(executor)
+            _run_jobs(jobs, mesh_paths, ecuts, config, executor)
+        else
+            name = get(config, "executor", "run_local")
+            if name == "run_local"
+                _run_jobs(jobs, mesh_paths, ecuts, config, run_local)
+
+            elseif name == "run_sbatch"
+                haskey(config, "executor_sbatch_prefix") ||
+                    error("executor=run_sbatch requires executor_sbatch_prefix in [corsika]")
+                _run_jobs(jobs, mesh_paths, ecuts, config,
+                          run_sbatch(config["executor_sbatch_prefix"]))
+
+            elseif name == "dump_to_file"
+                haskey(config, "executor_dump_path") ||
+                    error("executor=dump_to_file requires executor_dump_path in [corsika]")
+                open(config["executor_dump_path"], "w") do io
+                    _run_jobs(jobs, mesh_paths, ecuts, config, dump_to_file(io))
                 end
+
+            else
+                error("Unknown executor: $name. Built-ins: run_local, run_sbatch, dump_to_file")
             end
-            store_paths && (frame["corsika_directories"] = paths)
         end
+
     finally
-        if !parallelize
+        if cleanup_meshes
             rm(obs_mesh_path; force=true)
-            use_terrain_mesh && rm(terrain_mesh_path; force=true)
+            !isempty(terrain_mesh_path) && rm(terrain_mesh_path; force=true)
         end
     end
+
 end

@@ -361,14 +361,14 @@ end
 
 function test_dump_to_ply_g_frame_watertight_depth()
     # Open mesh (`_test_mesh` is a flat square — has a boundary loop). Verify
-    # that `watertight_depth` actually closes the dumped PLY and adds vertices.
+    # that `watertight_depth_m` actually closes the dumped PLY and adds vertices.
     frames  = _test_bundle()
     g_frame = frames.g_frames[end]
     p_open    = tempname() * ".ply"
     p_closed  = tempname() * ".ply"
     try
         dump_to_ply(g_frame, p_open)
-        dump_to_ply(g_frame, p_closed; watertight_depth=10_000.0)
+        dump_to_ply(g_frame, p_closed; watertight_depth_m=10_000.0)
         verts_o, faces_o = _parse_binary_ply(p_open)
         verts_c, faces_c = _parse_binary_ply(p_closed)
         @test _boundary_edge_count(Int.(faces_o) .+ 1) > 0

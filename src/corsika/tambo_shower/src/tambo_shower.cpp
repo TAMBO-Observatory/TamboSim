@@ -10,8 +10,9 @@
  * The shower trajectory is specified by two ECEF points passed on the command
  * line: the injection point (--inject-x/y/z, upstream, ~112 km altitude) and
  * the intercept on the detection region (--intercept-x/y/z).  In normal use
- * these coordinates are computed by the Julia corsika_run(particle, earth, ...)
- * wrapper, which traces the particle trajectory to the detector mesh.
+ * these coordinates are computed by the Julia corsika_run! orchestrator
+ * (src/corsika/run_corsika.jl), which traces the particle trajectory to the
+ * detector mesh and emits the argv for this binary.
  *
  * Usage is modelled after c8_air_shower.cpp from the CORSIKA 8 repository.
  */
@@ -340,10 +341,13 @@ int main(int argc, char** argv) {
   app.add_option("-f,--filename", "Output library filename")
       ->required()
       ->default_val("tambo_library")
-      ->check(CLI::NonexistentPath)
       ->group("Output");
   bool compressOutput = false;
   app.add_flag("--compress", compressOutput, "Compress output directory to tarball")
+      ->group("Output");
+  bool forceOverwrite = false;
+  app.add_flag("--force", forceOverwrite,
+               "Wipe the output directory if it already exists")
       ->group("Output");
 
   // ---- Misc ----
@@ -565,6 +569,16 @@ int main(int argc, char** argv) {
   std::stringstream args;
   for (int i = 0; i < argc; ++i) { args << argv[i] << " "; }
   std::string const outFilename = app["--filename"]->as<std::string>();
+  if (boost::filesystem::exists(outFilename)) {
+    if (forceOverwrite) {
+      CORSIKA_LOG_WARN("Removing existing output directory: {}", outFilename);
+      boost::filesystem::remove_all(outFilename);
+    } else {
+      CORSIKA_LOG_CRITICAL("Output path already exists: {} (use --force to overwrite)",
+                           outFilename);
+      return EXIT_FAILURE;
+    }
+  }
   OutputManager output(outFilename, seed, args.str(), compressOutput);
 
   EnergyLossWriter dEdX{showerAxis, dX};

@@ -2,9 +2,10 @@
 #
 # Run CORSIKA 8 (`tambo_shower`) on the decay products from PROPOSAL,
 # producing one event directory per Q frame under `--corsika-dir`. Wraps
-# `corsika_run`, which reads its settings from the `[corsika]` table of a
-# configuration TOML (binary path, energy cuts, hadronic model, mesh paths,
-# `seed` seed, optional `sbatch_command` for cluster submission).
+# `corsika_run!`, which reads its settings from the `[corsika]` table of a
+# configuration TOML (binary path, energy cuts, hadronic model, `seed`,
+# and optional `executor` selection — `"run_local"` (default), `"run_sbatch"`
+# with `executor_sbatch_prefix`, or `"dump_to_file"` with `executor_dump_path`).
 #
 # Input:
 #   <geometry>.jld2     GCD bundle (provides topography mesh + detector
@@ -22,9 +23,11 @@
 # Note: this script only orchestrates `tambo_shower` — it does not project
 # the resulting shower particles onto detector modules. That second pass is
 # 6_corsika_hits.jl, which reads the per-event directories produced here.
-# For real-scale runs, set `sbatch_command` in the TOML and submit on a
-# cluster; running `corsika_run` from a Julia driver is mainly useful for
-# small test runs.
+# For real-scale runs, set `executor = "run_sbatch"` (with
+# `executor_sbatch_prefix`) or `executor = "dump_to_file"` (to emit a JSONL
+# job list for an external scheduler like Snakemake/OSG). Running
+# `corsika_run!` inline with the default `run_local` executor is mainly useful
+# for small test runs.
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
@@ -98,7 +101,7 @@ if !isfile(corsika_config["corsika_path"])
 end
 
 frames = load_frames([geometry_file, infile])
-corsika_run(frames, corsika_config, corsika_dir)
+corsika_run!(frames, corsika_config, corsika_dir)
 
 mkpath(dirname(outfile))
 save_frames(outfile, frames)

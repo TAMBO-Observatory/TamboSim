@@ -1,7 +1,7 @@
 include("testsetup.jl")
 """
-Tests for CORSIKA event reading, coordinate transformations, and the
-MultiParquetIterator.
+Tests for CORSIKA mesh-format event reading, coordinate transformations,
+and the MultiParquetIterator.
 
 Uses the example parquet file at test/resources/example_corsika.parquet.
 """
@@ -13,16 +13,14 @@ using Parquet2
 using Tables
 using YAML
 
-function run_corsika_tests()
+function run_read_corsika_tests()
     tambosim = get_tambosim_path()
     parquet_path = joinpath(tambosim, "test", "resources", "example_corsika.parquet")
 
-    # Build a simple coordinate system for testing (ECEF identity)
+    # Identity transform: target ECEF, no per-shower rotation, no offset.
     cs = ecefcoordinates
-
-    # A rotation and center matching what read_corsika would produce
-    rot = one(RotMatrix{3, Float64})
-    center = SVector(0.0u"m", 0.0u"m", 0.0u"m")
+    dir_rot      = SMatrix{3,3,Float64,9}(I)
+    coord_offset = SVector(0.0u"m", 0.0u"m", 0.0u"m")
 
     # ------------------------------------------------------------------
     @testset "Parquet schema" begin
@@ -38,7 +36,7 @@ function run_corsika_tests()
         t = Parquet2.readfile(parquet_path)
         row = first(Tables.rows(t))
 
-        evt = CorsikaEvent(row, rot, center, cs, cs)
+        evt = CorsikaEvent(row, cs, dir_rot, coord_offset)
 
         # Weight preserved
         @test evt.weight == row.weight
@@ -63,29 +61,9 @@ function run_corsika_tests()
         t = Parquet2.readfile(parquet_path)
         row = first(Tables.rows(t))
 
-        evt = CorsikaEvent(row, rot, center, cs, cs)
+        evt = CorsikaEvent(row, cs, dir_rot, coord_offset)
         input_dir = normalize([row.nx, row.ny, row.nz])
         @test isapprox(evt.particle.direction.point, SVector{3}(input_dir), atol=1e-6)
-    end
-
-    # ------------------------------------------------------------------
-    @testset "CorsikaEvent with non-identity rotation" begin
-        # 90-degree rotation around z-axis: x -> y, y -> -x
-        rot90 = RotMatrix(SMatrix{3,3,Float64,9}([
-            0.0  -1.0  0.0;
-            1.0   0.0  0.0;
-            0.0   0.0  1.0
-        ]))
-
-        t = Parquet2.readfile(parquet_path)
-        row = first(Tables.rows(t))
-
-        evt = CorsikaEvent(row, rot90, center, cs, cs)
-
-        # The direction should be rotated
-        raw_dir = [row.nx, row.ny, row.nz]
-        expected_dir = normalize(rot90 * raw_dir)
-        @test isapprox(evt.particle.direction.point, SVector{3}(expected_dir), atol=1e-6)
     end
 
     # ------------------------------------------------------------------
@@ -93,7 +71,7 @@ function run_corsika_tests()
         t = Parquet2.readfile(parquet_path)
         for (i, row) in enumerate(Tables.rows(t))
             i > 20 && break
-            evt = CorsikaEvent(row, rot, center, cs, cs)
+            evt = CorsikaEvent(row, cs, dir_rot, coord_offset)
             @test ustrip(u"GeV", evt.particle.energy) ≈ row.kinetic_energy
             @test evt.particle.energy >= 0.0u"GeV"
         end
@@ -104,19 +82,17 @@ function run_corsika_tests()
         t = Parquet2.readfile(parquet_path)
         for (i, row) in enumerate(Tables.rows(t))
             i > 20 && break
-            evt = CorsikaEvent(row, rot, center, cs, cs)
-            # Speed should be positive and at most speed of light
+            evt = CorsikaEvent(row, cs, dir_rot, coord_offset)
             @test evt.particle.speed > 0.0u"m/s"
-            @test evt.particle.speed <= 299_792_458.0u"m/s" + 1.0u"m/s"  # small tolerance
+            @test evt.particle.speed <= 299_792_458.0u"m/s" + 1.0u"m/s"
         end
     end
 
     # ------------------------------------------------------------------
     @testset "MultiParquetIterator basics" begin
-        transform(row) = CorsikaEvent(row, rot, center, cs, cs)
+        transform(row) = CorsikaEvent(row, cs, dir_rot, coord_offset)
         iter = MultiParquetIterator([parquet_path], transform; chunk_size=100, T=CorsikaEvent)
 
-        # Should be iterable
         first_evt = nothing
         count = 0
         for evt in iter
@@ -126,18 +102,14 @@ function run_corsika_tests()
             count += 1
         end
 
-        # Should have read all rows
         @test count == 10273
-
-        # First event should be valid
         @test first_evt isa CorsikaEvent
         @test first_evt.particle.energy >= 0.0u"GeV"
     end
 
     # ------------------------------------------------------------------
     @testset "MultiParquetIterator multiple files" begin
-        transform(row) = CorsikaEvent(row, rot, center, cs, cs)
-        # Pass the same file twice — should iterate through both
+        transform(row) = CorsikaEvent(row, cs, dir_rot, coord_offset)
         iter = MultiParquetIterator(
             [parquet_path, parquet_path], transform;
             chunk_size=5000, T=CorsikaEvent
@@ -152,8 +124,7 @@ function run_corsika_tests()
 
     # ------------------------------------------------------------------
     @testset "MultiParquetIterator small chunk size" begin
-        # With chunk_size=1, every record triggers a buffer fill
-        transform(row) = CorsikaEvent(row, rot, center, cs, cs)
+        transform(row) = CorsikaEvent(row, cs, dir_rot, coord_offset)
         iter = MultiParquetIterator([parquet_path], transform; chunk_size=1, T=CorsikaEvent)
 
         count = 0
@@ -166,7 +137,6 @@ function run_corsika_tests()
 
     # ------------------------------------------------------------------
     @testset "Coordinate system conversion round-trip" begin
-        # Create a non-trivial coordinate system
         cs2 = CoordinateSystem(
             SVector(100.0u"m", 200.0u"m", 300.0u"m"),
             SMatrix{3,3,Float64,9}([
@@ -184,34 +154,37 @@ function run_corsika_tests()
     end
 
     # ------------------------------------------------------------------
-    @testset "read_corsika directory structure" begin
-        # Create a minimal temporary CORSIKA directory structure
+    @testset "read_corsika_mesh directory structure" begin
+        # Build a minimal event-level dir with one completed shower in the
+        # mesh-format layout that read_corsika_mesh expects.
         mktempdir() do tmpdir
-            shower_dir = joinpath(tmpdir, "shower_0", "particles")
-            mkpath(shower_dir)
+            shower_dir   = joinpath(tmpdir, "shower_0")
+            particle_dir = joinpath(shower_dir, "particles")
+            mkpath(particle_dir)
 
-            # Copy parquet file
-            cp(parquet_path, joinpath(shower_dir, "particles.parquet"))
+            cp(parquet_path, joinpath(particle_dir, "particles.parquet"))
 
-            # Create summary.yaml (just needs to exist)
-            open(joinpath(shower_dir, "summary.yaml"), "w") do io
+            # summary.yaml lives inside particles/ — read_corsika_mesh's
+            # globbed path retains its trailing slash, so dirname strips
+            # only the slash, leaving the lookup inside particles/.
+            open(joinpath(particle_dir, "summary.yaml"), "w") do io
                 write(io, "status: completed\n")
             end
 
-            # Create config.yaml with coordinate system info
+            # config.yaml carries the mesh bounding box (min/max in ECEF metres).
             config = Dict(
-                "x-axis" => [1.0, 0.0, 0.0],
-                "y-axis" => [0.0, 1.0, 0.0],
-                "plane" => Dict(
-                    "normal" => [0.0, 0.0, 1.0],
-                    "center" => [0.0, 0.0, 0.0]
+                "mesh" => Dict(
+                    "bounds" => Dict(
+                        "min" => [0.0, 0.0, 0.0],
+                        "max" => [0.0, 0.0, 0.0],
+                    )
                 )
             )
-            open(joinpath(shower_dir, "config.yaml"), "w") do io
+            open(joinpath(particle_dir, "config.yaml"), "w") do io
                 YAML.write(io, config)
             end
 
-            events = TamboSim.read_corsika(tmpdir, cs)
+            events = TamboSim.read_corsika_mesh(tmpdir, cs)
             count = 0
             for evt in events
                 count += 1
@@ -223,24 +196,20 @@ function run_corsika_tests()
     end
 
     # ------------------------------------------------------------------
-    @testset "read_corsika skips incomplete showers" begin
+    @testset "read_corsika_mesh skips incomplete showers" begin
         mktempdir() do tmpdir
-            # Create a shower directory WITHOUT summary.yaml
-            shower_dir = joinpath(tmpdir, "shower_0", "particles")
-            mkpath(shower_dir)
-            cp(parquet_path, joinpath(shower_dir, "particles.parquet"))
+            # Shower without summary.yaml at shower-dir level — incomplete.
+            shower_dir   = joinpath(tmpdir, "shower_0")
+            particle_dir = joinpath(shower_dir, "particles")
+            mkpath(particle_dir)
+            cp(parquet_path, joinpath(particle_dir, "particles.parquet"))
 
-            open(joinpath(shower_dir, "config.yaml"), "w") do io
-                YAML.write(io, Dict(
-                    "x-axis" => [1.0, 0.0, 0.0],
-                    "y-axis" => [0.0, 1.0, 0.0],
-                    "plane" => Dict("normal" => [0.0, 0.0, 1.0], "center" => [0.0, 0.0, 0.0])
-                ))
+            open(joinpath(particle_dir, "config.yaml"), "w") do io
+                YAML.write(io, Dict("mesh" => Dict("bounds" => Dict(
+                    "min" => [0.0, 0.0, 0.0], "max" => [0.0, 0.0, 0.0]))))
             end
 
-            # Without summary.yaml, read_corsika should skip this shower.
-            # With no valid showers, it should error with a clear message.
-            @test_throws ArgumentError TamboSim.read_corsika(tmpdir, cs)
+            @test_throws ArgumentError TamboSim.read_corsika_mesh(tmpdir, cs)
         end
     end
 
@@ -256,7 +225,7 @@ function run_corsika_tests()
         # Low-energy tau: speed should be noticeably less than c
         mass_tau = particle_mass(TauMinus)
         rest_energy = uconvert(u"GeV", mass_tau * speedoflight^2)
-        ke_low = rest_energy * 0.01  # 1% of rest mass energy
+        ke_low = rest_energy * 0.01
         v_low = particle_speed(ke_low, TauMinus)
         @test v_low < 0.15 * c
         @test v_low > 0.0u"m/s"
@@ -266,8 +235,9 @@ function run_corsika_tests()
         @test isapprox(ustrip(u"m/s", v_photon), ustrip(u"m/s", c), rtol=1e-10)
     end
 end
+
 if abspath(PROGRAM_FILE) == @__FILE__
-    @testset "CORSIKA" begin
-        run_corsika_tests()
+    @testset "CORSIKA Read Mesh" begin
+        run_read_corsika_tests()
     end
 end

@@ -209,7 +209,7 @@ d_frame = frames.d_frames[end]
 # TamboSim.dump_to_h5(g_frame, d_frame, h5_path, groupname)
 # println("HDF5: wrote $h5_path:$groupname")
 #
-# TamboSim.dump_to_ply(g_frame, corsika_terrain; watertight_depth=10_000.0)
+# TamboSim.dump_to_ply(g_frame, corsika_terrain; watertight_depth_m=10_000.0)
 # println("Binary PLY (terrain): wrote $corsika_terrain")
 #
 # TamboSim.dump_to_ply(d_frame, corsika_obs)

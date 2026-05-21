@@ -188,34 +188,6 @@ function AABB(
     return AABB(min_corner, max_corner)
 end
 
-"""
-    AABB(obbs::Vector{OBB}) -> AABB
-
-Creates an `AABB` that tightly encloses a vector of `OBB`s (Oriented Bounding Boxes).
-
-This constructor calculates the minimum and maximum coordinates across all vertices
-of the provided `OBB`s to form a new Axis-Aligned Bounding Box.
-
-# Arguments
-- `obbs::Vector{OBB}`: A vector of `OBB` objects.
-
-# Returns
-- A new `AABB` object.
-"""
-function AABB(obbs::Vector{OBB})
-    min_corner = fill(Inf, 3)
-    max_corner = fill(-Inf, 3)
-
-    for obb in obbs
-        for i in 1:8
-            vertex = obb.vertices[:, i]
-            min_corner = min.(min_corner, vertex)
-            max_corner = max.(max_corner, vertex)
-        end
-    end
-
-    new(SVector{3}(min_corner), SVector{3}(max_corner))
-end
 
 # BVH Node
 """
@@ -678,11 +650,11 @@ function static_extrema_per_dim(
     indices,
 ) where {T<:Real}
     ndims = 3
-    mins = MVector{3}(fill(Inf, 3))
-    maxs = MVector{3}(fill(-Inf, 3))
+    mins = MVector{3}(fill(T(Inf), 3))
+    maxs = MVector{3}(fill(T(-Inf), 3))
     for idx in indices
-        p1 = ustrip.(aabbs[idx].min.point)
-        p2 = ustrip.(aabbs[idx].max.point)
+        p1 = ustrip.(u"m", aabbs[idx].min.point)
+        p2 = ustrip.(u"m", aabbs[idx].max.point)
         @inbounds for i in 1:ndims
 
             mins[i] = min(mins[i], p1[i])

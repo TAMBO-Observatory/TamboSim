@@ -40,6 +40,13 @@ mutable struct Frame
     end
 end
 
+"""
+    f.g_frame, f.c_frame, f.d_frame, f.m_frame
+
+Convenience property accessors that look up the named parent frame by stream
+letter (`G`, `C`, `D`, `M`) and return it, erroring descriptively if the parent
+is absent. Accessing any other symbol delegates to `getfield`.
+"""
 function Base.getproperty(f::Frame, sym::Symbol)
     if sym === :g_frame
         haskey(f.parents, 'G') || error("Frame (stream='$(f.stream)') has no G parent")
@@ -57,6 +64,13 @@ function Base.getproperty(f::Frame, sym::Symbol)
     return getfield(f, sym)
 end
 
+"""
+    frame[key::String]
+
+Look up `key` in this frame's own data dict; if absent, walk up the parent
+chain in `STREAM_HIERARCHY` order and return the first match. Throws `KeyError`
+if the key is not found in the frame or any ancestor.
+"""
 function Base.getindex(frame::Frame, key::String)
     haskey(frame.data, key) && return frame.data[key]
     for s in STREAM_HIERARCHY
@@ -68,10 +82,22 @@ function Base.getindex(frame::Frame, key::String)
     throw(KeyError(key))
 end
 
+"""
+    frame[key::String] = value
+
+Write `value` into this frame's own data dict under `key`. Never writes to a
+parent frame.
+"""
 function Base.setindex!(frame::Frame, value, key::String)
     frame.data[key] = value
 end
 
+"""
+    haskey(frame::Frame, key::String) -> Bool
+
+Return `true` if `key` is present in this frame's own data or in any ancestor
+frame reachable via the parent chain.
+"""
 function Base.haskey(frame::Frame, key::String)
     haskey(frame.data, key) && return true
     for s in STREAM_HIERARCHY
@@ -82,6 +108,12 @@ function Base.haskey(frame::Frame, key::String)
     return false
 end
 
+"""
+    keys(frame::Frame) -> Set{String}
+
+Return the union of all keys visible from this frame — its own data plus all
+keys reachable through the parent chain.
+"""
 function Base.keys(frame::Frame)
     ks = Set(keys(frame.data))
     for s in STREAM_HIERARCHY
@@ -90,6 +122,12 @@ function Base.keys(frame::Frame)
     return ks
 end
 
+"""
+    getkey(frame::Frame, key::String, default)
+
+Return `frame[key]` if the key is visible (own data or any ancestor), otherwise
+return `default`. Equivalent to `get(frame, key, default)`.
+"""
 function Base.getkey(frame::Frame, k::String, default)
     haskey(frame, k) ? frame[k] : default
 end

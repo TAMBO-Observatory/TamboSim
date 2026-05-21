@@ -542,6 +542,16 @@ function inject_cosmicray_event(
     return initial_primary, final_primary, point
 end
 
+"""
+    _setup_injection(frames, config, prefix, fname) -> (g_frame, m_frame, q_frames)
+
+Shared frame-setup step for all injection backends. Creates and appends one new
+M frame (with `config` snapshotted under `prefix`) and `config["nevent"]` Q
+frames to `frames`, wiring parent pointers for the latest G, C, and D frames.
+
+`fname` is the calling function's name, used only in the "nevent missing" error
+message. Returns `(g_frame, m_frame, q_frames)`.
+"""
 function _setup_injection(frames::TamboFrames, config::Dict, prefix::String, fname::String)
     haskey(config, "nevent") || error("$fname config must contain \"nevent\"")
     g_frame = _get_last_frame(frames, 'G')

@@ -1,4 +1,13 @@
-function parse_triangles(
+"""
+    _parse_triangles(vertices, faces, cs) -> Vector{Triangle{T}}
+
+Convert raw vertex/face matrices (as loaded from an HDF5 geometry file) into a
+vector of `Triangle`s in coordinate system `cs`.
+
+`vertices` is an N×3 matrix of ECEF coordinates in metres; `faces` is an M×3
+matrix of 1-based vertex indices. Each row of `faces` becomes one `Triangle`.
+"""
+function _parse_triangles(
     vertices::Matrix{<:Real},
     faces::Matrix{<:Integer},
     cs::CoordinateSystem{T}
@@ -69,7 +78,7 @@ function build_gcd_bundle(
     center = convert(cs, center)
     prem   = [Sphere(center, r) for r in prem_radii]
 
-    triangles = parse_triangles(vertices, faces, cs)
+    triangles = _parse_triangles(vertices, faces, cs)
     all(validate_triangle.(triangles, Ref(center))) || throw("Incorrectly oriented triangles")
 
     bvh = BVHTree(triangles)

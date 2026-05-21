@@ -1,0 +1,35 @@
+# Test case: terrain-mesh cropping path.
+#
+# Byte-identical to cr_proton_vertical except `max_radius_km = 30`, which
+# triggers the terrain crop + watertight-skirt path in `dump_to_ply`. Kept
+# as a controlled A/B against cr_proton_vertical: the shower physics should
+# be unaffected, but the cropped terrain mesh must still load and stay
+# watertight in the binary.
+
+name = "cr_proton_vertical_crop"
+description = "Terrain-crop path: proton, 10 TeV, near-vertical, max_radius_km = 30."
+max_showers = 20           # showers to run — enough for a stable per-config median.
+baseline = true            # opt in to the statistical-consistency baseline.
+
+[injection]
+strategy = "CosmicRayInjection"
+seed     = 925
+nevent   = 5              # inject extra; max_showers caps how many actually run.
+pdg      = 2212
+gamma    = 2.7
+emin     = 1.0e4
+emax     = 1.001e4
+thetamin = 179
+thetamax = 180
+phimin   = 180
+phimax   = 181
+altitude = 112.0
+
+[corsika]
+seed          = 925
+thinning      = 1.0e-6
+hadron_model  = "SIBYLL-2.3d"
+em_ecut       = 0.001
+hadron_ecut   = 0.05
+mu_ecut       = 0.05
+max_radius_km = 30     # crop the terrain mesh to a 30 km disk + skirt

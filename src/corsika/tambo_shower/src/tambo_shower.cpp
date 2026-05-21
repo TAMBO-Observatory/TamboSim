@@ -5,7 +5,7 @@
  * Valley, Peru. Two triangular meshes in ECEF coordinates drive the geometry:
  *
  *   obs_surface.ply  -  valley floor observation surface
- *   terrain.ply      -  surrounding terrain absorber (optional)
+ *   terrain.ply      -  surrounding terrain rock volume (optional)
  *
  * The shower trajectory is specified by two ECEF points passed on the command
  * line: the injection point (--inject-x/y/z, upstream, ~112 km altitude) and
@@ -28,15 +28,18 @@
 #include <corsika/framework/core/Logging.hpp>
 #include <corsika/framework/core/PhysicalUnits.hpp>
 #include <corsika/framework/geometry/PhysicalGeometry.hpp>
+#include <corsika/framework/geometry/RootCoordinateSystem.hpp>
 #include <corsika/framework/geometry/Sphere.hpp>
 #include <corsika/framework/geometry/TriangularMesh.hpp>
+#include <corsika/framework/process/BoundaryCrossingProcess.hpp>
+#include <corsika/framework/process/ContinuousProcess.hpp>
 #include <corsika/framework/process/DynamicInteractionProcess.hpp>
+#include <corsika/framework/process/SecondariesProcess.hpp>
 #include <corsika/framework/process/ProcessSequence.hpp>
 #include <corsika/framework/process/SwitchProcessSequence.hpp>
 #include <corsika/framework/random/RNGManager.hpp>
 #include <corsika/framework/random/PowerLawDistribution.hpp>
 #include <corsika/framework/utility/CorsikaFenv.hpp>
-#include <corsika/framework/utility/SaveBoostHistogram.hpp>
 
 #include <corsika/modules/writers/EnergyLossWriter.hpp>
 #include <corsika/modules/writers/InteractionWriter.hpp>
@@ -64,7 +67,6 @@
 #include <corsika/modules/Epos.hpp>
 #include <corsika/modules/EposLhcr.hpp>
 #include <corsika/modules/ObservationMesh.hpp>
-#include <corsika/modules/ObservationPlane.hpp>
 #include <corsika/modules/PROPOSAL.hpp>
 #include <corsika/modules/ParticleCut.hpp>
 #include <corsika/modules/Pythia8.hpp>
@@ -95,7 +97,9 @@
 
 #include <cmath>
 #include <cstdlib>
+#include <cstdint>
 #include <limits>
+#include <type_traits>
 #include <string>
 
 using namespace corsika;
@@ -107,6 +111,231 @@ using EnvType = media::Environment<EnvironmentInterface>;
 using StackType = setup::Stack<EnvType>;
 using TrackingType = setup::Tracking;
 using Particle = StackType::particle_type;
+
+// When a particle exits the terrain-rock volume, the tracker sets its logical
+// node to rock.getParent() (the topmost spanned atmosphere layer), which is
+// not necessarily the layer that geometrically contains the exit point.  This
+// BoundaryCrossingProcess re-resolves the logical node to the correct
+// atmosphere layer on rock exit, so the very next step uses the correct
+// medium.  Inert on every other boundary crossing (one pointer compare); the
+// resolution runs only when leaving rock.
+//
+// It resolves among LAYERS, not via the full getContainingNode.  The relocator
+// only ever runs with the particle sitting exactly on the rock surface (the
+// tracker leaves it at the crossing point, not nudged outside).  There,
+// getContainingNode is the wrong tool: it consults the rock via excludes(),
+// and TriangularMesh::contains() at an on-surface point is degenerate (it
+// drops the local face via the 1um boundary padding and votes by parity of
+// the remaining crossings -- for non-convex terrain it can vote "inside"), so
+// it could resolve back to the very rock the particle is leaving and
+// ping-pong the boundary with near-zero progress.  The question we actually
+// need answered is "which atmosphere LAYER contains this point?", which is a
+// pure Sphere::contains (altitude vs the layer boundary) -- robust exactly on
+// the rock surface and structurally unable to return the rock.  The
+// atmosphere is a single-child nested-ball chain; the rock mesh is only ever
+// a non-index-0 child of its owning layer, so descending the index-0 child
+// chain while each layer's volume contains the point yields the innermost
+// containing layer (L1 below the inner boundary, L2 above, ...) without ever
+// reaching the rock.  node.getVolume().contains() is the same primitive
+// Intersect.inl and getContainingNode use.
+struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
+  EnvType& env_;
+  void const* rockNode_; // stable address of the terrain-rock node, or nullptr
+  RockExitRelocator(EnvType& env, void const* rockNode)
+      : env_(env), rockNode_(rockNode) {}
+  template <typename TParticle>
+  ProcessReturn doBoundaryCrossing(TParticle& particle,
+                                   typename TParticle::node_type const& from,
+                                   typename TParticle::node_type const& /*to*/) {
+    if (rockNode_ == nullptr || static_cast<void const*>(&from) != rockNode_)
+      return ProcessReturn::Ok;
+    auto const pos = particle.getPosition();
+    auto const& uk = env_.getUniverse()->getChildNodes();
+    auto* L = uk.empty() ? nullptr : uk[0].get();
+    decltype(L) layer = nullptr;
+    while (L != nullptr && L->getVolume().contains(pos)) {
+      layer = L; // innermost layer so far whose sphere contains the exit point
+      auto const& k = L->getChildNodes();
+      L = k.empty() ? nullptr : k[0].get(); // index-0 child is the next layer
+    }
+    if (layer != nullptr) particle.setNode(layer);
+    // Nudge the particle off the rock surface into air.  setNode alone is
+    // insufficient: the cascade re-derives the next step from getPosition(),
+    // and the tracker leaves a rock-exiting particle numerically pinned onto
+    // the exit triangle.  The pin is intrinsic floating-point cancellation,
+    // not a bug we can localise: the endpoint is computed as
+    // start + velocity*t_mollertrumbore in the ECEF frame at radius ~6.4e6 m,
+    // so the residual off the face is O(eps_mach * 1e6 m) ~ 1 nm -- far below
+    // the 1 um TriangularMesh boundaryPadding that both contains() and the
+    // straight-line ray intersect filter with a strict '>'.  A sub-padding
+    // self-hit is therefore discarded and the next "real" exit collapses to
+    // the far mountain face km away, unreachable in interaction-limited cm
+    // steps: the particle freezes, bleeding StandardRock dE/dx in air.
+    //
+    // Displace it so it is a defined CLEARANCE off the exit face's plane,
+    // measured along the surface normal -- the maximal-clearance direction,
+    // independent of incidence angle (a fixed step along the momentum
+    // direction clears only clearance*|cos(incidence)| perpendicular, which
+    // is why a plain along-momentum nudge is not robust).  We keep the
+    // particle on its own trajectory (move along +direction, the exit
+    // direction by construction at a from==rock crossing) but rescale the
+    // along-track distance by 1/|dir.n| so the perpendicular component off
+    // the face equals kClearance.  |dir.n| (absolute value) makes this
+    // independent of the triangle's winding-defined normal sign -- CORSIKA
+    // does not canonicalise mesh normals outward, so n's sign is unreliable,
+    // but moving forward along +direction by a positive distance is always
+    // the physically correct exit move regardless of n's sign.  Cascade::step
+    // dispatches boundary-crossing processes last, immediately before it
+    // returns; there is no pre-computed next trajectory, so the mutated
+    // position is read fresh on the very next step.
+    constexpr double kClearance = 2.0e-6;  // m, perpendicular target (2x padding)
+    constexpr double kMaxAlong = 1.0e-3;   // m, cap on along-track displacement
+    double along = kClearance;             // fallback: plain 2 um along direction
+    auto const* mesh = dynamic_cast<TriangularMesh const*>(&from.getVolume());
+    if (mesh != nullptr) {
+      auto const hits = mesh->intersectRayAll(pos, particle.getDirection());
+      if (!hits.empty()) { // sorted by distance: front() is the pin face
+        double const cosI =
+            std::abs(particle.getDirection().dot(hits.front().normal).magnitude());
+        along = (cosI > 1e-12) ? (kClearance / cosI) : kMaxAlong;
+        if (along > kMaxAlong) {
+          CORSIKA_LOG_WARN(
+              "RockExitRelocator: near-tangent rock exit (|dir.n|={}), "
+              "along-track nudge clamped to {} m (pid={} E={} GeV)",
+              cosI, kMaxAlong, particle.getPID(), particle.getEnergy() / 1_GeV);
+          along = kMaxAlong;
+        }
+      }
+    }
+    particle.setPosition(pos + along * 1_m * particle.getDirection());
+    return ProcessReturn::Ok;
+  }
+};
+
+// Keeps the in-rock EM cascade tractable.  A multi-TeV muon's brems/pair
+// losses in 2.65 g/cm3 rock would seed an EM shower CORSIKA tracks down to
+// emcut (~1 MeV) -- ~1e6-1e8 secondaries, each stepped against the 180k-
+// triangle terrain mesh: intractable on the production budget, and
+// physically invisible (an e+-/gamma born in rock cannot escape km of rock
+// to be observed).  This process discards e+-/gamma whose logical node is
+// the rock, keeping mu/tau/hadrons/nu -- those CAN escape and seed the
+// observable air shower.  The muon's energy degradation is unaffected:
+// PROPOSAL removes E_loss from the muon at the vertex and applies
+// continuous dE/dx regardless of whether the EM child is tracked.
+//
+//  - doSecondaries erases e+-/gamma at birth when the producing
+//    interaction happened in rock.  Secondaries inherit the projectile's
+//    node at creation (GeometryNodeStackExtension: "copy Node from parent
+//    particle!"), so an in-rock interaction's EM children carry
+//    node == rock immediately.  Zero-cost removal of the rock-born
+//    exponential source.
+//  - doContinuous absorbs any e+-/gamma whose CURRENT logical node is rock,
+//    on its first step -- the comprehensive backstop that also catches EM
+//    produced in air that later travels into the rock.
+//
+// Approximation: e+-/gamma produced within ~an EM range of the rock surface
+// could in principle exit into air; we discard them too.  Negligible: EM
+// range in rock ~cm-m vs traversal hundreds m-km, and a sub-GeV EM particle
+// exiting rock is negligible vs the muon/hadrons for a TAMBO air-shower
+// observable.  No-op when the terrain mesh is disabled (rockNode_ == null).
+struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
+                        public ContinuousProcess<RockEMAbsorber> {
+  void const* rockNode_; // stable address of the terrain-rock node, or nullptr
+  explicit RockEMAbsorber(void const* rockNode) : rockNode_(rockNode) {}
+
+  static bool isEM(Code pid) {
+    return pid == Code::Electron || pid == Code::Positron || pid == Code::Photon;
+  }
+
+  template <typename TStackView>
+  void doSecondaries(TStackView& vS) {
+    if (rockNode_ == nullptr) return;
+    auto p = vS.begin();
+    while (p != vS.end()) {
+      if (isEM(p.getPID()) &&
+          static_cast<void const*>(p.getNode()) == rockNode_) {
+        p.erase();
+      }
+      ++p; // erase()+(++) is the SecondaryView idiom (cf. ParticleCut)
+    }
+  }
+
+  template <typename TParticle>
+  ProcessReturn doContinuous(Step<TParticle>& step, bool const) {
+    if (rockNode_ != nullptr && isEM(step.getParticlePre().getPID()) &&
+        static_cast<void const*>(step.getParticlePre().getNode()) == rockNode_) {
+      return ProcessReturn::ParticleAbsorbed;
+    }
+    return ProcessReturn::Ok;
+  }
+
+  template <typename TParticle, typename TTrajectory>
+  LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
+    return std::numeric_limits<double>::infinity() * 1_m; // never limit steps
+  }
+};
+
+// Production safety net for the rock/air interface.  RockExitRelocator's
+// position nudge resolves the known way a particle can end up logically
+// resident in the terrain rock while geometrically outside it (a degenerate
+// on-surface re-resolution after a rock-exit boundary crossing).  This process
+// is deliberately pathway-agnostic: rather than handle a specific entry route,
+// it watches for the *invariant violation itself* -- logical node == rock yet
+// rock.contains(position) == false -- which is the signature underlying a
+// particle that bleeds StandardRock dE/dx while geometrically in air and
+// silently ranges out before reaching any readout.  A healthy rock traversal
+// has logical == rock AND contains() == true and resets the counter every
+// step; the pathology accumulates logical == rock AND !contains() for tens of
+// thousands of consecutive steps.  On crossing a generous persistence
+// threshold the run is aborted with diagnostics rather than allowed to emit a
+// complete-looking shower output in which an Earth-skimming signal particle
+// was quietly lost.  The counter is a deliberately coarse run-global burst
+// detector, not a per-particle accountant: a stuck particle steps thousands
+// of times with no interleaving secondary, so a global count is a sufficient
+// and cheap tripwire.  No-op when the terrain mesh is disabled
+// (rockNode_ == nullptr); one pointer compare per step otherwise, with the
+// contains() test reached only while a particle is logically in the rock.
+struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
+  void const* rockNode_;
+  explicit RockInterfaceTripwire(void const* rockNode) : rockNode_(rockNode) {}
+  template <typename TParticle>
+  ProcessReturn doContinuous(Step<TParticle>& step, bool const) {
+    if (rockNode_ == nullptr) return ProcessReturn::Ok;
+    auto const& pre = step.getParticlePre();
+    auto const* nd = pre.getNode();
+    if (static_cast<void const*>(nd) != rockNode_) return ProcessReturn::Ok;
+    using NodeT = std::remove_reference_t<decltype(*nd)>;
+    bool const inside = static_cast<NodeT const*>(rockNode_)
+                            ->getVolume()
+                            .contains(pre.getPosition());
+    static long stuck = 0;
+    if (inside) {
+      stuck = 0;
+      return ProcessReturn::Ok;
+    }
+    constexpr long kStuckLimit = 1000; // a real loop racks up tens of thousands
+    if (++stuck >= kStuckLimit) {
+      auto const c =
+          pre.getPosition().getCoordinates(get_root_CoordinateSystem());
+      CORSIKA_LOG_ERROR(
+          "Rock/air interface stuck state: a particle has been logically "
+          "resident in the terrain rock while geometrically OUTSIDE it for {} "
+          "consecutive steps -- it is bleeding StandardRock dE/dx in air and "
+          "will silently range out before reaching any readout.  Reached via "
+          "a path RockExitRelocator's nudge does not cover.  pid={} "
+          "E={} GeV pos=({:.1f},{:.1f},{:.1f}) m.  Aborting rather than emit "
+          "a misleading shower output.",
+          stuck, pre.getPID(), pre.getEnergy() / 1_GeV, c.getX() / 1_m,
+          c.getY() / 1_m, c.getZ() / 1_m);
+      std::exit(EXIT_FAILURE);
+    }
+    return ProcessReturn::Ok;
+  }
+  template <typename TParticle, typename TTrajectory>
+  LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
+    return std::numeric_limits<double>::infinity() * 1_m;
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Random stream registration
@@ -155,6 +384,11 @@ void create_5layer_colca_atmosphere(TEnvironment& env,
   builder.setNuclearComposition(media::standardAirComposition);
 
   using media::AtmosphereLayerParameters;
+  // Field order is positional: AtmosphereLayerParameters is declared
+  // { LengthType altitude; GrammageType offset; LengthType scaleHeight; }
+  // (CORSIKA7Atmospheres.hpp:66-70).  addExponentialLayer/addLinearLayer
+  // take (offset b, scaleHeight, altitude upperBoundary) -- see the
+  // params[i].offset/.scaleHeight/.altitude call order below.
   constexpr std::array<AtmosphereLayerParameters, 5> params{{
       {3.8_km,   1208.0663_g / (1_cm * 1_cm), 1045629.03_cm},
       {9.7_km,   1148.2458_g / (1_cm * 1_cm),  963788.26_cm},
@@ -202,6 +436,203 @@ static void ecefToENU(double cx, double cy, double cz, std::array<double, 3>& ea
 }
 
 // ---------------------------------------------------------------------------
+// Mesh loading
+//
+// Loads the observation mesh and (optionally) the terrain mesh from their PLY
+// files (ECEF metres, scale 1 m, 1 um boundary padding).  When a terrain mesh
+// is present, checks that every obs-mesh vertex has a matching terrain vertex
+// within 1 mm (same-geometry sanity check; warns but does not fail).
+// ---------------------------------------------------------------------------
+struct LoadedMeshes {
+  TriangularMesh obsMesh;
+  std::unique_ptr<TriangularMesh> terrainMesh; // nullptr when terrain disabled
+  bool useTerrainMesh;
+};
+
+static LoadedMeshes loadMeshes(std::string const& obsMeshPath,
+                               std::string const& terrainMeshPath,
+                               CoordinateSystemPtr const& rootCS) {
+  CORSIKA_LOG_INFO("Loading observation mesh: {}", obsMeshPath);
+  // PLY coordinates are ECEF metres; load directly into rootCS with scale=1_m
+  TriangularMesh obsMesh = TriangularMesh::fromPLY(obsMeshPath, rootCS, 1_m, 1e-6_m);
+  CORSIKA_LOG_INFO("Observation mesh: {} vertices, {} triangles",
+                   obsMesh.getVertexCount(), obsMesh.getTriangleCount());
+
+  bool const useTerrainMesh =
+      !terrainMeshPath.empty() && boost::filesystem::exists(terrainMeshPath);
+  std::unique_ptr<TriangularMesh> terrainMeshPtr;
+  if (useTerrainMesh) {
+    CORSIKA_LOG_INFO("Loading terrain mesh: {}", terrainMeshPath);
+    terrainMeshPtr =
+        std::make_unique<TriangularMesh>(TriangularMesh::fromPLY(terrainMeshPath, rootCS,
+                                                                 1_m, 1e-6_m));
+    CORSIKA_LOG_INFO("Terrain mesh: {} vertices, {} triangles",
+                     terrainMeshPtr->getVertexCount(),
+                     terrainMeshPtr->getTriangleCount());
+  } else if (!terrainMeshPath.empty()) {
+    CORSIKA_LOG_WARN("Terrain mesh not found: {} -- terrain rock volume disabled",
+                     terrainMeshPath);
+  }
+
+  if (useTerrainMesh) {
+    // Check that every obs-mesh vertex has a matching vertex in the terrain mesh
+    // within 1 mm. This confirms the two files were generated from the same geometry.
+    constexpr double kTolM = 1e-3;
+    size_t nMismatched = 0;
+    double maxMinDist = 0.0;
+    for (size_t oi = 0; oi < obsMesh.getVertexCount(); ++oi) {
+      auto const oc = obsMesh.getVertex(oi).getCoordinates(rootCS);
+      double minDist2 = std::numeric_limits<double>::infinity();
+      for (size_t ti = 0; ti < terrainMeshPtr->getVertexCount(); ++ti) {
+        auto const tc = terrainMeshPtr->getVertex(ti).getCoordinates(rootCS);
+        double const dx = (oc.getX() - tc.getX()) / 1_m;
+        double const dy = (oc.getY() - tc.getY()) / 1_m;
+        double const dz = (oc.getZ() - tc.getZ()) / 1_m;
+        minDist2 = std::min(minDist2, dx * dx + dy * dy + dz * dz);
+      }
+      double const minDist = std::sqrt(minDist2);
+      maxMinDist = std::max(maxMinDist, minDist);
+      if (minDist > kTolM) ++nMismatched;
+    }
+    if (nMismatched > 0) {
+      CORSIKA_LOG_WARN(
+          "Obs/terrain mesh mismatch: {} of {} obs vertices have no matching terrain "
+          "vertex within {:.1f} mm (max gap = {:.3f} mm). The two PLY files may not "
+          "have been generated from the same geometry -- particles at the observation "
+          "surface may propagate through air instead of rock.",
+          nMismatched, obsMesh.getVertexCount(), kTolM * 1e3, maxMinDist * 1e3);
+    } else {
+      CORSIKA_LOG_INFO("Obs/terrain mesh alignment check passed (max vertex gap = {:.4f} mm).",
+                       maxMinDist * 1e3);
+    }
+  }
+  return LoadedMeshes{std::move(obsMesh), std::move(terrainMeshPtr), useTerrainMesh};
+}
+
+/* === TERRAIN ROCK VOLUME ===
+ * The terrain mesh is registered as a HomogeneousMedium (standard rock,
+ * 2.65 g/cm³, SiO2 composition) in the environment so that particles
+ * propagate through it with correct physics rather than being absorbed at
+ * the surface.  No readout is attached; particles that enter rock are
+ * tracked by CORSIKA until they stop or escape.
+ *
+ * The rock volume boundary is shifted 0.1 mm toward Earth's center relative
+ * to the terrain mesh surface.  This keeps the obs mesh (which is coplanar
+ * with the terrain surface) just inside air, avoiding z-fighting between the
+ * absorbing obs mesh and the rock boundary for particles arriving at the
+ * valley floor.  Earth-skimming particles that pass through the terrain far
+ * from the obs mesh still traverse the rock with full physics.  The PLY
+ * files are unchanged; this is a CORSIKA-side adjustment only.
+ *
+ * Returns ok=false on a fatal atmosphere-topology error (caller must abort).
+ * On success rockNodePtr is the stable terrain-rock node address, captured
+ * before the ownership move so RockExitRelocator can identify rock-exit
+ * boundary crossings; it stays nullptr (relocator no-ops) when the terrain
+ * mesh is disabled.
+ */
+struct TerrainRockResult {
+  bool ok;                 // false => fatal atmosphere-topology error, abort
+  void const* rockNodePtr; // stable rock-node address, nullptr when disabled
+};
+
+static TerrainRockResult registerTerrainRock(EnvType& env,
+                                              CoordinateSystemPtr const& rootCS,
+                                              Point const& earthSurface,
+                                              MagneticFieldVector const& obsField,
+                                              bool useTerrainMesh,
+                                              TriangularMesh const* terrainMesh) {
+  if (!useTerrainMesh) return {true, nullptr};
+  constexpr double kInsetM = 1e-4; // 0.1 mm below terrain surface
+  std::vector<Point> insetVertices;
+  insetVertices.reserve(terrainMesh->getVertexCount());
+  double rTopM = 0.0; // max vertex radius (m): how high the terrain reaches
+  for (size_t vi = 0; vi < terrainMesh->getVertexCount(); ++vi) {
+    auto const c = terrainMesh->getVertex(vi).getCoordinates(rootCS);
+    double const x = c.getX() / 1_m;
+    double const y = c.getY() / 1_m;
+    double const z = c.getZ() / 1_m;
+    double const r = std::sqrt(x * x + y * y + z * z);
+    if (r > rTopM) rTopM = r;
+    double const scale = (r - kInsetM) / r;
+    insetVertices.emplace_back(rootCS, scale * x * 1_m, scale * y * 1_m, scale * z * 1_m);
+  }
+  std::vector<std::array<size_t, 3>> faces;
+  faces.reserve(terrainMesh->getTriangleCount());
+  for (size_t ti = 0; ti < terrainMesh->getTriangleCount(); ++ti)
+    faces.push_back(terrainMesh->getTriangle(ti).getVertexIndices());
+
+  // Code::Silicon is not registered in this CORSIKA build;
+  // Set up locally using Silicon = get_nucleus_code(28, 14).
+  static media::NuclearComposition const rockComposition{
+      {Code::Oxygen, get_nucleus_code(28, 14)}, {0.533, 0.467}};
+  auto rockNode = EnvType::createNode<TriangularMesh>(std::move(insetVertices), faces);
+  rockNode->setModelProperties<MyExtraEnv<media::HomogeneousMedium<EnvironmentInterface>>>(
+      1.000327, earthSurface,
+      media::Medium::StandardRock,
+      obsField,
+      2.65_g / (1_cm * 1_cm * 1_cm),
+      rockComposition);
+  // CRITICAL: the terrain mesh straddles several spherical atmosphere layers.
+  // The tracker only tests the *current* logical node's direct children and
+  // excluded-overlap nodes -- one level, no tree descent (Intersect.inl) --
+  // and getContainingNode only consults excludes() when no child contains the
+  // point.  A rock node attached under any single layer is therefore invisible
+  // to a muon traversing it while logically resident in a different layer.
+  // Make it reachable for BOTH tracking and medium lookup by registering it as
+  // an overlap-exclusion on every atmosphere layer from the innermost up to
+  // the highest one the terrain actually reaches (topLayer, resolved via
+  // getContainingNode at the terrain's maximum radius).  Ownership goes to
+  // topLayer (the topmost spanned layer) so rock.getParent() is a real
+  // atmosphere layer -- never the universe, which would erase the particle.
+  // The tracker sets a rock-exiting particle's logical node to that parent
+  // regardless of where the exit point actually is; exact placement is
+  // delivered separately by RockExitRelocator (a BoundaryCrossingProcess in
+  // the process sequence) which, on every rock exit, re-resolves the logical
+  // node to the true containing node via a full-tree getContainingNode.  So
+  // the next step always uses the correct medium, and ownership only governs
+  // the getParent()-never-universe safety.
+  Point const rockTop{rootCS, 0_m, 0_m, rTopM * 1_m};
+  auto* topLayer = env.getUniverse()->getContainingNode(rockTop);
+  using LayerPtr = decltype(env.getUniverse().get());
+  std::vector<LayerPtr> chain;
+  for (LayerPtr L = env.getUniverse()->getChildNodes().empty()
+                        ? nullptr
+                        : env.getUniverse()->getChildNodes()[0].get();
+       L != nullptr;
+       L = L->getChildNodes().empty() ? nullptr
+                                      : L->getChildNodes()[0].get())
+    chain.push_back(L); // outermost -> innermost (single-child layer chain)
+  // Both failure cases below are fatal, not recoverable: the chain-based
+  // overlap-exclusion logic assumes the atmosphere is the expected nested
+  // single-child ball chain.  If that assumption does not hold we cannot
+  // know which layers the terrain spans, and continuing would silently run
+  // a shower in which Earth-skimming particles ghost through rock with no
+  // energy loss.  Refuse to run rather than emit a misleading parquet.
+  if (chain.empty()) {
+    CORSIKA_LOG_ERROR("No atmosphere layers found; cannot register terrain rock.");
+    return {false, nullptr};
+  }
+  bool reached = false;
+  for (auto* L : chain) {
+    if (L == topLayer) reached = true;
+    if (reached) L->excludeOverlapWith(rockNode); // topLayer .. innermost
+  }
+  if (!reached) {
+    CORSIKA_LOG_ERROR(
+        "Terrain top did not resolve into the atmosphere layer chain -- the "
+        "atmosphere topology is not the expected nested single-child ball "
+        "chain (terrain above the atmosphere, or the atmosphere is not the "
+        "universe's first-child path).  Refusing to register terrain rock.");
+    return {false, nullptr};
+  }
+  void const* const rockNodePtr = rockNode.get(); // stable address before move
+  topLayer->addChild(std::move(rockNode)); // topmost spanned layer owns it
+  CORSIKA_LOG_INFO("Terrain mesh registered as standard rock volume (2.65 g/cm3, {:.2f} mm inset)",
+                   kInsetM * 1e3);
+  return {true, rockNodePtr};
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
 int main(int argc, char** argv) {
@@ -214,8 +645,9 @@ int main(int argc, char** argv) {
       "Particle Cascades in Astroparticle Physics\", Comput. Softw. Big Sci. 3 (2019) "
       "2, https://doi.org/10.1007/s41781-018-0013-0");
 
+  #pragma region CLI options
   // ---- Primary ID ----
-  int A = 0, Z = 0, nevent = 0;
+  int A = 0, Z = 0;
   std::vector<double> cli_energy_range;
 
   auto opt_Z = app.add_option("-Z", Z, "Atomic number for primary")
@@ -334,13 +766,12 @@ int main(int argc, char** argv) {
       ->group("Thinning");
 
   // ---- Output ----
-  app.add_option("-N,--nevent", nevent, "Number of showers to simulate")
+  app.add_option("-N,--nevent", "Number of showers to simulate")
       ->default_val(1)
       ->check(CLI::PositiveNumber)
       ->group("Output");
   app.add_option("-f,--filename", "Output library filename")
       ->required()
-      ->default_val("tambo_library")
       ->group("Output");
   bool compressOutput = false;
   app.add_flag("--compress", compressOutput, "Compress output directory to tarball")
@@ -362,10 +793,6 @@ int main(int argc, char** argv) {
   bool force_decay = false;
   app.add_flag("--force-decay", force_decay, "Force the primary to immediately decay")
       ->group("Misc");
-  bool disable_interaction_hists = true;
-  app.add_flag("--disable-interaction-histograms", disable_interaction_hists,
-               "Disable saving interaction histograms")
-      ->group("Misc");
   app.add_option("-v,--verbosity", "Verbosity level: warn, info, debug, trace")
       ->default_val("info")
       ->check(CLI::IsMember({"warn", "info", "debug", "trace"}))
@@ -376,6 +803,9 @@ int main(int argc, char** argv) {
       ->check(CLI::IsMember({"neutral", "NC", "charged", "CC", "both"}))
       ->group("Misc");
 
+  #pragma endregion
+
+  #pragma region Parse + validate
   CLI11_PARSE(app, argc, argv);
 
   // ---- Verbosity ----
@@ -387,7 +817,7 @@ int main(int argc, char** argv) {
     else if (lv == "trace") {
 #ifndef _C8_DEBUG_
       CORSIKA_LOG_ERROR("trace log level requires a Debug build.");
-      return 1;
+      return EXIT_FAILURE;
 #endif
       logging::set_level(logging::level::trace);
     }
@@ -397,13 +827,16 @@ int main(int argc, char** argv) {
   if (app.count("--pdg") == 0) {
     if ((app.count("-A") == 0) || (app.count("-Z") == 0)) {
       CORSIKA_LOG_ERROR("If --pdg is not provided, both -A and -Z are required.");
-      return 1;
+      return EXIT_FAILURE;
     }
   }
 
   // ---- Random streams ----
   auto seed = registerRandomStreams(app["--seed"]->as<long>());
 
+  #pragma endregion
+
+  #pragma region Environment
   /* === ENVIRONMENT === */
   EnvType env;
   CoordinateSystemPtr const& rootCS = env.getCoordinateSystem();
@@ -411,31 +844,19 @@ int main(int argc, char** argv) {
   Point const earthSurface{rootCS, 0_m, 0_m, constants::EarthRadius::Mean};
   // media::GeomagneticModel wmm(earthCenter, corsika_data("GeoMag/WMM.COF"));
 
+  #pragma endregion
+
+  #pragma region Load meshes
   /* === LOAD MESHES === */
-  std::string const obsMeshPath = app["--obs-mesh"]->as<std::string>();
-  CORSIKA_LOG_INFO("Loading observation mesh: {}", obsMeshPath);
-  // PLY coordinates are ECEF metres; load directly into rootCS with scale=1_m
-  TriangularMesh obsMesh = TriangularMesh::fromPLY(obsMeshPath, rootCS, 1_m, 1e-6_m);
-  CORSIKA_LOG_INFO("Observation mesh: {} vertices, {} triangles",
-                   obsMesh.getVertexCount(), obsMesh.getTriangleCount());
+  LoadedMeshes loadedMeshes = loadMeshes(app["--obs-mesh"]->as<std::string>(),
+                                         app["--terrain-mesh"]->as<std::string>(),
+                                         rootCS);
+  TriangularMesh& obsMesh = loadedMeshes.obsMesh;
+  bool const useTerrainMesh = loadedMeshes.useTerrainMesh;
 
-  std::string const terrainMeshPath = app["--terrain-mesh"]->as<std::string>();
-  bool const useTerrainMesh =
-      !terrainMeshPath.empty() && boost::filesystem::exists(terrainMeshPath);
-  std::unique_ptr<TriangularMesh> terrainMeshPtr;
-  if (useTerrainMesh) {
-    CORSIKA_LOG_INFO("Loading terrain mesh: {}", terrainMeshPath);
-    terrainMeshPtr =
-        std::make_unique<TriangularMesh>(TriangularMesh::fromPLY(terrainMeshPath, rootCS,
-                                                                 1_m, 1e-6_m));
-    CORSIKA_LOG_INFO("Terrain mesh: {} vertices, {} triangles",
-                     terrainMeshPtr->getVertexCount(),
-                     terrainMeshPtr->getTriangleCount());
-  } else if (!terrainMeshPath.empty()) {
-    CORSIKA_LOG_WARN("Terrain mesh not found: {} -- terrain absorber disabled",
-                     terrainMeshPath);
-  }
+  #pragma endregion
 
+  #pragma region Intercept + ENU
   /* === INTERCEPT POINT AND ENU FRAME ===
    * The intercept is the pre-computed intersection of the particle trajectory
    * with the detector region, passed in ECEF metres from the Julia caller.
@@ -444,53 +865,13 @@ int main(int argc, char** argv) {
   double const cx = app["--intercept-x"]->as<double>();
   double const cy = app["--intercept-y"]->as<double>();
   double const cz = app["--intercept-z"]->as<double>();
-  CORSIKA_LOG_INFO("Shower core / intercept (ECEF m): ({:.1f}, {:.1f}, {:.1f})", cx, cy, cz);
-
   std::array<double, 3> eastHat, northHat, upHat;
   ecefToENU(cx, cy, cz, eastHat, northHat, upHat);
 
-  /* === ESCAPE PLANE: 1 mm below the lowest point of the observation mesh ===
-   *
-   * The plane is perpendicular to the upward radial direction at the
-   * area-weighted centroid of the observation mesh (i.e. normal = upHat).
-   * "Lowest" is measured as the minimum projection of obs-mesh vertices
-   * onto upHat, which is the vertical distance from Earth centre.
-   * Absorbing: particles that escape the obs mesh and terrain are recorded
-   * and removed here instead of propagating indefinitely.
-   */
-  double minVertProj = std::numeric_limits<double>::infinity();
-  for (size_t vi = 0; vi < obsMesh.getVertexCount(); ++vi) {
-    auto const coords = obsMesh.getVertex(vi).getCoordinates(rootCS);
-    double const proj = coords.getX() / 1_m * upHat[0]
-                      + coords.getY() / 1_m * upHat[1]
-                      + coords.getZ() / 1_m * upHat[2];
-    minVertProj = std::min(minVertProj, proj);
-  }
-  double const escapePlaneDist = minVertProj - 0.001; // 1 mm below lowest vertex
-  Point const escapePlaneCenter{rootCS,
-      escapePlaneDist * upHat[0] * 1_m,
-      escapePlaneDist * upHat[1] * 1_m,
-      escapePlaneDist * upHat[2] * 1_m};
-  DirectionVector const escapeNormal{rootCS, {upHat[0], upHat[1], upHat[2]}};
-  DirectionVector const escapeRefDir{rootCS, {eastHat[0], eastHat[1], eastHat[2]}};
-  Plane const escapePlane{escapePlaneCenter, escapeNormal};
-  CORSIKA_LOG_INFO("Escape plane distance from Earth centre: {:.1f} m  ({:.1f} mm below lowest obs vertex)",
-                   escapePlaneDist, 1.0);
+  #pragma endregion
 
+  #pragma region Atmosphere
   /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
-  // // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
-  // //   B_E ~ -1700 nT (slightly westward)
-  // //   B_N ~ 25500 nT (mostly northward)
-  // //   B_U ~ 11000 nT (upward, southern hemisphere)
-  // // Rotate these ENU components into ECEF using the site's ENU basis vectors.
-  // constexpr double B_E_T =  -1700e-9;  // Tesla (eastward component)
-  // constexpr double B_N_T =  25500e-9;  // Tesla (northward component)
-  // constexpr double B_U_T =  11000e-9;  // Tesla (upward component)
-  // double const Bx = B_E_T * eastHat[0] + B_N_T * northHat[0] + B_U_T * upHat[0];
-  // double const By = B_E_T * eastHat[1] + B_N_T * northHat[1] + B_U_T * upHat[1];
-  // double const Bz = B_E_T * eastHat[2] + B_N_T * northHat[2] + B_U_T * upHat[2];
-  // MagneticFieldVector const obsField{rootCS, Bx * 1_T, By * 1_T, Bz * 1_T};
-
   // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
   // see https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
   constexpr double B_E =  -2.5;  // uT (eastward component)
@@ -510,6 +891,19 @@ int main(int argc, char** argv) {
       env, earthCenter, 1.000327, earthSurface,
       media::Medium::AirDry1Atm, obsField);
 
+  #pragma endregion
+
+  #pragma region Terrain rock volume
+  /* === TERRAIN ROCK VOLUME (see registerTerrainRock above) === */
+  auto const rock = registerTerrainRock(env, rootCS, earthSurface, obsField,
+                                        useTerrainMesh,
+                                        loadedMeshes.terrainMesh.get());
+  if (!rock.ok) return EXIT_FAILURE;
+  void const* const rockNodePtr = rock.rockNodePtr;
+
+  #pragma endregion
+
+  #pragma region Primary particle ID
   /* === PRIMARY PARTICLE ID === */
   Code beamCode;
   if (app.count("--pdg") > 0) {
@@ -531,9 +925,12 @@ int main(int argc, char** argv) {
     eMax = std::max(cli_energy_range[0], cli_energy_range[1]) * 1_GeV;
   } else {
     CORSIKA_LOG_CRITICAL("Must set either --energy or --energy_range.");
-    return 1;
+    return EXIT_FAILURE;
   }
 
+  #pragma endregion
+
+  #pragma region Injection geometry
   /* === INJECTION GEOMETRY ===
    * The injection point and shower-core intercept are provided directly in
    * ECEF metres. The shower direction is the unit vector from inject to intercept.
@@ -565,6 +962,9 @@ int main(int argc, char** argv) {
   CORSIKA_LOG_INFO("Injection distance: {:.1f} km", dnorm / 1000.);
   CORSIKA_LOG_INFO("Propagation direction (ECEF): ({:.4f}, {:.4f}, {:.4f})", pnx, pny, pnz);
 
+  #pragma endregion
+
+  #pragma region Output manager
   /* === OUTPUT MANAGER === */
   std::stringstream args;
   for (int i = 0; i < argc; ++i) { args << argv[i] << " "; }
@@ -591,6 +991,9 @@ int main(int argc, char** argv) {
   // TrackWriter<TrackWriterParquet> trackWriter;
   // output.add("tracks", trackWriter);
 
+  #pragma endregion
+
+  #pragma region Physics processes
   /* === PHYSICS PROCESSES === */
   DynamicInteractionProcess<StackType> heModel;
   set<Code> const trackedParticles =
@@ -692,10 +1095,13 @@ int main(int argc, char** argv) {
   auto hadronSequence =
       make_select(EnergySwitch(heThreshold), leIntCounted, heCounted);
 
+  #pragma endregion
+
+  #pragma region Observation mesh
   /* === OBSERVATION MESH (absorbing: records and removes particles at valley floor) === */
   ObservationMesh<TrackingType, ParticleWriterParquet> observationLevel{
       obsMesh, 
-      true,     // absorbinb
+      true,     // absorbing
       1e-6_m,   // padding
       false,    // writeHitInfo
       true,     // recordEntry
@@ -703,17 +1109,15 @@ int main(int argc, char** argv) {
     };
   output.add("particles", observationLevel);
 
-  /* === ESCAPE PLANE (absorbing: catches particles that miss the obs mesh) === */
-  ObservationPlane<TrackingType, ParticleWriterParquet> escapeLevel{
-      escapePlane, escapeRefDir, true, 1e-6_m};
-  output.add("escape", escapeLevel);
-
   PrimaryWriter<TrackingType, ParticleWriterParquet> primaryWriter(obsMesh);
   output.add("primary", primaryWriter);
 
   InteractionWriter<TrackingType, ParticleWriterParquet> inter_writer(showerAxis, obsMesh);
   output.add("interactions", inter_writer);
 
+  #pragma endregion
+
+  #pragma region Shower loop
   /* === SHOWER LOOP === */
   // Per-shower quantities extracted from CLI to avoid repeated parsing
   double const emthinfrac = app["--emthin"]->as<double>();
@@ -734,15 +1138,25 @@ int main(int argc, char** argv) {
                             : 0.5 * emthinfrac * primaryTotalEnergy / 1_GeV;
     EMThinning thinning{emthinfrac * primaryTotalEnergy, maxW, !multithin};
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
+    RockExitRelocator rockRelocator{env, rockNodePtr};
+    RockEMAbsorber rockEMAbsorber{rockNodePtr};
+    RockInterfaceTripwire rockTripwire{rockNodePtr};
 
-    // Order mirrors c8_air_shower: inspector first, thinning near end before cut
-    auto fullSequence = make_sequence(stackInspect, 
+    // Order mirrors c8_air_shower: inspector first, thinning near end before cut.
+    // rockRelocator runs early so any later boundary-aware process in the same
+    // crossing observes the corrected logical node.  rockEMAbsorber runs before
+    // the EM/hadron/decay processes so an e+-/gamma in rock is removed before
+    // any interaction is sampled for it that step (collapsing the cascade).
+    // rockTripwire is a passive per-step invariant check (logical==rock implies
+    // contains()); it mutates nothing and only aborts on a sustained violation.
+    auto fullSequence = make_sequence(stackInspect, rockRelocator, rockEMAbsorber,
+                                      rockTripwire,
                                       neutrinoPrimaryPythia, hadronSequence,
                                       decaySequence, emCascade, 
                                       // prodprof, 
                                       emContinuous,
                                       longprof, sequence,
-    // trackWriter,  // uncomment together with the block above 
+                                      // trackWriter,  
                                       inter_writer, 
                                       thinning, cut);
 
@@ -769,24 +1183,7 @@ int main(int argc, char** argv) {
 
     primaryWriter.recordPrimary(primaryProperties);
     EAS.run();
-
-    if (!disable_interaction_hists) {
-      auto const hists = heCounted.getHistogram() + leIntCounted.getHistogram();
-      string const histDir = outFilename + "/interaction_hist";
-      boost::filesystem::create_directories(histDir);
-      save_hist(hists.labHist(),
-                histDir + "/inthist_lab_" + to_string(i_shower) + ".npz", true);
-      save_hist(hists.CMSHist(),
-                histDir + "/inthist_cms_" + to_string(i_shower) + ".npz", true);
-    }
   };
-
-  // terrainLevel must outlive output.endOfLibrary() since output holds a reference to it.
-  std::optional<ObservationMesh<TrackingType, ParticleWriterParquet>> terrainLevel;
-  if (useTerrainMesh) {
-    terrainLevel.emplace(*terrainMeshPtr, true, 1e-6_m);
-    output.add("terrain", *terrainLevel);
-  }
 
   output.startOfLibrary();
   for (int i = 1; i <= nev; ++i) {
@@ -794,15 +1191,11 @@ int main(int argc, char** argv) {
     HEPEnergyType const E = (eMax == eMin)
         ? eMin
         : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
-    if (useTerrainMesh) {
-      auto obsMeshSequence = make_sequence(observationLevel, *terrainLevel, escapeLevel);
-      runOneShower(obsMeshSequence, i, E);
-    } else {
-      auto obsMeshSequence = make_sequence(observationLevel, escapeLevel);
-      runOneShower(obsMeshSequence, i, E);
-    }
+    auto obsMeshSequence = make_sequence(observationLevel);
+    runOneShower(obsMeshSequence, i, E);
   }
 
   output.endOfLibrary();
+  #pragma endregion
   return EXIT_SUCCESS;
 }

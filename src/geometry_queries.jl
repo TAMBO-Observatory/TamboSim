@@ -180,3 +180,66 @@ function place_detector_units(
 
     return obbs, isempty(obbs) ? nothing : BVHTree(obbs)
 end
+
+"""
+    rock_traversed(ray::Ray{T}, bvh::BVHTree; cap = Inf*u"m") -> (path_length, grammage)
+
+Rock path length and column depth a `ray` crosses through the topography
+mesh `bvh`, out to a distance `cap` along the ray.
+
+Segments are classified air vs rock by [`compute_density`](@ref): a segment
+denser than `AIR_DENSITY` counts as rock, and only rock segments contribute
+to the returned totals. The final segment is clipped at `cap`.
+
+# Returns
+- `(path_length, grammage)` — rock path length (`u"km"`) and column depth
+  (`u"g/cm^2"`).
+"""
+function rock_traversed(ray::Ray{T}, bvh::BVHTree;
+                        cap::Quantity = Inf * u"m") where {T}
+    ixs = Vector{Intersection{T}}(intersect_all(bvh, ray))
+    isempty(ixs) && return (0.0u"km", 0.0u"g/cm^2")
+    dens = compute_density(ixs, ray.direction)
+    lens = compute_lengths(ixs)
+    pathlen, grammage, remaining = 0.0u"m", 0.0u"g/cm^2", cap
+    for (l, ρ) in zip(lens, dens)
+        remaining <= 0.0u"m" && break
+        seg = min(l, remaining)                # clip the final partial segment
+        if ρ > AIR_DENSITY                     # rock segment
+            pathlen  += seg
+            grammage += ρ * seg
+        end
+        remaining -= seg
+    end
+    return (pathlen |> u"km", grammage |> u"g/cm^2")
+end
+
+"""
+    rock_overburden(qframe::Frame; initial_key = "injection_initial_state")
+        -> (path_length, grammage)
+
+Rock an event's primary traverses between its injection point and where its
+forward trajectory first enters the detector region — the "overburden" that
+governs whether a muon survives to the detector.
+
+The initial-state `Particle` is read from `qframe[initial_key]`; its forward
+ray is capped at the detector-region entry (`qframe["detector_bvh"]`) and run
+through the topography BVH (`qframe["bvh"]`) by [`rock_traversed`](@ref). Both
+BVHs are resolved via frame-parent inheritance, so `qframe` must have its G
+and D parents attached.
+
+Throws if the trajectory never enters the detector region.
+
+# Returns
+- `(path_length, grammage)` — see [`rock_traversed`](@ref).
+"""
+function rock_overburden(qframe::Frame;
+                         initial_key::String = "injection_initial_state")
+    p     = qframe[initial_key]::Particle
+    ray   = Ray(p)
+    entry = find_intersect(ray, qframe["detector_bvh"])
+    entry === nothing && error(
+        "rock_overburden: trajectory from `$initial_key` never enters the " *
+        "detector region")
+    return rock_traversed(ray, qframe["bvh"]; cap = entry.distance)
+end

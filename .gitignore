@@ -10,6 +10,8 @@ notebooks/output/*
 fort*
 
 src/corsika/tambo_shower/build/
+src/corsika/build/
+resources/corsika/src/build/
 resources/proposal_tables/*.json
 resources/proposal_tables/*.dat
 examples/output/

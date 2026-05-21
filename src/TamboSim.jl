@@ -33,6 +33,7 @@ export PhaseSpace,
        upwards_ray_at,
        is_above_topography,
        place_detector_units,
+       nucleus_pdg,
        # CORSIKA orchestration
        corsika_run!,
        plan_corsika_jobs,

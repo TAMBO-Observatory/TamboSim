@@ -10,7 +10,7 @@ CI). The `run_local` executor is exercised indirectly via the
 records `corsika_run!` produces.
 """
 
-import TamboSim: _get_last_frame, inject_protons!
+import TamboSim: _get_last_frame, inject_cosmicrays!
 
 using JSON3
 
@@ -54,7 +54,7 @@ function run_corsika_orchestrator_tests()
     # mutating tests (stamping, dump_to_file) run LAST so their writes
     # don't affect the read-only tests above.
     cr_frames = load_frames(_GEOMETRY_PATH)
-    inject_protons!(cr_frames, _cr_injection_config())
+    inject_cosmicrays!(cr_frames, _cr_injection_config())
 
     # Combined load: load_frames stitches the M frame's parents to the
     # geometry's G/C/D so plan_corsika_jobs can walk to D for the BVH.

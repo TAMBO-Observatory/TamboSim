@@ -233,3 +233,34 @@
     PhotoMuPair = 1000000015
     Photoeffect = 1000000016
 end
+
+"""
+    nucleus_pdg(A::Integer, Z::Integer) -> Int
+
+PDG Monte Carlo code for a ground-state nucleus of mass number `A` and
+atomic number `Z`, using the standard `10LZZZAAAI` scheme (strangeness
+`L = 0`, isomer level `I = 0`):
+
+    code = 1_000_000_000 + 10_000·Z + 10·A
+
+E.g. `nucleus_pdg(16, 8) == 1000080160` (O-16),
+`nucleus_pdg(56, 26) == 1000260560` (Fe-56). Matches the `*Nucleus`
+members of [`ParticleType`](@ref) and is what CORSIKA's `convert_from_PDG`
+decomposes back into `(A, Z)`.
+
+Special case: `nucleus_pdg(1, 1)` returns `2212` (`PPlus`) with a warning,
+since a free proton is conventionally identified by its own PDG code rather
+than the nuclear scheme.
+
+Errors if `Z < 1`, `A < Z`, or `Z > 118` (beyond the known elements).
+"""
+function nucleus_pdg(A::Integer, Z::Integer)
+    if A == 1 && Z == 1
+        @warn "nucleus_pdg(1, 1): a free proton is PDG 2212 (PPlus), not the nuclear code. Returning 2212."
+        return 2212
+    end
+    Z >= 1   || error("nucleus_pdg: Z must be >= 1, got Z=$Z")
+    A >= Z   || error("nucleus_pdg: A must be >= Z (mass number >= atomic number), got A=$A, Z=$Z")
+    Z <= 118 || error("nucleus_pdg: Z=$Z is beyond the known elements (max 118)")
+    return 1_000_000_000 + 10_000 * Z + 10 * A
+end

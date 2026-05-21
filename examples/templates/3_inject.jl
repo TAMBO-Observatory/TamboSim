@@ -21,7 +21,7 @@
 #   <config>.toml       injection settings — `strategy`, energy range,
 #                       zenith range, n events, RNG seed (`seed`),
 #                       primary PDG + cross-section table location
-#                       (neutrino) or sampling `altitude` (proton).
+#                       (neutrino) or sampling `altitude` (cosmic ray).
 #
 # Output:
 #   <outfile>.jld2      Q-frame stream containing one frame per sampled

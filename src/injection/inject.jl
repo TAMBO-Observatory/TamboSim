@@ -439,7 +439,8 @@ function inject_neutrino_event(
 end
 
 """
-    inject_proton_event(
+    inject_cosmicray_event(
+        pdg::Int,
         cs::CoordinateSystem{T},
         as::UniformAngularSampler,
         pl::UnitfulPowerLawSampler,
@@ -448,10 +449,12 @@ end
         epsilon=1e-6*u"m"
     ) where {T<:Real}
 
-Simulates the injection of a downgoing cosmic ray proton.
+Simulates the injection of a downgoing cosmic-ray primary of the given
+`pdg` (e.g. `2212` for a proton, `1000080160` for an O-16 nucleus — any
+code defined in the `ParticleType` enum).
 
 Unlike neutrino injection, this skips TauRunner/PROPOSAL and directly produces
-a proton particle suitable for CORSIKA shower simulation. The proton starts at
+a primary particle suitable for CORSIKA shower simulation. The primary starts at
 the specified altitude above the detector, traveling downward along the sampled
 direction.
 
@@ -462,21 +465,24 @@ direction.
 4. Samples energy from the power-law sampler.
 
 # Arguments
+- `pdg::Int`: PDG code of the cosmic-ray primary. Must be a value defined
+  in the `ParticleType` enum (e.g. `2212` proton, `1000260560` Fe-56).
 - `cs::CoordinateSystem{T}`: ECEF-anchored coordinate system.
 - `as::UniformAngularSampler`: Sampler for the angular distribution.
 - `pl::UnitfulPowerLawSampler`: Sampler for the energy distribution.
 - `detector_props::DetectorProperties{T}`: Pre-computed detector properties.
-- `altitude::Quantity`: Starting altitude for the proton (default: 112 km).
+- `altitude::Quantity`: Starting altitude for the primary (default: 112 km).
 - `epsilon`: Small offset to avoid self-intersections (default: 1e-6 m).
 
 # Returns
-- `(initial_proton::Particle, final_proton::Particle, point)`:
-  `initial_proton` is at the detector surface point (before backtracing),
-  `final_proton` is at the specified altitude (after backtracing, ready for CORSIKA),
+- `(initial_primary::Particle, final_primary::Particle, point)`:
+  `initial_primary` is at the detector surface point (before backtracing),
+  `final_primary` is at the specified altitude (after backtracing, ready for CORSIKA),
   `point` is the `SurfaceCRPoint` phase-space coordinate.
   If no visible triangles exist, both particles have `NaN` energy and `point` is `nothing`.
 """
-function inject_proton_event(
+function inject_cosmicray_event(
+    pdg::Int,
     cs::CoordinateSystem{T},
     as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
@@ -494,7 +500,7 @@ function inject_proton_event(
     if isnothing(p)
         coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
         dir = Direction([NaN, NaN, NaN], cs)
-        nan_particle = Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, PPlus, NaN*u"GeV", coord, dir)
+        nan_particle = Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, ParticleType(pdg), NaN*u"GeV", coord, dir)
         return nan_particle, nan_particle, nothing
     end
 
@@ -523,16 +529,17 @@ function inject_proton_event(
     discriminant = a_dot_b^2 - a_sq + target_r^2
     t = -a_dot_b + sqrt(discriminant)
 
-    proton_position = Coordinate(p.point + revd.point * t, cs)
+    primary_position = Coordinate(p.point + revd.point * t, cs)
 
     energy = rand(pl)
-    initial_proton = Particle(PPlus, energy, p, d)
-    final_proton = Particle(PPlus, energy, proton_position, d)
+    primary_type = ParticleType(pdg)
+    initial_primary = Particle(primary_type, energy, p, d)
+    final_primary = Particle(primary_type, energy, primary_position, d)
 
     theta, phi = cart_to_sph(d)
     point = SurfaceCRPoint(energy, theta, phi, sum(visible_areas))
 
-    return initial_proton, final_proton, point
+    return initial_primary, final_primary, point
 end
 
 function _setup_injection(frames::TamboFrames, config::Dict, prefix::String, fname::String)
@@ -567,7 +574,7 @@ Unified injection entrypoint. Reads `config["strategy"]` and dispatches
 to the matching backend:
 
 - `"NeutrinoInjection"`   → [`inject_neutrinos!`](@ref)
-- `"CosmicRayInjection"`  → [`inject_protons!`](@ref)
+- `"CosmicRayInjection"`  → [`inject_cosmicrays!`](@ref)
 
 Errors loudly if `strategy` is missing or not recognized. The backends
 remain callable directly for tests and power users.
@@ -585,7 +592,7 @@ function inject!(
     if strategy == "NeutrinoInjection"
         return inject_neutrinos!(frames, config; prefix=prefix)
     elseif strategy == "CosmicRayInjection"
-        return inject_protons!(frames, config; prefix=prefix)
+        return inject_cosmicrays!(frames, config; prefix=prefix)
     else
         error(
             "inject!: unknown strategy \"$strategy\". " *
@@ -687,14 +694,44 @@ function inject_neutrinos!(
 end
 
 """
-    inject_protons!(frames::TamboFrames, config::Dict; prefix::String="injection")
+    _resolve_primary_pdg(config::Dict) -> Int
 
-Inject downgoing cosmic-ray protons onto the detector surface. Mutates
+Resolve the cosmic-ray primary PDG code from an injection config. Accepts
+either an explicit `"pdg"` key, or an `"A"`/`"Z"` pair converted via
+[`nucleus_pdg`](@ref). Exactly one form must be present — supplying both,
+neither, or only one of `A`/`Z` is an error.
+"""
+function _resolve_primary_pdg(config::Dict)
+    has_pdg = haskey(config, "pdg")
+    has_A   = haskey(config, "A")
+    has_Z   = haskey(config, "Z")
+    if has_pdg && (has_A || has_Z)
+        error("inject_cosmicrays!: config specifies both `pdg` and `A`/`Z` — " *
+              "use one form, not both.")
+    elseif has_pdg
+        return Int(config["pdg"])
+    elseif has_A && has_Z
+        return nucleus_pdg(Int(config["A"]), Int(config["Z"]))
+    else
+        error("inject_cosmicrays!: config must specify either `pdg`, or both " *
+              "`A` and `Z` (mass and atomic number).")
+    end
+end
+
+"""
+    inject_cosmicrays!(frames::TamboFrames, config::Dict; prefix::String="injection")
+
+Inject downgoing cosmic-ray primaries onto the detector surface. The
+primary species is resolved by [`_resolve_primary_pdg`](@ref): give either
+`config["pdg"]` (e.g. `2212` proton, `1000080160` O-16 — any code in the
+`ParticleType` enum), or a `config["A"]`/`config["Z"]` pair for a nucleus.
+The resolved code is canonicalized into the M-frame config snapshot so
+`build_phase_space` / `oneweight` always see an explicit `pdg`. Mutates
 `frames` by appending one new M frame (with `config` snapshotted under
 `prefix` for provenance) and `config["nevent"]` Q frames. Each Q frame
 carries:
 
-- `<prefix>_initial_state` — proton backtraced to `config["altitude"]` above
+- `<prefix>_initial_state` — primary backtraced to `config["altitude"]` above
   Earth, ready for CORSIKA injection
 - `phase_space_point::SurfaceCRPoint` — surface-injection phase-space
   coordinates consumed downstream by `oneweight` / `oneweights`.
@@ -703,23 +740,28 @@ Q frames where the angular sampler hit no visible detector triangles are
 silently skipped and have none of the above keys written.
 
 Unlike [`inject!`](@ref), this does not force a CC interaction — every
-sampled proton produces a shower at its sampled position by construction,
+sampled primary produces a shower at its sampled position by construction,
 so the close- and final-state-of-the-CC-vertex machinery is not needed.
 
 # Arguments
 - `frames::TamboFrames`: container to mutate; must already contain G, C, D.
-- `config::Dict`: parsed config table. Must contain `"nevent"`.
+- `config::Dict`: parsed config table. Must contain `"nevent"`, and
+  either `"pdg"` or both `"A"` and `"Z"` (mass and atomic number).
 
 # Keyword arguments
 - `prefix::String`: namespace for the config snapshot and per-Q-frame
   state keys. Default `"injection"`.
 """
-function inject_protons!(
+function inject_cosmicrays!(
     frames::TamboFrames,
     config::Dict;
     prefix::String="injection"
 )
-    g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_protons!")
+    pdg = _resolve_primary_pdg(config)
+    # Canonicalize to an explicit `pdg` so the M-frame snapshot (and thus
+    # build_phase_space / oneweight) always sees one, even for A/Z configs.
+    config = merge(config, Dict{String,Any}("pdg" => pdg))
+    g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_cosmicrays!")
     d_frame = m_frame.d_frame
 
     cs              = g_frame["cs"]
@@ -741,13 +783,13 @@ function inject_protons!(
     detector_props = precompute_detector_properties(topography, detector_region)
     Random.seed!(config["seed"])
 
-    @llama_showprogress "Injecting protons" for frame in q_frames
-        initial_proton, final_proton, point = inject_proton_event(
-            cs, as, pl, detector_props;
+    @llama_showprogress "Injecting cosmic rays" for frame in q_frames
+        initial_primary, final_primary, point = inject_cosmicray_event(
+            pdg, cs, as, pl, detector_props;
             altitude=altitude,
         )
-        if !isnan(initial_proton.energy)
-            frame["$(prefix)_initial_state"] = final_proton
+        if !isnan(initial_primary.energy)
+            frame["$(prefix)_initial_state"] = final_primary
             point === nothing || (frame["phase_space_point"] = point)
         end
     end

@@ -9,7 +9,7 @@
 # `config["strategy"]` and dispatches to one of the backends:
 #
 #   "NeutrinoInjection"  → inject_neutrinos!
-#   "CosmicRayInjection" → inject_protons!
+#   "CosmicRayInjection" → inject_cosmicrays!
 #
 # This walkthrough calls the backends directly (sections 2 and 7) so the
 # per-strategy mechanics are explicit; in production scripts, prefer
@@ -28,7 +28,7 @@
 #   4. The three injection states and how the sampling inversion sets them
 #   5. phase_space_point — the per-event handoff to the weighting walkthrough
 #   6. Failure mode: when an injected direction doesn't see any rock
-#   7. Variant: inject_protons! for cosmic-ray primaries
+#   7. Variant: inject_cosmicrays! for cosmic-ray primaries
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using TamboSim
@@ -239,15 +239,15 @@ sort(collect(keys(failed_q.data)))  # event_id alone — no injection_*_state, n
 # does with the surviving injection_final_state.
 
 # =============================================================================
-# 7. Variant: inject_protons! for cosmic-ray primaries
+# 7. Variant: inject_cosmicrays! for cosmic-ray primaries
 # =============================================================================
-# Cosmic-ray protons are surface-injected: every primary produces a shower
+# Cosmic-ray primaries are surface-injected: every primary produces a shower
 # by construction, so there's no forced CC interaction, no Earth-propagation
-# cascade, and no cross-section table. inject_protons! shares the same
+# cascade, and no cross-section table. inject_cosmicrays! shares the same
 # spectrum + angular samplers as inject_neutrinos!, but the per-event work
 # and the resulting Q-frame keys are different.
 
-@doc TamboSim.inject_protons!
+@doc TamboSim.inject_cosmicrays!
 
 proton_config_file = joinpath(tambo_path, "resources", "configuration_examples", "cosmic_ray_proton.toml")
 proton_config = TOML.parsefile(proton_config_file)
@@ -268,7 +268,7 @@ proton_injection_config["seed"] = SEED
 # Run on a fresh frames container so we can compare side-by-side with the
 # neutrino frames above without mutating them.
 proton_frames = load_frames(geometry_file)
-TamboSim.inject_protons!(proton_frames, proton_injection_config)
+TamboSim.inject_cosmicrays!(proton_frames, proton_injection_config)
 
 proton_frames                       # tree view: M frame + NEVENT Q frames
 

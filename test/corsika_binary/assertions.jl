@@ -65,6 +65,10 @@ end
 _ecef_pos(coord) = ustrip.(u"m", convert(TamboSim.ecefcoordinates, coord).point)
 _ecef_dir(dir)   = convert(TamboSim.ecefcoordinates, dir).point
 
+# "event_NNNNNN/shower_N" — the per-shower label each check tags its testset
+# with, so the report stays attributable when the checks are grouped by type.
+_label(shower_dir) = "$(basename(dirname(shower_dir)))/$(basename(shower_dir))"
+
 # ===========================================================================
 # Output tree — smoke test
 # ===========================================================================
@@ -77,26 +81,28 @@ summary.yaml, the five writer subdirectories, every parquet present, readable,
 and carrying its leading `shower` column, and the binary exited 0.
 """
 function assert_output_tree(shower_dir)
-    @test isdir(shower_dir)
+    @testset "$(_label(shower_dir))" begin
+        @test isdir(shower_dir)
 
-    # Phase 3 records the binary's exit code in a sibling .rc file.
-    rc_file = shower_dir * ".rc"
-    @test isfile(rc_file)
-    isfile(rc_file) && @test strip(read(rc_file, String)) == "0"
+        # Phase 3 records the binary's exit code in a sibling .rc file.
+        rc_file = shower_dir * ".rc"
+        @test isfile(rc_file)
+        isfile(rc_file) && @test strip(read(rc_file, String)) == "0"
 
-    @test isfile(joinpath(shower_dir, "config.yaml"))
-    @test isfile(joinpath(shower_dir, "summary.yaml"))
-    for sub in ("energyloss", "profile", "particles", "primary", "interactions")
-        @test isdir(joinpath(shower_dir, sub))
+        @test isfile(joinpath(shower_dir, "config.yaml"))
+        @test isfile(joinpath(shower_dir, "summary.yaml"))
+        for sub in ("energyloss", "profile", "particles", "primary", "interactions")
+            @test isdir(joinpath(shower_dir, sub))
+        end
+        for rel in _PARQUETS
+            p = joinpath(shower_dir, rel)
+            @test isfile(p)
+            isfile(p) && @test :shower in keys(_read_parquet(p))
+        end
+
+        # the primary writer emits YAML only — no parquet file
+        @test isfile(joinpath(shower_dir, "primary", "summary.yaml"))
     end
-    for rel in _PARQUETS
-        p = joinpath(shower_dir, rel)
-        @test isfile(p)
-        isfile(p) && @test :shower in keys(_read_parquet(p))
-    end
-
-    # the primary writer emits YAML only — no parquet file
-    @test isfile(joinpath(shower_dir, "primary", "summary.yaml"))
 end
 
 # ===========================================================================
@@ -134,45 +140,47 @@ function assert_injection_roundtrip(shower_dir, qframe, decay_id, argv)
     inj_pos = _ecef_pos(p.position)        # bare metres, ECEF
     inj_dir = _ecef_dir(p.direction)       # bare unit vector, ECEF
 
-    # --- argv leg: did the suite serialise the injection geometry correctly? -
-    ix = _argv_float(argv, "--inject-x"); iy = _argv_float(argv, "--inject-y")
-    iz = _argv_float(argv, "--inject-z")
-    cx = _argv_float(argv, "--intercept-x"); cy = _argv_float(argv, "--intercept-y")
-    cz = _argv_float(argv, "--intercept-z")
-    @testset "argv matches injected frame" begin
-        if ix !== nothing && iy !== nothing && iz !== nothing
-            # Position bug (wrong frame) is km-scale; 1 m absorbs argv float
-            # formatting and is still far tighter than any real error.
-            @test isapprox(inj_pos, [ix, iy, iz]; atol = 1.0)
+    @testset "$(_label(shower_dir))" begin
+        # --- argv leg: did the suite serialise the injection geometry right? -
+        ix = _argv_float(argv, "--inject-x"); iy = _argv_float(argv, "--inject-y")
+        iz = _argv_float(argv, "--inject-z")
+        cx = _argv_float(argv, "--intercept-x"); cy = _argv_float(argv, "--intercept-y")
+        cz = _argv_float(argv, "--intercept-z")
+        @testset "argv matches injected frame" begin
+            if ix !== nothing && iy !== nothing && iz !== nothing
+                # Position bug (wrong frame) is km-scale; 1 m absorbs argv float
+                # formatting and is still far tighter than any real error.
+                @test isapprox(inj_pos, [ix, iy, iz]; atol = 1.0)
+            end
+            if all(!isnothing, (ix, iy, iz, cx, cy, cz))
+                d = [cx - ix, cy - iy, cz - iz]
+                argv_dir = d ./ sqrt(sum(abs2, d))   # propagation = inject → intercept
+                @test isapprox(inj_dir, argv_dir; atol = 1e-3)
+            end
         end
-        if all(!isnothing, (ix, iy, iz, cx, cy, cz))
-            d = [cx - ix, cy - iy, cz - iz]
-            argv_dir = d ./ sqrt(sum(abs2, d))   # propagation = inject → intercept
-            @test isapprox(inj_dir, argv_dir; atol = 1e-3)
-        end
-    end
 
-    # --- echo leg: did CORSIKA run the particle we intended? -----------------
-    echo = _primary(shower_dir)
-    @testset "CORSIKA echo matches injection" begin
-        @test Int(echo["pdg"]) == Int(p.pdg)
-        # `total` vs `kinetic` energy differ only sub-permille at these
-        # energies; a loose rtol covers either convention.
-        @test isapprox(Float64(echo["kinetic_energy"]),
-                       ustrip(u"GeV", p.energy); rtol = 1e-2)
-        @test isapprox([Float64(echo["nx"]), Float64(echo["ny"]),
-                        Float64(echo["nz"])], inj_dir; atol = 1e-3)
+        # --- echo leg: did CORSIKA run the particle we intended? -------------
+        echo = _primary(shower_dir)
+        @testset "CORSIKA echo matches injection" begin
+            @test Int(echo["pdg"]) == Int(p.pdg)
+            # `total` vs `kinetic` energy differ only sub-permille at these
+            # energies; a loose rtol covers either convention.
+            @test isapprox(Float64(echo["kinetic_energy"]),
+                           ustrip(u"GeV", p.energy); rtol = 1e-2)
+            @test isapprox([Float64(echo["nx"]), Float64(echo["ny"]),
+                            Float64(echo["nz"])], inj_dir; atol = 1e-3)
 
-        # Position is recorded relative to the primary writer's frame centre.
-        cfg_path = joinpath(shower_dir, "primary", "config.yaml")
-        @test isfile(cfg_path)
-        if isfile(cfg_path)
-            frame = get(_read_yaml(cfg_path), "frame", nothing)
-            if frame !== nothing && haskey(frame, "center")
-                ctr = Float64.(frame["center"])
-                echo_pos = ctr .+ [Float64(echo["x"]), Float64(echo["y"]),
-                                   Float64(echo["z"])]
-                @test isapprox(inj_pos, echo_pos; atol = 1.0)
+            # Position is recorded relative to the primary writer's frame centre.
+            cfg_path = joinpath(shower_dir, "primary", "config.yaml")
+            @test isfile(cfg_path)
+            if isfile(cfg_path)
+                frame = get(_read_yaml(cfg_path), "frame", nothing)
+                if frame !== nothing && haskey(frame, "center")
+                    ctr = Float64.(frame["center"])
+                    echo_pos = ctr .+ [Float64(echo["x"]), Float64(echo["y"]),
+                                       Float64(echo["z"])]
+                    @test isapprox(inj_pos, echo_pos; atol = 1.0)
+                end
             end
         end
     end
@@ -205,16 +213,18 @@ shower.
 legitimate.
 """
 function assert_energy_budget(shower_dir; expect_observation::Bool = true)
-    primary_total_E = Float64(_primary(shower_dir)["total_energy"])   # GeV
+    @testset "$(_label(shower_dir))" begin
+        primary_total_E = Float64(_primary(shower_dir)["total_energy"])   # GeV
 
-    dedx_integral = sum(_read_parquet(joinpath(shower_dir, "energyloss",
-                                               "dEdX.parquet")).total)  # GeV
-    @test dedx_integral <= primary_total_E * 1.1
+        dedx_integral = sum(_read_parquet(joinpath(shower_dir, "energyloss",
+                                                   "dEdX.parquet")).total)  # GeV
+        @test dedx_integral <= primary_total_E * 1.1
 
-    parts = _read_parquet(joinpath(shower_dir, "particles", "particles.parquet"))
-    ground_E = sum(parts.kinetic_energy .* parts.weight)   # GeV (weighted)
-    @test ground_E <= primary_total_E
-    expect_observation && @test ground_E > 0
+        parts = _read_parquet(joinpath(shower_dir, "particles", "particles.parquet"))
+        ground_E = sum(parts.kinetic_energy .* parts.weight)   # GeV (weighted)
+        @test ground_E <= primary_total_E
+        expect_observation && @test ground_E > 0
+    end
 end
 
 # ===========================================================================
@@ -336,7 +346,7 @@ function assert_rock_muon_rangeout(shower_dir, qframe, calib)
     survived = _has_energetic_muon(parts, pred.energy)
 
     rock_km = round(u"km", pred.grammage / TamboSim.ROCK_DENSITY; digits = 2)
-    @testset "muon $(pred.outcome) (rock $rock_km)" begin
+    @testset "$(_label(shower_dir)) — muon $(pred.outcome) (rock $rock_km)" begin
         if pred.outcome == :survives
             @test survived            # crossed little rock — must reach the mesh
         elseif pred.outcome == :rangeout
@@ -345,13 +355,21 @@ function assert_rock_muon_rangeout(shower_dir, qframe, calib)
     end
 end
 
+# A primary absorbed in rock without showering still registers its own count
+# of 1 in the profile bin it transits before it is killed (e±) or decays into
+# absorbed γγ (π⁰); a developed shower reaches 10³–10⁶. This bound cleanly
+# separates "no shower" from a shower.
+const MAX_NO_SHOWER_COUNT = 3
+
 """
     assert_no_EM_shower_in_rock(shower_dir, qframe, decay_id)
 
 Rock propagation, EM primaries: a purely electromagnetic primary (π⁰, which
 decays immediately to γγ, or an e±) injected inside the terrain rock develops
-no shower at all — the binary's RockEMAbsorber discards every e±/γ whose
-logical node is the rock. So `profile.parquet` must be all zeroes.
+no shower — the binary's RockEMAbsorber discards every e±/γ whose logical
+node is the rock. The longitudinal profile then shows no cascade: every
+species count stays at the level of the lone primary transiting its injection
+bin (≤ `MAX_NO_SHOWER_COUNT`), far below the 10³–10⁶ of a developed shower.
 
 A no-op unless the primary is a π⁰ / e± and the injection point is below the
 topography.
@@ -363,10 +381,10 @@ function assert_no_EM_shower_in_rock(shower_dir, qframe, decay_id)
     is_above_topography(p, qframe["bvh"]) && return   # not in rock
 
     prof = _read_parquet(joinpath(shower_dir, "profile", "profile.parquet"))
-    @testset "EM primary absorbed in rock (pdg $(Int(p.pdg)))" begin
+    @testset "$(_label(shower_dir)) — EM primary absorbed in rock (pdg $(Int(p.pdg)))" begin
         for col in (:charged, :hadron, :photon, :electron, :positron,
                     :muplus, :muminus)
-            @test all(==(0), prof[col])
+            @test maximum(prof[col]; init = 0) <= MAX_NO_SHOWER_COUNT
         end
     end
 end
@@ -407,7 +425,7 @@ function assert_downgoing_photon_dominated(shower_dir, qframe, decay_id)
     parts = _read_parquet(joinpath(shower_dir, "particles", "particles.parquet"))
     isempty(parts.pdg) && return   # an empty mesh is assert_energy_budget's call
     photon_frac = count(==(22), parts.pdg) / length(parts.pdg)
-    @testset "downgoing shower photon-dominated ($(round(photon_frac; digits=2)))" begin
+    @testset "$(_label(shower_dir)) — downgoing photon-dominated ($(round(photon_frac; digits=2)))" begin
         @test photon_frac > 0.5
     end
 end
@@ -426,7 +444,14 @@ const _WARN_LINE = r"^\[[^:\]]+:(warning|error|critical)\b"i
 # triaged — add an entry here only once a warning is understood to be
 # harmless.
 const _WARN_ALLOWLIST = (
-    "Removing existing output directory",   # tambo_shower --force, intentional
+    "Removing existing output directory",        # tambo_shower --force, intentional
+    # SIBYLL is queried for target types it does not model during setup; the
+    # framework handles the fallback. Emitted a few times on every shower.
+    "Invalid target type nucleus for hadron interaction model",
+    # VMD photonuclear path: a near-threshold photon loss is handed to SIBYLL
+    # as a Rho0 projectile it cannot process at that energy, so those (small)
+    # secondaries are dropped. A known CORSIKA limitation, not a fault.
+    "HE interaction model cannot handle configuration in photo-hadronic interaction",
 )
 
 """
@@ -443,19 +468,21 @@ The per-shower log is `<shower_dir>.log` — 3_run_showers.sh writes it as a
 sibling of the output directory, so `--force` cannot wipe it.
 """
 function assert_no_unexpected_warnings(shower_dir)
-    log_path = shower_dir * ".log"
-    @test isfile(log_path)
-    isfile(log_path) || return
-
-    offending = String[]
-    for line in eachline(log_path)
-        occursin(_WARN_LINE, line) || continue
-        any(a -> occursin(a, line), _WARN_ALLOWLIST) && continue
-        push!(offending, line)
+    @testset "$(_label(shower_dir))" begin
+        log_path = shower_dir * ".log"
+        @test isfile(log_path)
+        if isfile(log_path)
+            offending = String[]
+            for line in eachline(log_path)
+                occursin(_WARN_LINE, line) || continue
+                any(a -> occursin(a, line), _WARN_ALLOWLIST) && continue
+                push!(offending, line)
+            end
+            @test isempty(offending)
+            isempty(offending) ||
+                @warn "Unexpected tambo_shower log warnings" shower_dir offending
+        end
     end
-    @test isempty(offending)
-    isempty(offending) ||
-        @warn "Unexpected tambo_shower log warnings" shower_dir offending
 end
 
 # ===========================================================================

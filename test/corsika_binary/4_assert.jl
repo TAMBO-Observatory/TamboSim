@@ -113,22 +113,43 @@ function assert_config(cfg_path, outdir, geometry, calib)
         qframe_by_event = inj_frames === nothing ? Dict{Int,Any}() :
             Dict(Int(qf["event_id"]) => qf for qf in inj_frames.q_frames)
 
-        shower_dirs = String[]
-        for r in normal
+        # Per-shower context, computed once. The checks below iterate it
+        # grouped by check type, so the test report reads by type rather than
+        # by event; each check tags its own testset with the shower label.
+        showers = map(normal) do r
             sd = String(r.outdir)
-            push!(shower_dirs, sd)
-            @testset "$(basename(dirname(sd)))/$(basename(sd))" begin
-                qf = get(qframe_by_event, Int(r.event_id), nothing)
-                observe = expect_observation(qf, calib)
-                did = Int(r.decay_id)
+            qf = get(qframe_by_event, Int(r.event_id), nothing)
+            (; sd, qf, did = Int(r.decay_id), argv = r.argv,
+               observe = expect_observation(qf, calib))
+        end
 
-                assert_output_tree(sd)
-                assert_injection_roundtrip(sd, qf, did, r.argv)
-                assert_energy_budget(sd; expect_observation = observe)
-                assert_no_unexpected_warnings(sd)
-                assert_rock_muon_rangeout(sd, qf, calib)
-                assert_no_EM_shower_in_rock(sd, qf, did)
-                assert_downgoing_photon_dominated(sd, qf, did)
+        @testset "output tree" begin
+            for s in showers; assert_output_tree(s.sd); end
+        end
+        @testset "injection roundtrip" begin
+            for s in showers
+                assert_injection_roundtrip(s.sd, s.qf, s.did, s.argv)
+            end
+        end
+        @testset "energy budget" begin
+            for s in showers
+                assert_energy_budget(s.sd; expect_observation = s.observe)
+            end
+        end
+        @testset "log warnings" begin
+            for s in showers; assert_no_unexpected_warnings(s.sd); end
+        end
+        @testset "rock muon rangeout" begin
+            for s in showers; assert_rock_muon_rangeout(s.sd, s.qf, calib); end
+        end
+        @testset "EM shower in rock" begin
+            for s in showers
+                assert_no_EM_shower_in_rock(s.sd, s.qf, s.did)
+            end
+        end
+        @testset "downgoing morphology" begin
+            for s in showers
+                assert_downgoing_photon_dominated(s.sd, s.qf, s.did)
             end
         end
 
@@ -144,7 +165,7 @@ function assert_config(cfg_path, outdir, geometry, calib)
         # baseline_path = joinpath(BASELINE_DIR, "$name.toml")
         # if isfile(baseline_path)
         #     @testset "statistical consistency" begin
-        #         stats = summary_stats(shower_dirs)
+        #         stats = summary_stats([s.sd for s in showers])
         #         assert_statistical_consistency(stats, TOML.parsefile(baseline_path))
         #     end
         # else

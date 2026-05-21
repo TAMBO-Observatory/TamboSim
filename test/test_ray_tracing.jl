@@ -1,5 +1,6 @@
+include("testsetup.jl")
 """
-Tests for ray tracing functionality using the actual Tambo types.
+Tests for ray tracing functionality using the actual TamboSim types.
 """
 
 # ============================================================================
@@ -66,7 +67,7 @@ function test_triangle_intersection_hit()
     direction = Direction([0.0, 0.0, 1.0], cs)
     ray = Ray(origin, direction)
 
-    # Test intersection using actual Tambo function
+    # Test intersection using actual TamboSim function
     intersection = find_intersect(ray, tri)
 
     @test !isnothing(intersection)
@@ -126,7 +127,7 @@ function test_sphere_intersection_through()
     direction = Direction([1.0, 0.0, 0.0], cs)
     ray = Ray(origin, direction)
 
-    # Test intersection using actual Tambo function
+    # Test intersection using actual TamboSim function
     intersections = intersect_all(sphere, ray)
 
     @test length(intersections) == 2
@@ -165,7 +166,7 @@ function test_plane_intersection_hit()
     direction = Direction([0.0, 0.0, 1.0], cs)
     ray = Ray(origin, direction)
 
-    # Test intersection using actual Tambo function
+    # Test intersection using actual TamboSim function
     hit_point, t = find_intersection(ray, plane)
 
     @test !isnothing(hit_point)
@@ -191,4 +192,9 @@ function test_plane_intersection_parallel()
 
     @test isnothing(hit_point)
     @test isnothing(t)
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Ray Tracing" begin
+        run_ray_tracing_tests()
+    end
 end

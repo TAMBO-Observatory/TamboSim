@@ -1,5 +1,6 @@
 *.DS_Store
 .vscode/
+.claude/
 
 *.ipynb_checkpoints
 *Untitled*.ipynb
@@ -8,6 +9,7 @@ notebooks/output/*
 **/Manifest.toml
 fort*
 
+src/corsika/tambo_shower/build/
 src/corsika/build/
 resources/corsika/src/build/
 resources/proposal_tables/*.json

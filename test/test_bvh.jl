@@ -1,11 +1,12 @@
+include("testsetup.jl")
 """
 Tests for the BVH (Bounding Volume Hierarchy) tree structure.
 
-These tests use the actual Tambo types from src/ to ensure code coverage.
+These tests use the actual TamboSim types from src/ to ensure code coverage.
 """
 
 # Import BVH-related functions
-import Tambo: merge, surface_area, center
+import TamboSim: merge, surface_area, center
 
 # ============================================================================
 # Test functions
@@ -28,6 +29,12 @@ function run_bvh_tests()
         test_bvh_intersect_single()
         test_bvh_intersect_all_test()
         test_bvh_intersect_miss()
+    end
+
+    @testset "OBB Intersection" begin
+        test_obb_intersection_hit()
+        test_obb_intersection_miss()
+        test_obb_world_to_local()
     end
 end
 
@@ -204,20 +211,50 @@ end
 function test_bvh_intersect_miss()
     cs = ecefcoordinates
 
-    # Create a triangle
     tri = Triangle(
         Coordinate([-5.0u"m", -5.0u"m", 10.0u"m"], cs),
         Coordinate([5.0u"m", -5.0u"m", 10.0u"m"], cs),
         Coordinate([0.0u"m", 5.0u"m", 10.0u"m"], cs)
     )
-
     bvh = BVHTree([tri])
 
-    # Ray far away from the triangle should miss
-    origin = Coordinate([100.0u"m", 0.0u"m", 0.0u"m"], cs)
-    direction = Direction([0.0, 0.0, 1.0], cs)
-    ray = Ray(origin, direction)
+    ray = Ray(Coordinate([100.0u"m", 0.0u"m", 0.0u"m"], cs),
+              Direction([0.0, 0.0, 1.0], cs))
+    @test isnothing(find_intersect(ray, bvh))
+end
 
-    intersection = find_intersect(ray, bvh)
-    @test isnothing(intersection)
+function test_obb_intersection_hit()
+    cs  = ecefcoordinates
+    obb = OBB(Coordinate([5.0u"m", 0.0u"m", 0.0u"m"], cs),
+              AngleAxis(0.0, 1.0, 0.0, 0.0),
+              [1.0u"m", 1.0u"m", 1.0u"m"])
+    ray = Ray(Coordinate([5.0u"m", 0.0u"m", -5.0u"m"], cs),
+              Direction([0.0, 0.0, 1.0], cs))
+    @test find_intersect(ray, obb, 1) isa TriangleIntersection
+end
+
+function test_obb_intersection_miss()
+    cs  = ecefcoordinates
+    obb = OBB(Coordinate([5.0u"m", 0.0u"m", 0.0u"m"], cs),
+              AngleAxis(0.0, 1.0, 0.0, 0.0),
+              [1.0u"m", 1.0u"m", 1.0u"m"])
+    ray = Ray(Coordinate([50.0u"m", 0.0u"m", -5.0u"m"], cs),
+              Direction([0.0, 0.0, 1.0], cs))
+    @test isnothing(find_intersect(ray, obb, 1))
+end
+
+function test_obb_world_to_local()
+    cs  = ecefcoordinates
+    obb = OBB(Coordinate([5.0u"m", 0.0u"m", 0.0u"m"], cs),
+              AngleAxis(0.0, 1.0, 0.0, 0.0),
+              [1.0u"m", 1.0u"m", 1.0u"m"])
+    lp = TamboSim.world_to_local(obb, Coordinate([6.0u"m", 0.0u"m", 0.0u"m"], cs))
+    @test length(lp) == 3
+    ld = TamboSim.world_to_local(obb, Direction([0.0, 0.0, 1.0], cs))
+    @test length(ld) == 3
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "BVH" begin
+        run_bvh_tests()
+    end
 end

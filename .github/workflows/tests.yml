@@ -1,0 +1,45 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: '1.11'
+
+      - uses: julia-actions/cache@v2
+
+      - name: Restore PROPOSAL tables cache
+        id: proposal-cache
+        uses: actions/cache@v4
+        with:
+          path: resources/proposal_tables
+          key: proposal-tables-v1
+
+      - name: Download PROPOSAL tables from release
+        if: steps.proposal-cache.outputs.cache-hit != 'true'
+        run: |
+          gh release download proposal-tables-v1 \
+            --repo TAMBO-Observatory/TAMBOSim \
+            --pattern "proposal_tables.tar.gz" \
+            --dir /tmp
+          tar -xzf /tmp/proposal_tables.tar.gz -C resources/
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install dependencies
+        run: julia --project=. -e 'import Pkg; Pkg.instantiate()'
+
+      - name: Run tests
+        run: julia --project=. test/runtests.jl

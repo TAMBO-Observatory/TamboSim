@@ -14,7 +14,7 @@ same `CoordinateSystem`.
 - `Plane(point::Coordinate{T}, normal::Direction{T})`: Primary constructor that asserts
   the `point` and `normal` share the same coordinate system.
 """
-struct Plane{T}
+struct Plane{T<:Real}
     point::Coordinate{T}
     normal::Direction{T}
     function Plane(point::Coordinate{T}, normal::Direction{T}) where T

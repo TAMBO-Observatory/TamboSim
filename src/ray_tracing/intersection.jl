@@ -131,7 +131,22 @@ function find_intersect(ray::Ray{T}, triangle::Triangle{T}, tri_index::Int=-1) w
     return TriangleIntersection(point, normal, t * u"m", u, v, true, tri_index)
 end
 
-# Find all intersections (not just closest)
+"""
+    intersect_all(bvh::BVHTree{T}, ray::Ray{T}) -> Vector{TriangleIntersection{T}}
+
+Calculates all intersections between a `Ray` and the triangles of a `BVHTree`.
+
+Traverses the BVH from the root, collecting every triangle hit along the ray. The
+returned vector is sorted by distance from the ray origin.
+
+# Arguments
+- `bvh::BVHTree{T}`: The BVH-accelerated triangle mesh to test against.
+- `ray::Ray{T}`: The ray to test.
+
+# Returns
+- `Vector{TriangleIntersection{T}}`: Triangle intersections sorted by distance, or
+  empty if the ray misses the mesh.
+"""
 function intersect_all(
     bvh::BVHTree{T},
     ray::Ray{T}
@@ -361,27 +376,25 @@ function intersect_all(
 end
 
 """
-    intersect_all(earth::Earth{T}, ray::Ray{T}) -> Vector{<:Intersection{T}}
+    intersect_all(prem::Vector{<:Sphere}, bvh::BVHTree{T}, ray::Ray{T}) -> Vector{<:Intersection{T}}
 
-Calculates all intersections between a `Ray` and the `Earth` model.
-
-This function finds intersections with both the Earth's topography (accelerated by a BVH)
-and its layered structure (PREM spheres). All found intersections are then combined and
-sorted by distance from the ray origin.
+Calculates all intersections between a `Ray` and the Earth model (topography + PREM layers).
 
 # Arguments
-- `earth::Earth{T}`: The `Earth` model to test against.
-- `ray::Ray{T}`: The ray to test.
+- `prem`: PREM sphere layers for ray tracing.
+- `bvh`: BVH acceleration structure over the topography mesh.
+- `ray`: The ray to test.
 
 # Returns
-- `Vector{<:Intersection{T}}`: A sorted vector containing all `TriangleIntersection` and `SphereIntersection` objects.
+- `Vector{<:Intersection{T}}`: A sorted vector of `TriangleIntersection` and `SphereIntersection` objects.
 """
 function intersect_all(
-    earth::Earth{T},
+    prem::Vector{<:Sphere{T}},
+    bvh::BVHTree{T},
     ray::Ray{T}
 )::Vector{<:Intersection{T}} where {T}
-    mesh_intersections = intersect_all(earth.bvh, ray)
-    sphere_intersections = vcat([intersect_all(sphere, ray) for sphere in earth.prem]...)
+    mesh_intersections = intersect_all(bvh, ray)
+    sphere_intersections = vcat([intersect_all(sphere, ray) for sphere in prem]...)
     intersections = vcat(mesh_intersections, sphere_intersections)
     intersections = sort(intersections; by=x->x.distance)
     return intersections

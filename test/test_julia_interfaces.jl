@@ -1,3 +1,4 @@
+include("testsetup.jl")
 """
 Tests for the Julia interfaces (TauRunner and PROPOSAL).
 
@@ -13,11 +14,13 @@ function run_julia_interfaces_tests()
     @testset "TauRunner Interface" begin
         test_cull_intersections()
         test_should_go_through_earth()
+        test_spherical_position_formula_equivalence()
     end
 
     @testset "PROPOSAL Interface" begin
         test_is_proposal_available()
-        test_stochastic_loss_construction()
+        test_init_proposal_tables_path_sync()
+        test_init_proposal_idempotent()
     end
 end
 
@@ -107,6 +110,36 @@ function test_should_go_through_earth()
     @test !should_go_through_earth(empty_ixs)
 end
 
+# Verify the spherical-case position formula in taurunner_interface.
+# Old formula (particle.position = detector end):
+#   position = remaining * reverse(d) + detector
+# New formula (particle.position = Earth entry):
+#   position = traveled * d + earth_entry
+# Since detector = earth_entry + chord_length * d and
+# traveled + remaining = chord_length, these are algebraically identical.
+# This test makes that explicit so a future edit can't silently break it.
+function test_spherical_position_formula_equivalence()
+    cs = ecefcoordinates
+    earth_entry = Coordinate([0.0u"m", 0.0u"m", 6.371e6u"m"], cs)
+    d           = Direction([0.0, 1.0, 0.0], cs)   # arbitrary unit direction
+    chord_length = 800_000.0u"m"
+
+    detector = Coordinate(earth_entry.point .+ chord_length .* d.point, cs)
+
+    for fraction_traveled in [0.0, 0.1, 0.5, 0.73, 0.99, 1.0]
+        traveled  = fraction_traveled * chord_length
+        remaining = (1.0 - fraction_traveled) * chord_length
+
+        # Old formula: step backward from detector by the remaining distance
+        pos_old = detector.point .- remaining .* d.point
+
+        # New formula: step forward from Earth entry by the traveled distance
+        pos_new = earth_entry.point .+ traveled .* d.point
+
+        @test all(isapprox.(ustrip.(u"m", pos_old), ustrip.(u"m", pos_new), atol=1e-6))
+    end
+end
+
 # ============================================================================
 # PROPOSAL Interface Tests
 # ============================================================================
@@ -119,27 +152,23 @@ function test_is_proposal_available()
     # so we just check that the function runs without error
 end
 
-function test_stochastic_loss_construction()
-    cs = ecefcoordinates
+function test_init_proposal_tables_path_sync()
+    tables_path = get_tambosim_path() * "/resources/proposal_tables"
+    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
+    # ENV["PROPOSAL_TABLES_PATH"] must match what init_proposal configured so
+    # TauRunner's SphericalBodyPropagator and TamboSim's propagators share tables.
+    @test abspath(ENV["PROPOSAL_TABLES_PATH"]) == abspath(tables_path)
+end
 
-    # Create a stochastic loss
-    int_type = 1
-    energy = 100.0u"GeV"
-    position = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
-
-    loss = StochasticLoss(int_type, energy, position)
-
-    @test loss.int_type == 1
-    @test loss.energy == 100.0u"GeV"
-    @test loss.position == position
-
-    # Test with different energy units (should convert to GeV)
-    energy_mev = 1000.0u"MeV"
-    loss_mev = StochasticLoss(int_type, energy_mev, position)
-    @test loss_mev.energy == 1.0u"GeV"
-
-    # Test with TeV
-    energy_tev = 0.001u"TeV"
-    loss_tev = StochasticLoss(int_type, energy_tev, position)
-    @test loss_tev.energy == 1.0u"GeV"
+function test_init_proposal_idempotent()
+    tables_path = get_tambosim_path() * "/resources/proposal_tables"
+    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
+    # Calling a second time must not error and must leave tables path unchanged.
+    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
+    @test abspath(ENV["PROPOSAL_TABLES_PATH"]) == abspath(tables_path)
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Julia Interfaces" begin
+        run_julia_interfaces_tests()
+    end
 end

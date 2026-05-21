@@ -78,7 +78,7 @@ function CrossSection(location::String, epsilon::Float64=1e-6)
             sol = solve(prob, HCubatureJL(); reltol = 1e-10, abstol = 1e-10)
             push!(cdfs, minimum([epsilon, sol.u]))
         end
-        nan_mask = .~isnan.(cdfs)
+        nan_mask = .!isnan.(cdfs)
         cdfs ./= cdfs[nan_mask][end]
     
         ## Subroutine 2 ##
@@ -237,14 +237,14 @@ end
 """
     probability(xs::CrossSection, event) -> Real
 
-Calculates the probability of an interaction for a given `InjectionEvent`.
+Calculates the probability of an interaction for a given event object.
 
 This is a convenience method that extracts the incoming and outgoing energies
 from the `event` and calls the primary `probability` function.
 
 # Arguments
 - `xs::CrossSection`: The `CrossSection` object.
-- `event`: An object (e.g., `InjectionEvent`) that has `entry_state` and `final_state` fields,
+- `event`: An event object that has `entry_state` and `final_state` fields,
   each containing an `energy` field.
 
 # Returns

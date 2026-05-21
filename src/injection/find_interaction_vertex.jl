@@ -1,5 +1,5 @@
-AIR_DENSITY = 1.205e-3 * u"g"/u"cm"^3
-ROCK_DENSITY = 2.65 * u"g"/u"cm"^3
+const AIR_DENSITY = 1.205e-3 * u"g"/u"cm"^3
+const ROCK_DENSITY = 2.65 * u"g"/u"cm"^3
 
 """
     find_vertex_distance_by_distance(

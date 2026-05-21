@@ -1,24 +1,47 @@
 """
-    cut_frames!(frames::Vector{Frame}, fxn::Function)
+    _get_last_frame(frames::AbstractVector{Frame}, stream::Char) -> Frame
 
-Filters a vector of `Frame` objects in-place.
+Returns the last frame in `frames` with the given stream type. Internal
+bootstrap utility — prefer navigating via parent references (e.g. `q_frame.g_frame`)
+wherever a parent chain already exists. Accepts either a `Vector{Frame}` or a
+`TamboFrames`.
+"""
+function _get_last_frame(frames::AbstractVector{Frame}, stream::Char; required::Bool=true)
+    idx = findlast(f -> f.stream == stream, frames)
+    if isnothing(idx)
+        required && error("No '$stream' frame found in frame vector")
+        return nothing
+    end
+    return frames[idx]
+end
 
-This function iterates through a vector of `frames` and removes any frame
-for which the predicate function `fxn` returns `false`. The modification
-is done in-place.
+"""
+    filter!(pred, frames::TamboFrames) -> TamboFrames
+
+Extends `Base.filter!` to remove Q-stream frames for which `pred` returns
+`false`, plus any descendants of those Q frames (typically P). Frames of
+other stream types (G, C, D, M) are left in place — `pred` is only
+consulted for Q frames.
+
+Cascade is delegated to `deleteat!(tf, inds; remove_children=true)`, which
+walks the parent map to find every frame whose ancestry references a
+deleted Q frame.
 
 # Arguments
-- `frames::Vector{Frame}`: The vector of frames to be filtered.
-- `fxn::Function`: A function that takes a `Frame` and returns `true` if it should be kept, `false` otherwise.
+- `pred`: a function `Frame -> Bool`. Q frames where `pred(q)` is `true`
+  are kept; the rest are removed along with their P descendants.
+- `frames::TamboFrames`: the container to filter in place.
+
+# Returns
+- `frames`, mutated.
 """
-function cut_frames!(frames::Vector{Frame}, fxn::Function)
-    idx = 1
-    while idx <= length(frames)
-        frame = frames[idx]
-        if !fxn(frame)
-            deleteat!(frames, idx)
-            continue
+function Base.filter!(pred, frames::TamboFrames)
+    indices = Int[]
+    for (i, f) in enumerate(frames)
+        if f.stream == 'Q' && !pred(f)
+            push!(indices, i)
         end
-        idx += 1
     end
+    deleteat!(frames, indices; remove_children=true)
+    return frames
 end

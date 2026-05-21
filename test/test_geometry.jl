@@ -1,8 +1,9 @@
+include("testsetup.jl")
 """
 Tests for the geometry module including CoordinateSystem, Coordinate, Direction,
 Triangle, Sphere, OBB, Plane, and related utilities.
 
-These tests use the actual Tambo types from src/ to ensure code coverage.
+These tests use the actual TamboSim types from src/ to ensure code coverage.
 """
 
 # ============================================================================
@@ -49,6 +50,40 @@ function run_geometry_tests()
     @testset "Geometry Utilities" begin
         test_longlat_cart_conversion()
         test_sph_cart_conversion()
+        test_cart_to_longlat_coordinate()
+        test_cart_to_sph_direction()
+        test_validate_triangle()
+        test_centroid()
+        test_sample_triangle()
+        test_compute_rotation()
+    end
+
+    @testset "CoordinateSystem from longlat" begin
+        test_coordinate_system_from_longlat()
+    end
+
+    @testset "Direction Arithmetic" begin
+        test_direction_scalar_multiplication()
+        test_direction_quantity_multiplication()
+    end
+
+    @testset "Plane Conversion" begin
+        test_plane_conversion_same_cs()
+        test_plane_conversion_different_cs()
+    end
+
+    @testset "Geometry queries" begin
+        test_upwards_ray_at_coordinate()
+        test_upwards_ray_at_particle()
+        test_is_above_topography_below()
+        test_is_above_topography_above()
+        test_is_above_topography_particle_overload()
+    end
+
+    @testset "Detector layout" begin
+        test_place_detector_units_basic()
+        test_place_detector_units_slope_filter()
+        test_place_detector_units_spacing()
     end
 end
 
@@ -302,12 +337,222 @@ function test_longlat_cart_conversion()
 end
 
 function test_sph_cart_conversion()
-    # Test theta=0 (along z-axis)
     cart = sph_to_cart(0.0, 0.0)
     @test cart[3] ≈ 1.0
 
-    # Test theta=pi/2, phi=0 (along x-axis)
     cart2 = sph_to_cart(π/2, 0.0)
     @test cart2[1] ≈ 1.0 atol=1e-10
     @test cart2[3] ≈ 0.0 atol=1e-10
+end
+
+function test_cart_to_longlat_coordinate()
+    cs = ecefcoordinates
+    c = Coordinate([6371.0e3u"m", 0.0u"m", 0.0u"m"], cs)
+    ll = cart_to_longlat(c)
+    @test length(ll) == 2
+    @test isapprox(ll[1], 0.0, atol=1e-10)
+    @test isapprox(ll[2], 0.0, atol=1e-10)
+end
+
+function test_cart_to_sph_direction()
+    cs = ecefcoordinates
+    d = Direction([0.0, 0.0, 1.0], cs)
+    theta, _ = cart_to_sph(d)
+    @test isapprox(theta, 0.0, atol=1e-10)
+end
+
+function test_validate_triangle()
+    cs = ecefcoordinates
+    v1 = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    v2 = Coordinate([1.0u"m", 0.0u"m", 0.0u"m"], cs)
+    v3 = Coordinate([0.0u"m", 1.0u"m", 0.0u"m"], cs)
+    tri = Triangle(v1, v2, v3)
+    center = Coordinate([0.0u"m", 0.0u"m", -1.0u"m"], cs)
+    @test validate_triangle(tri, center) isa Bool
+end
+
+function test_centroid()
+    cs = ecefcoordinates
+    v1 = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    v2 = Coordinate([3.0u"m", 0.0u"m", 0.0u"m"], cs)
+    v3 = Coordinate([0.0u"m", 3.0u"m", 0.0u"m"], cs)
+    tri = Triangle(v1, v2, v3)
+    cent = centroid(tri)
+    @test cent isa Coordinate
+    @test isapprox(cent[1], 1.0u"m")
+    @test isapprox(cent[2], 1.0u"m")
+end
+
+function test_sample_triangle()
+    cs = ecefcoordinates
+    v1 = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+    v2 = Coordinate([1.0u"m", 0.0u"m", 0.0u"m"], cs)
+    v3 = Coordinate([0.0u"m", 1.0u"m", 0.0u"m"], cs)
+    tri = Triangle(v1, v2, v3)
+    Random.seed!(42)
+    s = sample(tri)
+    @test s isa Coordinate
+    # Point must lie within bounding box of triangle
+    @test 0.0u"m" <= s[1] <= 1.0u"m"
+    @test 0.0u"m" <= s[2] <= 1.0u"m"
+end
+
+function test_compute_rotation()
+    R = compute_rotation((0.0, 0.0))
+    @test size(R) == (3, 3)
+    @test isapprox(det(R), 1.0, atol=1e-10)
+end
+
+function test_coordinate_system_from_longlat()
+    cs_local = CoordinateSystem((0.0, 0.0), 6371.0e3u"m")
+    @test cs_local isa CoordinateSystem
+    @test eltype(cs_local) == Float64
+end
+
+function test_direction_scalar_multiplication()
+    cs = ecefcoordinates
+    d = Direction([1.0, 0.0, 0.0], cs)
+    @test (2.0 * d) isa Direction
+    @test (d * 2.0) isa Direction
+end
+
+function test_direction_quantity_multiplication()
+    cs = ecefcoordinates
+    d = Direction([1.0, 0.0, 0.0], cs)
+    qc1 = 5.0u"m" * d
+    @test qc1 isa Coordinate
+    @test isapprox(ustrip(u"m", qc1.point[1]), 5.0, atol=1e-10)
+    qc2 = d * 5.0u"m"
+    @test qc2 isa Coordinate
+end
+
+function test_plane_conversion_same_cs()
+    cs = ecefcoordinates
+    p = Plane(Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs),
+              Direction([0.0, 0.0, 1.0], cs))
+    p2 = convert(cs, p)
+    @test p2.point === p.point
+end
+
+function test_plane_conversion_different_cs()
+    cs  = ecefcoordinates
+    cs2 = CoordinateSystem((0.5, 0.5), 6371.0e3u"m")
+    p   = Plane(Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs2),
+                Direction([0.0, 0.0, 1.0], cs2))
+    p2  = convert(cs, p)
+    @test CoordinateSystem(p2.point) == cs
+end
+
+# Geometry-query tests
+
+function test_upwards_ray_at_coordinate()
+    cs  = ecefcoordinates
+    pos = Coordinate([0.0u"m", 0.0u"m", 1.0u"m"], cs)   # on the +z axis
+    ray = TamboSim.upwards_ray_at(pos)
+
+    @test ray isa Ray
+    @test ray.origin === pos
+    # Radially outward from [0,0,1] is +z.
+    @test isapprox(ray.direction.point, [0.0, 0.0, 1.0]; atol=1e-12)
+end
+
+function test_upwards_ray_at_particle()
+    cs  = ecefcoordinates
+    pos = Coordinate([0.0u"m", 0.0u"m", 1.0u"m"], cs)
+    p   = Particle(NuTau, 1.0u"GeV", pos, Direction([1.0, 0.0, 0.0], cs))
+    # The Particle overload should match the Coordinate overload, regardless
+    # of the particle's direction (which is irrelevant — only position matters).
+    @test TamboSim.upwards_ray_at(p).direction.point ==
+          TamboSim.upwards_ray_at(pos).direction.point
+end
+
+# Construct a single horizontal triangle 5 m above the +z axis,
+# spanning a wide enough patch to be hit by any near-vertical ray
+# from the axis below.
+function _topography_bvh_above()
+    cs  = ecefcoordinates
+    tri = Triangle(
+        Coordinate([-10.0u"m", -10.0u"m", 5.0u"m"], cs),
+        Coordinate([ 10.0u"m", -10.0u"m", 5.0u"m"], cs),
+        Coordinate([  0.0u"m",  10.0u"m", 5.0u"m"], cs),
+    )
+    return BVHTree([tri])
+end
+
+function test_is_above_topography_below()
+    cs  = ecefcoordinates
+    bvh = _topography_bvh_above()
+    pos = Coordinate([0.0u"m", 0.0u"m", 1.0u"m"], cs)   # below the triangle
+    # Upwards ray from pos heads to +z and hits the triangle at z = 5 m.
+    @test TamboSim.is_above_topography(pos, bvh) == false
+end
+
+function test_is_above_topography_above()
+    cs  = ecefcoordinates
+    bvh = _topography_bvh_above()
+    pos = Coordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)  # above the triangle
+    # Upwards ray from pos still heads to +z, never re-intersecting the triangle.
+    @test TamboSim.is_above_topography(pos, bvh) == true
+end
+
+function test_is_above_topography_particle_overload()
+    cs  = ecefcoordinates
+    bvh = _topography_bvh_above()
+    pos = Coordinate([0.0u"m", 0.0u"m", 10.0u"m"], cs)
+    p   = Particle(NuTau, 1.0u"GeV", pos, Direction([0.0, 0.0, -1.0], cs))
+    @test TamboSim.is_above_topography(p, bvh) == TamboSim.is_above_topography(pos, bvh)
+end
+
+# Detector-layout tests
+
+# Build a synthetic g_frame/d_frame pair around a single horizontal detector
+# triangle at z = 100 m, large enough that a default 125 m hex grid covers
+# multiple points within its xy projection.
+function _flat_detector_frames(; triangle_half_m=300.0, height_m=100.0, cs=ecefcoordinates)
+    half = triangle_half_m
+    z    = height_m
+    tri  = Triangle(
+        Coordinate([-half*u"m", -half*u"m", z*u"m"], cs),
+        Coordinate([ half*u"m", -half*u"m", z*u"m"], cs),
+        Coordinate([ 0.0u"m",    half*u"m", z*u"m"], cs),
+    )
+    bvh    = BVHTree([tri])
+    g_frame = Frame('G', Dict{String,Any}("cs" => cs))
+    d_frame = Frame('D', Dict{String,Any}("detector_bvh" => bvh))
+    return g_frame, d_frame
+end
+
+function test_place_detector_units_basic()
+    g_frame, d_frame = _flat_detector_frames()
+    obbs, obb_bvh = TamboSim.place_detector_units(g_frame, d_frame)
+
+    @test obbs isa Vector{<:TamboSim.OBB}
+    @test obb_bvh isa BVHTree
+    @test length(obbs) > 0                                # at least one module on a flat 600 m triangle
+    @test length(obb_bvh.triangles) > 0                   # BVH has the OBB faces
+    @test !haskey(d_frame.data, "detector_units")          # function does not mutate
+    @test !haskey(d_frame.data, "detector_unit_bvh")
+end
+
+function test_place_detector_units_slope_filter()
+    g_frame, d_frame = _flat_detector_frames()
+    # Horizontal triangle has slope = 0; a negative threshold makes the
+    # filter `ψ > max_slope_rad` reject every grid point. With nothing
+    # placed, the function should return an empty OBB list and nothing
+    # for the BVH (since BVHTree refuses an empty input).
+    obbs, obb_bvh = TamboSim.place_detector_units(g_frame, d_frame; max_slope_deg=-1.0)
+    @test isempty(obbs)
+    @test obb_bvh === nothing
+end
+
+function test_place_detector_units_spacing()
+    g_frame, d_frame = _flat_detector_frames()
+    obbs_coarse, _ = TamboSim.place_detector_units(g_frame, d_frame; spacing=200.0u"m")
+    obbs_fine,   _ = TamboSim.place_detector_units(g_frame, d_frame; spacing=100.0u"m")
+    @test length(obbs_fine) > length(obbs_coarse)         # smaller spacing → more modules
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Geometry" begin
+        run_geometry_tests()
+    end
 end

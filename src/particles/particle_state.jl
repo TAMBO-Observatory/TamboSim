@@ -41,36 +41,36 @@ struct Particle{T<:Real}
         return new{T}(
             id,
             Unknown,
-            NaN*u"GeV",
-            Coordinate([NaN * u"m", NaN * u"m",  NaN*u"m"], ecefcoordinates),
-            Direction([0.0, 0.0, -1.0], ecefcoordinates),
-            NaN*u"s",
+            T(NaN)*u"GeV",
+            Coordinate([T(NaN)*u"m", T(NaN)*u"m", T(NaN)*u"m"], ecefcoordinates),
+            Direction(T[0, 0, -1], ecefcoordinates),
+            T(NaN)*u"s",
             NotSet,
             Null,
-            NaN*u"m/s"
+            T(NaN)*u"m/s"
         )
     end
     function Particle(T::Type)
         return new{T}(
             0,
             Unknown,
-            NaN*u"GeV",
-            Coordinate([NaN * u"m", NaN * u"m",  NaN*u"m"], ecefcoordinates),
-            Direction([0.0, 0.0, -1.0], ecefcoordinates),
-            NaN*u"s",
+            T(NaN)*u"GeV",
+            Coordinate([T(NaN)*u"m", T(NaN)*u"m", T(NaN)*u"m"], ecefcoordinates),
+            Direction(T[0, 0, -1], ecefcoordinates),
+            T(NaN)*u"s",
             NotSet,
             Null,
-            NaN*u"m/s"
+            T(NaN)*u"m/s"
         )
     end
     function Particle(pdg::ParticleType, e::Quantity{T,edim}, pos::Coordinate{T}, dir::Direction{T}) where{T<:Real}
-        return new{T}(0, pdg, uconvert(u"GeV", e), pos, dir, 0u"s", NotSet, Null, 0.0u"m/s")
+        return new{T}(0, pdg, uconvert(u"GeV", e), pos, dir, zero(T)*u"s", NotSet, Null, zero(T)*u"m/s")
     end
     function Particle(id::Int, pdg::ParticleType, e::Quantity{T,edim}, pos::Coordinate{T}, dir::Direction{T}) where{T<:Real}
-        return new{T}(id, pdg, uconvert(u"GeV", e), pos, dir, 0u"s", NotSet, Null, 0.0u"m/s")
+        return new{T}(id, pdg, uconvert(u"GeV", e), pos, dir, zero(T)*u"s", NotSet, Null, zero(T)*u"m/s")
     end
     function Particle(pdg::ParticleType, e::Quantity{T,edim}, pos::Coordinate{T}, dir::Direction{T}, time::Quantity{T, tdim}) where{T<:Real}
-        return new{T}(0, pdg, uconvert(u"GeV", e), pos, dir, uconvert(u"s", time), NotSet, Null, 0.0u"m/s")
+        return new{T}(0, pdg, uconvert(u"GeV", e), pos, dir, uconvert(u"s", time), NotSet, Null, zero(T)*u"m/s")
     end
     function Particle(pdg::ParticleType, e::Quantity{T,edim}, pos::Coordinate{T}, dir::Direction{T}, time::Quantity{T, tdim}, speed::Quantity{T}) where{T<:Real}
         return new{T}(0, pdg, uconvert(u"GeV", e), pos, dir, uconvert(u"s", time), NotSet, Null, uconvert(u"m/s", speed))

@@ -1,11 +1,12 @@
+include("testsetup.jl")
 """
 Tests for the samplers module including power law sampler and angular sampler.
 
-These tests use the actual Tambo types from src/ to ensure code coverage.
+These tests use the actual TamboSim types from src/ to ensure code coverage.
 """
 
 # Import probability function
-import Tambo: probability, pl_norm
+import TamboSim: probability, pl_norm, find_trim_idxs
 
 # ============================================================================
 # Test functions
@@ -29,6 +30,12 @@ function run_sampler_tests()
 
     @testset "Sampler Edge Cases" begin
         test_angular_sampler_edge_cases()
+    end
+
+    @testset "find_trim_idxs" begin
+        test_find_trim_idxs_flat()
+        test_find_trim_idxs_left_jump()
+        test_find_trim_idxs_right_jump()
     end
 end
 
@@ -164,7 +171,7 @@ function test_angular_sampler_with_coordinate_system()
     sampler = UniformAngularSampler(θmin, θmax, ϕmin, ϕmax)
     cs = ecefcoordinates
 
-    # Sample direction using actual Tambo function
+    # Sample direction using actual TamboSim function
     direction = rand(sampler, cs)
 
     @test direction isa Direction
@@ -177,4 +184,31 @@ function test_angular_sampler_edge_cases()
     @test_throws AssertionError UniformAngularSampler(π, 0, 0, 2π)  # θmin > θmax
     @test_throws AssertionError UniformAngularSampler(0, π, 2π, 0)  # ϕmin > ϕmax
     @test_throws AssertionError UniformAngularSampler(0, π, 0, 3π)  # ϕmax - ϕmin > 2π
+end
+
+function test_find_trim_idxs_flat()
+    # Uniform data: no jumps > 1 in log10 space, so lidx=1, ridx=n
+    data = [1.0, 2.0, 4.0, 8.0]
+    lidx, ridx = find_trim_idxs(data)
+    @test lidx == 1
+    @test ridx == length(data)
+end
+
+function test_find_trim_idxs_left_jump()
+    # Large jump at left end
+    data = [1.0, 1000.0, 1001.0, 1002.0]
+    lidx, ridx = find_trim_idxs(data)
+    @test lidx > 1
+end
+
+function test_find_trim_idxs_right_jump()
+    # Large jump at right end
+    data = [1.0, 2.0, 3.0, 3000.0]
+    lidx, ridx = find_trim_idxs(data)
+    @test ridx < length(data)
+end
+if abspath(PROGRAM_FILE) == @__FILE__
+    @testset "Samplers" begin
+        run_sampler_tests()
+    end
 end

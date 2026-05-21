@@ -1,12 +1,12 @@
 # Standard tau-neutrino charged-current configuration for the Colca Valley site.
-# Used for the TAMBO sensitivity paper. Adjust nevent for your run scale.
+# Adjust nevent for your run scale.
 
 [geometry]
-earth_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley.h5:colca_valley_30000"
-detector_key = "detector1"
+geometry_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_3000.jld2"
 
 [injection]
-pinecone = 925
+strategy = "NeutrinoInjection"
+seed = 925
 nevent = 500000
 pdg = 16
 gamma = 1.5
@@ -17,26 +17,26 @@ thetamax = 117 # degrees
 phimin = 90    # degrees
 phimax = 290   # degrees
 xs_location = "_TAMBOSIM_PATH_/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
-track_progress = false
 
 [proposal]
-pinecone = 925
+seed = 925
 ecut = -1   # GeV; negative means infinity (ionization-only threshold)
 vcut = 1e-2
-do_interpolate = true
 do_continuous = true
 tablespath = "_TAMBOSIM_PATH_/resources/proposal_tables/"
-track_progress = false
 
 [corsika]
-pinecone = 925
+seed = 925
 thinning = 1.0e-6
 hadron_model = "SIBYLL-2.3d"
-hadron_ecut = 1.0  # GeV
-em_ecut = 1.0      # GeV
-photon_ecut = 1.0  # GeV
-mu_ecut = 1.0      # GeV
-corsika_path = "_TAMBOSIM_PATH_/resources/corsika/src/build/tambo_shower"
-obs_mesh_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_obs_surface.ply"
-terrain_mesh_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_terrain.ply"
-track_progress = false
+hadron_ecut = 0.05   # GeV
+em_ecut = 0.001      # GeV
+mu_ecut = 0.05       # GeV
+corsika_path = "_TAMBOSIM_PATH_/src/corsika/tambo_shower/build/tambo_shower"
+
+# Executor selection (optional; default = "run_local"):
+#   executor = "run_sbatch"
+#   executor_sbatch_prefix = "--time=01:00:00 --mem=4G"
+# or
+#   executor = "dump_to_file"
+#   executor_dump_path = "jobs.jsonl"

@@ -21,6 +21,9 @@ Initializes the TauRunner.jl library and its components.
 This function sets up the Earth model with PREM density profile and
 initializes the CSMS cross-sections for neutrino interactions.
 The SphericalBodyPropagator is created once and cached for reuse.
+
+`init_proposal` calls `_sync_taurunner_to_proposal_path!` after it sets the
+tables directory, so both PROPOSAL and TauRunner always use the same tables.
 """
 function tr_init()
     tables_path = joinpath(get(ENV, "TAMBO_DATA_PATH", tempdir()), "proposal_tables")
@@ -28,7 +31,13 @@ function tr_init()
     ENV["PROPOSAL_TABLES_PATH"] = tables_path
 
     # Create Earth with PREM density model
-    # Add extra rock layer on top for TAMBO elevation (~3km rock to sea level)
+    # Add extra rock layer on top for TAMBO elevation (~3km rock to sea level).
+    # Density 2.6 g/cm³ matches TauRunner's PREM continental-crust value
+    # (TauRunner/src/Bodies/Earth.jl, PREM_PARAMS continental crust entry) so the
+    # extension is self-consistent with the layer below it. This is distinct
+    # from TamboSim's ROCK_DENSITY = 2.65 g/cm³ (find_interaction_vertex.jl),
+    # which is the standard-rock density used for in-rock vertex placement and the
+    # PROPOSAL air/rock medium discriminant.
     _tr_earth[] = TR.construct_earth(layers=[(1, 2.6)])
 
     # Create cross-sections using CSMS model
@@ -37,6 +46,19 @@ function tr_init()
     # Create and cache spherical body propagator (expensive — involves PROPOSAL init)
     _tr_sphere_clp[] = TR.SphericalBodyPropagator(_tr_earth[])
 
+    _tr_initialized[] = true
+end
+
+"""
+    _sync_taurunner_to_proposal_path!()
+
+Rebuilds `_tr_sphere_clp[]` so its PROPOSAL config JSON reflects the current
+`ENV["PROPOSAL_TABLES_PATH"]`. Called by `init_proposal` after it changes the
+tables directory, keeping TauRunner and TamboSim pointed at the same tables.
+"""
+function _sync_taurunner_to_proposal_path!()
+    isnothing(_tr_earth[]) && return
+    _tr_sphere_clp[] = TR.SphericalBodyPropagator(_tr_earth[])
     _tr_initialized[] = true
 end
 
@@ -60,7 +82,7 @@ function taurunner_interface(
 )::Particle{T} where {T<:Real, I<:AbstractVector{Intersection{T}}}
 
     if !_tr_initialized[]
-        error("TauRunner not initialized. Call tr_init() first.")
+        error("TauRunner not initialized. Call init_proposal(config) first.")
     end
 
     earth = _tr_earth[]
@@ -70,7 +92,7 @@ function taurunner_interface(
     rng = isnothing(seed) ? Random.default_rng() : Random.MersenneTwister(seed)
 
     # Convert particle to TauRunner format
-    # TauRunner uses eV, Tambo uses GeV with Unitful
+    # TauRunner uses eV, TamboSim uses GeV with Unitful
     energy_eV = ustrip(particle.energy |> u"eV")
     pdg_id = Int(particle.pdg)
     tr_particle_type = TR.ParticleType(pdg_id)
@@ -93,12 +115,13 @@ function taurunner_interface(
         TR.propagate!(tr_particle, track, earth, clp;
                       condition=stopping_condition, rng=rng)
 
-        # Convert back to Tambo format
-        # Calculate position based on track exit
+        # Convert back to TamboSim format.
+        # particle.position is the Earth entry point. Advance forward along
+        # the neutrino direction by the distance TauRunner traveled.
         earth_length = TR.length(earth)
-        distance_natural = (TR.x_to_d(track, 1.0) - TR.x_to_d(track, tr_particle.position)) * earth_length
+        distance_natural = TR.x_to_d(track, tr_particle.position) * earth_length
         distance = distance_natural / TR.units.meter * u"m"
-        position = distance * reverse(particle.direction) + particle.position
+        position = distance * particle.direction + particle.position
 
         pdg = ParticleType(Int(tr_particle.id))
         energy = tr_particle.energy / TR.units.GeV * u"GeV"
@@ -119,7 +142,7 @@ function taurunner_interface(
         for intersection in Iterators.rest(reverse(culled_ixs), 2)
             # Determine if this is rock or air based on normal direction
             is_rock = dot(particle.direction, intersection.normal) > 0 ||
-                      typeof(intersection) == Tambo.SphereIntersection{T}
+                      typeof(intersection) == TamboSim.SphereIntersection{T}
             density = is_rock ? ustrip(u"g/cm^3", ROCK_DENSITY) : ustrip(u"g/cm^3", AIR_DENSITY)
 
             normalized_boundary = ustrip((total_distance - intersection.distance) / total_distance)
@@ -192,7 +215,7 @@ function taurunner_interface(
         # bound to a specific geometry (slab body). Reusing them across events with
         # different layer structures causes memory corruption and segfaults.
 
-        # Convert back to Tambo format
+        # Convert back to TamboSim format
         body_length = TR.length(body)
         distance_natural = TR.x_to_d(track, tr_particle.position) * body_length
         distance = distance_natural / TR.units.meter * u"m"

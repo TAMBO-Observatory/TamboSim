@@ -1,0 +1,46 @@
+# Downgoing cosmic-ray proton configuration for the Colca Valley site.
+# Used as the proton counterpart to tau_neutrino_cc.toml. Adjust nevent
+# for your run scale.
+#
+# Cosmic-ray protons are surface-injected primaries: every primary is
+# guaranteed to produce a shower (no forced CC interaction is needed),
+# so this config has no [proposal] section and no xs_location key —
+# inject_cosmicrays! reads the spectrum/angular fields plus the optional
+# altitude. The primary species is set by `pdg` (raw PDG code) OR by an
+# `A`/`Z` pair for a nucleus — supply exactly one form. The resolved pdg
+# is recorded on the injection M frame for downstream weighting via
+# build_phase_space.
+
+[geometry]
+geometry_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_3000.jld2"
+
+[injection]
+strategy = "CosmicRayInjection"
+seed = 925
+nevent = 100000
+pdg = 2212     # raw PDG code (proton). For a nucleus instead, omit `pdg`
+               # and give `A`/`Z`, e.g. `A = 16` and `Z = 8` for O-16.
+gamma = 2.7
+emin = 1.0e3 # GeV
+emax = 1.0e7 # GeV
+thetamin = 91  # degrees (downgoing: zenith > 90°)
+thetamax = 130 # degrees
+phimin = 0     # degrees
+phimax = 360   # degrees
+altitude = 112.0 # km — sample primary along the trajectory at this altitude
+
+[corsika]
+seed = 925
+thinning = 1.0e-6
+hadron_model = "SIBYLL-2.3d"
+hadron_ecut = 1.0  # GeV
+em_ecut = 1.0      # GeV
+mu_ecut = 1.0      # GeV
+corsika_path = "_TAMBOSIM_PATH_/src/corsika/tambo_shower/build/tambo_shower"
+
+# Executor selection (optional; default = "run_local"):
+#   executor = "run_sbatch"
+#   executor_sbatch_prefix = "--time=01:00:00 --mem=4G"
+# or
+#   executor = "dump_to_file"
+#   executor_dump_path = "jobs.jsonl"

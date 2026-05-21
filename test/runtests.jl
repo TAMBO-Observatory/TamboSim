@@ -1,120 +1,51 @@
-using Test
-using Unitful
-using LinearAlgebra
-using StaticArrays
-using Rotations
-using Distributions
-using StatsBase
-using Random
-using ProgressMeter
+include("testsetup.jl")
 
-# Import the Tambo module to test actual source code
-using Tambo
+# Map of testset name => (filename, run-function symbol). Order matches historical run order.
+const TESTSETS = [
+    ("Geometry",                   "test_geometry.jl",                   :run_geometry_tests),
+    ("Earth",                      "test_earth.jl",                      :run_earth_tests),
+    ("Ray Tracing",                "test_ray_tracing.jl",                :run_ray_tracing_tests),
+    ("Samplers",                   "test_samplers.jl",                   :run_sampler_tests),
+    ("Particles",                  "test_particles.jl",                  :run_particle_tests),
+    ("Frames",                     "test_frames.jl",                     :run_frame_tests),
+    ("BVH",                        "test_bvh.jl",                        :run_bvh_tests),
+    ("Weighting",                  "test_weighting.jl",                  :run_weighting_tests),
+    ("Detector Culling",           "test_detector_culling.jl",           :run_detector_culling_tests),
+    ("Julia Interfaces",           "test_julia_interfaces.jl",           :run_julia_interfaces_tests),
+    ("Sampler Statistics",         "test_regression.jl",                 :run_sampler_statistics_tests),
+    ("Display",                    "test_coverage_extras.jl",            :run_display_tests),
+    ("Injection Regression",       "test_injection_regression.jl",       :run_injection_regression_tests),
+    ("Propagation Decay Fraction", "test_propagation_decay_fraction.jl", :run_propagation_decay_fraction_tests),
+    ("CORSIKA Read",               "test_read_corsika.jl",               :run_read_corsika_tests),
+    ("CORSIKA Orchestrator",       "test_run_corsika.jl",                :run_corsika_orchestrator_tests),
+    ("CORSIKA Hits",               "test_corsika_hits.jl",               :run_corsika_hits_tests),
+    ("Cosmic Ray Injection",       "test_cosmicray_injection.jl",        :run_cosmicray_injection_tests),
+    ("Simulation API",             "test_simulation_api.jl",             :run_simulation_api_tests),
+]
 
-# Import internal types and functions not exported by default
-import Tambo: CoordinateSystem, ecefcoordinates, Coordinate, Direction,
-              Triangle, Sphere, Plane, OBB, Ray,
-              AABB, BVHNode, BVHTree,
-              normal, area, centroid, longlat_to_cart, cart_to_longlat, sph_to_cart, cart_to_sph,
-              find_intersect, find_intersection, intersect_all,
-              UnitfulPowerLawSampler, UniformAngularSampler, pl_norm, probability,
-              Frame, cut_frames!,
-              Particle, FitStatus, ParticleShape,
-              WeightParameters,
-              reverse,
-              # Particle types
-              TauMinus, TauPlus, NuTau, NuTauBar, Gamma,
-              # Julia interfaces types
-              Intersection, SphereIntersection, TriangleIntersection,
-              StochasticLoss,
-              # Julia interfaces functions
-              cull_intersections, should_go_through_earth, is_proposal_available,
-              # Additional imports for coverage tests
-              compute_rotation, validate_triangle,
-              particle_mass, particle_speed, lorentz_gamma, particle_vacuum_range
+# Filter: if ARGS is non-empty, include only testsets whose name contains any of the
+# given patterns (case-insensitive substring match). With no ARGS, run everything.
+selected = if isempty(ARGS)
+    TESTSETS
+else
+    pats = lowercase.(ARGS)
+    filter(t -> any(p -> occursin(p, lowercase(t[1])), pats), TESTSETS)
+end
 
-# Define unit dimension aliases that are used throughout the codebase
-const ldim = Unitful.𝐋
-const tdim = Unitful.𝐓
-const edim = Unitful.𝐋^2 * Unitful.𝐌 * Unitful.𝐓^-2
-const mdim = Unitful.𝐌
-const speedoflight = 299_792_458.0u"m/s"
+if isempty(selected)
+    @warn "No testsets matched ARGS" ARGS
+    exit(1)
+end
 
-# Include test files
-include("test_geometry.jl")
-include("test_ray_tracing.jl")
-include("test_samplers.jl")
-include("test_particles.jl")
-include("test_frames.jl")
-include("test_bvh.jl")
-include("test_weighting.jl")
-include("test_detector_culling.jl")
-include("test_julia_interfaces.jl")
-include("test_regression.jl")
-include("test_coverage_extras.jl")
-include("test_injection_regression.jl")
-include("test_propagation_decay_fraction.jl")
-include("test_corsika.jl")
-include("test_proton_injection.jl")
+# Include only the files we need (avoid loading 16 files when running one).
+for (_, file, _) in selected
+    include(file)
+end
 
-@testset "Tambo.jl" begin
-    @testset "Geometry" begin
-        run_geometry_tests()
-    end
-
-    @testset "Ray Tracing" begin
-        run_ray_tracing_tests()
-    end
-
-    @testset "Samplers" begin
-        run_sampler_tests()
-    end
-
-    @testset "Particles" begin
-        run_particle_tests()
-    end
-
-    @testset "Frames" begin
-        run_frame_tests()
-    end
-
-    @testset "BVH" begin
-        run_bvh_tests()
-    end
-
-    @testset "Weighting" begin
-        run_weighting_tests()
-    end
-
-    @testset "Detector Culling" begin
-        run_detector_culling_tests()
-    end
-
-    @testset "Julia Interfaces" begin
-        run_julia_interfaces_tests()
-    end
-
-    @testset "Regression" begin
-        run_regression_tests()
-    end
-
-    @testset "Coverage Extras" begin
-        run_coverage_extras_tests()
-    end
-
-    @testset "Injection Regression" begin
-        run_injection_regression_tests()
-    end
-
-    @testset "Propagation Decay Fraction" begin
-        run_propagation_decay_fraction_tests()
-    end
-
-    @testset "CORSIKA" begin
-        run_corsika_tests()
-    end
-
-    @testset "Proton Injection" begin
-        run_proton_injection_tests()
+@testset verbose=true "TamboSim.jl" begin
+    for (name, _, fn) in selected
+        @testset "$name" begin
+            getfield(@__MODULE__, fn)()
+        end
     end
 end

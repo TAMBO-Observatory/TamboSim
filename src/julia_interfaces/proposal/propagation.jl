@@ -1,27 +1,25 @@
 """
-    proposal_propagate(particle::Particle, earth::Earth, seed=nothing) -> Tuple
+    proposal_propagate(particle::Particle, prem, bvh::BVHTree, seed=nothing) -> Tuple
 
 Propagates a particle through the Earth using the PROPOSAL.jl library.
 
-The function calculates the particle's path and the densities it encounters. It then propagates
-the particle through these segments, collecting information about stochastic losses, continuous
-energy loss, and decay products.
-
 # Arguments
 - `particle::Particle`: The initial particle state.
-- `earth::Earth`: The Earth model.
+- `prem`: PREM sphere layers for ray tracing.
+- `bvh`: BVH acceleration structure over the topography mesh.
 - `seed`: An optional seed for the random number generator.
 
 # Returns
-- A tuple containing:
-    - `losses`: A vector of `Particle` objects representing stochastic losses.
-    - `continuous_e`: The total continuous energy loss.
-    - `secondaries`: A vector of `Particle` objects representing decay products.
-    - `final_state`: The final `Particle` state after propagation.
+- A tuple: `(losses, continuous_e, secondaries, final_state)`. If the
+  particle's forward trajectory crosses no medium — it has already exited
+  all PREM layers and the topography mesh — nothing is propagated:
+  `losses`/`secondaries` are empty, `continuous_e` is zero, and
+  `final_state` is a null `Particle` (NaN energy).
 """
 function proposal_propagate(
     particle::Particle{T},
-    earth::Earth{T},
+    prem,
+    bvh::BVHTree{T},
     seed=nothing
 ) where {T<:Real}
 
@@ -29,9 +27,9 @@ function proposal_propagate(
         error("PROPOSAL not available. Call init_proposal(config) first.")
     end
 
-    cs = CoordinateSystem(earth)
+    cs = particle.position.coordinate_system
     ray = Ray(particle)
-    ixs = intersect_all(earth, ray)
+    ixs = intersect_all(prem, bvh, ray)
 
     # Set random seed if provided
     seed = isnothing(seed) ? rand(Int32) : Int32(mod(seed, typemax(Int32)))
@@ -47,7 +45,10 @@ function proposal_propagate(
     continuous_e = 0.0u"GeV"
     accrued_d = 0.0u"m"
     accrued_t = particle.time
-    final_state = nothing
+
+    # Null particle by default. If `ixs` is empty (particle already in air),
+    # the loop below never runs and we signal a culled event via NaN energy.
+    final_state = Particle(T)
 
     for (l, density) in zip(lengths, densities)
         medium = density > 1u"g/cm^3" ? "StandardRock" : "Air"
@@ -139,4 +140,95 @@ function proposal_propagate(
     end
 
     return losses, continuous_e, secondaries, final_state
+end
+
+"""
+    proposal_propagation!(
+        frames::TamboFrames,
+        config::Dict;
+        prefix::String="proposal",
+        inkey::String="injection_final_state"
+    )
+
+Propagate the leptons produced by `inject!` through PREM + topography
+using PROPOSAL. Mutates `frames` by snapshotting `config` onto the
+existing M frame under `prefix`, then iterating over Q frames that
+contain `inkey` and writing four new keys per event:
+
+- `<prefix>_stochastic_losses`   — `Vector{Particle}` of discrete losses
+  (bremsstrahlung, pair-production, hadronic, decay-tagged).
+- `<prefix>_continuous_losses`   — total continuous (ionization) energy.
+- `<prefix>_decay_products`      — `Vector{Particle}` of daughters from
+  decay; empty if the lepton ranged out without decaying.
+- `<prefix>_final_state`         — the lepton at the end of its tracked
+  path (decay vertex or trajectory exit).
+
+# Arguments
+- `frames::TamboFrames`: must already have an M frame (run `inject!`
+  first).
+- `config::Dict`: parsed `[proposal]` TOML table. Consults
+  `"seed"` (RNG seed) and any cross-section / parametrization
+  settings that `init_proposal` knows about.
+
+# Keyword arguments
+- `prefix::String`: namespace for the config snapshot and per-Q-frame
+  output keys. Default `"proposal"`.
+- `inkey::String`: which Q-frame key carries the input lepton state.
+  Default `"injection_final_state"`.
+
+Q frames whose `inkey` particle has total energy at or below the
+particle's rest energy (`particle_mass(pdg) * c²`) are skipped with a
+warning: PROPOSAL requires kinetic energy > 0. The threshold is
+per-PDG, so the same call can correctly handle electron, muon, and
+tau injections.
+
+Q frames whose lepton's forward trajectory crosses no medium — it has
+already exited all PREM layers and the topography mesh (e.g. a very
+high-energy near-horizontal event whose forced interaction vertex lands
+off the mesh / above the atmosphere) — are likewise skipped, leaving no
+`<prefix>_*` keys, so downstream stages drop them.
+"""
+function proposal_propagation!(
+    frames::TamboFrames,
+    config::Dict;
+    prefix::String="proposal",
+    inkey::String="injection_final_state"
+)
+    m_frame = _get_last_frame(frames, 'M')
+    g_frame = m_frame.g_frame
+
+    m_frame[prefix] = config
+    init_proposal(config)
+
+    prem = g_frame["prem"]
+    bvh  = g_frame["bvh"]
+
+    if !haskey(config, "seed")
+        @warn "Deciding seed via RNG and adding to configuration"
+        config["seed"] = rand(UInt32)
+    end
+    Random.seed!(config["seed"])
+
+    q_frames = filter(f -> f.stream == 'Q', frames)
+
+    @llama_showprogress "Propagating" for frame in q_frames
+        haskey(frame, inkey) || continue
+        final_state = frame[inkey]
+        rest_energy = particle_mass(final_state.pdg) * speedoflight^2
+        if final_state.energy <= rest_energy
+            @warn "Skipping Q frame: $(final_state.pdg) energy $(final_state.energy) ≤ rest energy $(rest_energy)" maxlog=5
+            continue
+        end
+        ls, contls, decay_products, propped_state = proposal_propagate(
+            final_state, prem, bvh, rand(Int32)
+        )
+        # Lepton exited all media without propagating (vertex landed off-mesh /
+        # above the atmosphere). Drop the event: leave no `proposal_*` keys so
+        # downstream stages skip it via the missing-key convention.
+        isnan(propped_state.energy) && continue
+        frame["$(prefix)_stochastic_losses"] = ls
+        frame["$(prefix)_continuous_losses"] = contls
+        frame["$(prefix)_decay_products"] = decay_products
+        frame["$(prefix)_final_state"] = propped_state
+    end
 end

@@ -27,33 +27,22 @@ struct DetectorProperties{T<:Real}
 end
 
 """
-    precompute_detector_properties(earth::Earth{T}) where {T<:Real}
+    precompute_detector_properties(topography, detector_region) -> DetectorProperties
 
-Pre-computes detector properties from an Earth model for efficient injection.
-
-This function should be called once before running multiple injection events.
-The returned `DetectorProperties` can then be passed to `inject_event` to avoid
-redundant computation of normals, BVH, and areas for each event.
+Pre-computes detector properties for efficient injection.
 
 # Arguments
-- `earth::Earth{T}`: The Earth model containing the detector region.
+- `topography`: Full topography mesh (vector of triangles).
+- `detector_region`: Integer indices of detector triangles within `topography`.
 
 # Returns
-- `DetectorProperties{T}`: A struct containing pre-computed triangles, normals, BVH, and areas.
-
-# Example
-```julia
-earth = Earth(...)
-detector_props = precompute_detector_properties(earth)
-
-# Now use in injection loop with the cleaner API
-for i in 1:n_events
-    result = inject_event(pdg, earth, as, pl, xs, detector_props)
-end
-```
+- `DetectorProperties{T}`: Pre-computed triangles, normals, BVH, and areas.
 """
-function precompute_detector_properties(earth::Earth{T}) where {T<:Real}
-    triangles = earth.topography[earth.detector_region]
+function precompute_detector_properties(
+    topography::Vector{Triangle{T}},
+    detector_region
+) where {T<:Real}
+    triangles = topography[detector_region]
     normals = normal.(triangles)
     bvh = BVHTree(triangles)
     areas = area.(triangles)
@@ -61,7 +50,7 @@ function precompute_detector_properties(earth::Earth{T}) where {T<:Real}
 end
 
 """
-    create_null_result(
+    _create_null_neutrino_result(
         pdg::Int,
         error_code::Int,
         d::Direction{T},
@@ -79,9 +68,9 @@ Creates a null result tuple for failed injection events.
 - `T`: The numeric type parameter.
 
 # Returns
-- A tuple of (initial_state, null_particle, null_particle, null_params).
+- A tuple of (initial_state, null_particle, null_particle, nothing).
 """
-function create_null_result(
+function _create_null_neutrino_result(
     pdg::Int,
     error_code::Int,
     d::Direction{T},
@@ -90,7 +79,7 @@ function create_null_result(
 ) where {T<:Real}
     coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
     initial_state = Particle(error_code, ParticleType(pdg), NaN*u"GeV", coord, d)
-    return initial_state, Particle(T), Particle(T), null_params
+    return initial_state, Particle(T), Particle(T), nothing
 end
 
 """
@@ -135,30 +124,28 @@ function sample_detector_point(
 end
 
 """
-    validate_trajectory(
-        earth::Earth,
-        p::Coordinate{T},
-        revd::Direction{T}
-    ) where {T<:Real}
+    validate_earth_trajectory(prem, bvh, detector_region, p, revd) -> (intersections, error_code)
 
 Validates a particle trajectory through the Earth model.
 
 # Returns
 - `(intersections, 0)` if valid, `(nothing, error_code)` if invalid.
 """
-function validate_trajectory(
-    earth::Earth,
+function validate_earth_trajectory(
+    prem,
+    bvh::BVHTree{T},
+    detector_region,
     p::Coordinate{T},
     revd::Direction{T}
 ) where {T<:Real}
     ray = Ray(p, revd)
-    intersections = intersect_all(earth, ray)
+    intersections = intersect_all(prem, bvh, ray)
 
     if isempty(intersections)
         return nothing, INJECTION_ERROR_NO_INTERSECTIONS
     end
 
-    mask = mask_helper(intersections, earth, revd)
+    mask = mask_helper(intersections, detector_region, revd)
     filtered = @views intersections[mask]
 
     if sum(mask) == 0
@@ -173,7 +160,7 @@ function validate_trajectory(
 end
 
 """
-    compute_final_state(
+    force_interaction_vertex(
         close_state::Particle,
         xs::CrossSection,
         intersections,
@@ -186,7 +173,7 @@ Computes the final particle state after forcing an interaction.
 # Returns
 - `(final_state, eout, cd, density)` tuple with the interaction results.
 """
-function compute_final_state(
+function force_interaction_vertex(
     close_state::Particle,
     xs::CrossSection,
     intersections,
@@ -213,11 +200,14 @@ function compute_final_state(
 end
 
 """
-Internal implementation of inject_event containing the core logic.
+Internal implementation of inject_neutrino_event containing the core logic.
 """
-function _inject_event_impl(
+function _inject_neutrino_event_impl(
     pdg::Int,
-    earth::Earth,
+    prem,
+    bvh::BVHTree{T},
+    cs::CoordinateSystem{T},
+    detector_region,
     as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
     xs::CrossSection,
@@ -226,9 +216,8 @@ function _inject_event_impl(
     detector_bvh::BVHTree{T},
     detector_areas::Vector{Quantity{T,ldim^2,typeof(u"m^2")}},
     epsilon,
-    tr_seed
+    tr_seed,
 ) where {T<:Real}
-    cs = CoordinateSystem(earth)
 
     # Sample direction for neutrino trajectory
     d = rand(as, cs)
@@ -240,76 +229,75 @@ function _inject_event_impl(
     )
 
     if isnothing(p)
-        return create_null_result(pdg, INJECTION_ERROR_NO_VISIBLE_TRIANGLES, d, cs, T)
+        return _create_null_neutrino_result(pdg, INJECTION_ERROR_NO_VISIBLE_TRIANGLES, d, cs, T)
     end
 
     # Validate trajectory through Earth
     revd = reverse(d)
-    intersections, error_code = validate_trajectory(earth, p, revd)
+    intersections, error_code = validate_earth_trajectory(prem, bvh, detector_region, p, revd)
 
     if isnothing(intersections)
-        return create_null_result(pdg, error_code, d, cs, T)
+        return _create_null_neutrino_result(pdg, error_code, d, cs, T)
     end
 
-    # Sample energy and create initial state
+    # Sample energy and create initial state at the Earth entry point — the
+    # last intersection going backward along the ray from the detector.
     initial_energy = rand(pl)
-    initial_state = Particle(ParticleType(pdg), initial_energy, p, d)
+    earth_entry = last(intersections).point
+    initial_state = Particle(ParticleType(pdg), initial_energy, earth_entry, d)
 
-    local close_state, final_state, weight_params
+    local close_state, final_state, point
     try
         # Propagate through Earth via TauRunner interface
         close_state = taurunner_interface(initial_state, intersections, tr_seed)
 
         # Handle null particle from failed propagation
         if isnan(close_state.energy)
-            return create_null_result(pdg, INJECTION_ERROR_RUNTIME, d, cs, T)
+            return _create_null_neutrino_result(pdg, INJECTION_ERROR_RUNTIME, d, cs, T)
         end
 
-        # Handle charged lepton output (no forced interaction needed)
+        theta, phi = cart_to_sph(d)
+        area = sum(visible_areas)
+
+        # Handle charged lepton output (no forced interaction needed):
+        # the neutrino was converted upstream during Earth transit.
         if abs(Int(close_state.pdg)) + 1 == abs(Int(pdg))
-            weight_params = WeightParameters(
-                sum(visible_areas),
-                pl, as, xs,
-                initial_energy,
-                close_state.energy,
-                NaN * u"GeV",
-                NaN * u"g/cm^2",
-                NaN * u"g/cm^3"
-            )
-            return initial_state, close_state, close_state, weight_params
+            point = UpstreamNeutrinoInteractionPoint(initial_energy, theta, phi, area)
+            return initial_state, close_state, close_state, point
         end
 
         # Check if energy is below cross-section threshold
         if close_state.energy < minimum(xs.es)
-            return initial_state, close_state, Particle(T), null_params
+            return initial_state, close_state, Particle(T), nothing
         end
 
         # Force interaction for neutrino output
-        final_state, eout, cd, density = compute_final_state(
+        final_state, eout, cd, density = force_interaction_vertex(
             close_state, xs, intersections, cs, d
         )
 
-        weight_params = WeightParameters(
-            sum(visible_areas),
-            pl, as, xs,
-            initial_energy,
-            close_state.energy,
-            eout,
-            cd |> u"g/cm^2",
-            density
+        sigma  = xs(close_state.energy)
+        dsigma = xs(close_state.energy, eout)
+        point = ForcedNeutrinoInteractionPoint(
+            initial_energy, theta, phi, area,
+            cd |> u"g/cm^2", density, sigma, dsigma,
         )
     catch e
         @warn "Runtime error during event injection, returning null result" exception=(e, catch_backtrace())
-        return create_null_result(pdg, INJECTION_ERROR_RUNTIME, d, cs, T)
+        return _create_null_neutrino_result(pdg, INJECTION_ERROR_RUNTIME, d, cs, T)
     end
 
-    return initial_state, close_state, final_state, weight_params
+    return initial_state, close_state, final_state, point
 end
 
 """
-    inject_event(
+    inject_neutrino_event(
         pdg::Int,
-        earth::Earth,
+        prem,
+        bvh::BVHTree{T},
+        cs::CoordinateSystem{T},
+        detector_region,
+        topography::Vector{Triangle{T}},
         as::UniformAngularSampler,
         pl::UnitfulPowerLawSampler,
         xs::CrossSection;
@@ -319,9 +307,9 @@ end
         detector_areas::Union{Vector{Quantity{T,ldim^2,typeof(u"m^2")}}, Nothing}=nothing,
         epsilon=1e-6*u"m",
         tr_seed=nothing
-    ) -> Tuple{Particle, Particle, Particle, WeightParameters}
+    ) -> Tuple{Particle, Particle, Particle, Union{PhaseSpacePoint, Nothing}}
 
-Simulates the injection and initial interaction of a particle (e.g., neutrino) into the Earth model.
+Simulates the injection and initial interaction of a neutrino into the Earth.
 
 This function performs several steps:
 1. Samples a neutrino trajectory based on `as` and determines the detector element it targets.
@@ -330,15 +318,20 @@ This function performs several steps:
    to determine its state near the interaction point (`close_state`).
 4. If the `close_state` is a neutrino, it forces an interaction (based on `xs`) and
    determines the final state (`final_state`) and its interaction vertex.
-5. Calculates `WeightParameters` for the event.
+5. Builds a `PhaseSpacePoint` recording the per-event phase-space coordinates
+   needed for downstream weighting.
 
 # Arguments
 - `pdg::Int`: The PDG ID of the injected particle (e.g., neutrino).
-- `earth::Earth`: The Earth model, including topography and material densities.
+- `prem`: PREM-style radial density model used by the propagation interface.
+- `bvh::BVHTree{T}`: BVH over the full topography mesh, used for trajectory ↔ surface intersection.
+- `cs::CoordinateSystem{T}`: ECEF-anchored coordinate system the geometry lives in.
+- `detector_region`: indices of the topography triangles that make up the detector surface.
+- `topography::Vector{Triangle{T}}`: full triangulated terrain mesh.
 - `as::UniformAngularSampler`: Sampler for the angular distribution of injected particles.
 - `pl::UnitfulPowerLawSampler`: Sampler for the energy distribution of injected particles.
 - `xs::CrossSection`: Cross-section data for particle interactions.
-- `detector_triangles::Union{Vector{Triangle{T}}, Nothing}`: Optional pre-computed detector triangles. If `nothing`, derived from `earth`.
+- `detector_triangles::Union{Vector{Triangle{T}}, Nothing}`: Optional pre-computed detector triangles. If `nothing`, derived from `topography[detector_region]`.
 - `detector_normals::Union{Vector{Direction{T}}, Nothing}`: Optional pre-computed detector normals. If `nothing`, computed from `detector_triangles`.
 - `detector_bvh::Union{BVHTree{T}, Nothing}`: Optional pre-computed BVH for detector triangles. If `nothing`, built from `detector_triangles`.
 - `detector_areas::Union{Vector{Quantity{T,ldim^2,typeof(u"m^2")}}, Nothing}`: Optional pre-computed detector areas. If `nothing`, computed from `detector_triangles`.
@@ -346,15 +339,20 @@ This function performs several steps:
 - `tr_seed`: Seed for the `taurunner_interface` (if used).
 
 # Returns
-- `Tuple{Particle, Particle, Particle, WeightParameters}`:
+- `Tuple{Particle, Particle, Particle, Union{PhaseSpacePoint, Nothing}}`:
     - `initial_state`: The initial `Particle` state at injection.
     - `close_state`: The `Particle` state just before the final interaction or at detector entry.
     - `final_state`: The `Particle` state after interaction, or the `close_state` if it's a charged lepton.
-    - `weight_params`: Parameters used for calculating event weights.
+    - `point`: A `PhaseSpacePoint` (forced-CC or upstream-converted) when the event
+      succeeded, otherwise `nothing` (failed/below-threshold paths).
 """
-function inject_event(
+function inject_neutrino_event(
     pdg::Int,
-    earth::Earth,
+    prem,
+    bvh::BVHTree{T},
+    cs::CoordinateSystem{T},
+    detector_region,
+    topography::Vector{Triangle{T}},
     as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
     xs::CrossSection;
@@ -363,11 +361,11 @@ function inject_event(
     detector_bvh::Union{BVHTree{T}, Nothing}=nothing,
     detector_areas::Union{Vector{Quantity{T,ldim^2,typeof(u"m^2")}}, Nothing}=nothing,
     epsilon=1e-6*u"m",
-    tr_seed=nothing
+    tr_seed=nothing,
 ) where {T<:Real}
     # Compute detector properties if not provided (inefficient for repeated calls)
     if isnothing(detector_triangles)
-        detector_triangles = earth.topography[earth.detector_region]
+        detector_triangles = topography[detector_region]
     end
     if isnothing(detector_normals)
         @warn "Computing normals on-the-fly. Use precompute_detector_properties() for better performance." maxlog=1
@@ -382,17 +380,20 @@ function inject_event(
         detector_areas = area.(detector_triangles)
     end
 
-    return _inject_event_impl(
-        pdg, earth, as, pl, xs,
+    return _inject_neutrino_event_impl(
+        pdg, prem, bvh, cs, detector_region, as, pl, xs,
         detector_triangles, detector_normals, detector_bvh, detector_areas,
         epsilon, tr_seed
     )
 end
 
 """
-    inject_event(
+    inject_neutrino_event(
         pdg::Int,
-        earth::Earth,
+        prem,
+        bvh::BVHTree{T},
+        cs::CoordinateSystem{T},
+        detector_region,
         as::UniformAngularSampler,
         pl::UnitfulPowerLawSampler,
         xs::CrossSection,
@@ -403,31 +404,34 @@ end
 
 Simulates injection using pre-computed detector properties.
 
-This is the recommended method for batch injection as it avoids recomputing
-detector geometry for each event.
+This is the recommended method for batch injection: detector geometry
+(triangles, normals, BVH, areas) is built once via [`precompute_detector_properties`](@ref)
+and reused across events.
 
 # Example
 ```julia
-earth = Earth(...)
-detector_props = precompute_detector_properties(earth)
+detector_props = precompute_detector_properties(topography, detector_region)
 
 for i in 1:n_events
-    result = inject_event(pdg, earth, as, pl, xs, detector_props)
+    result = inject_neutrino_event(pdg, prem, bvh, cs, detector_region, as, pl, xs, detector_props)
 end
 ```
 """
-function inject_event(
+function inject_neutrino_event(
     pdg::Int,
-    earth::Earth,
+    prem,
+    bvh::BVHTree{T},
+    cs::CoordinateSystem{T},
+    detector_region,
     as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
     xs::CrossSection,
     detector_props::DetectorProperties{T};
     epsilon=1e-6*u"m",
-    tr_seed=nothing
+    tr_seed=nothing,
 ) where {T<:Real}
-    return _inject_event_impl(
-        pdg, earth, as, pl, xs,
+    return _inject_neutrino_event_impl(
+        pdg, prem, bvh, cs, detector_region, as, pl, xs,
         detector_props.triangles, detector_props.normals,
         detector_props.bvh, detector_props.areas,
         epsilon, tr_seed
@@ -435,19 +439,22 @@ function inject_event(
 end
 
 """
-    inject_proton_event(
-        earth::Earth,
+    inject_cosmicray_event(
+        pdg::Int,
+        cs::CoordinateSystem{T},
         as::UniformAngularSampler,
         pl::UnitfulPowerLawSampler,
         detector_props::DetectorProperties{T};
-        altitude::Quantity=50.0u"km",
+        altitude::Quantity=112.0u"km",
         epsilon=1e-6*u"m"
     ) where {T<:Real}
 
-Simulates the injection of a downgoing cosmic ray proton.
+Simulates the injection of a downgoing cosmic-ray primary of the given
+`pdg` (e.g. `2212` for a proton, `1000080160` for an O-16 nucleus — any
+code defined in the `ParticleType` enum).
 
 Unlike neutrino injection, this skips TauRunner/PROPOSAL and directly produces
-a proton particle suitable for CORSIKA shower simulation. The proton starts at
+a primary particle suitable for CORSIKA shower simulation. The primary starts at
 the specified altitude above the detector, traveling downward along the sampled
 direction.
 
@@ -458,28 +465,31 @@ direction.
 4. Samples energy from the power-law sampler.
 
 # Arguments
-- `earth::Earth`: The Earth model containing detector geometry.
+- `pdg::Int`: PDG code of the cosmic-ray primary. Must be a value defined
+  in the `ParticleType` enum (e.g. `2212` proton, `1000260560` Fe-56).
+- `cs::CoordinateSystem{T}`: ECEF-anchored coordinate system.
 - `as::UniformAngularSampler`: Sampler for the angular distribution.
 - `pl::UnitfulPowerLawSampler`: Sampler for the energy distribution.
 - `detector_props::DetectorProperties{T}`: Pre-computed detector properties.
-- `altitude::Quantity`: Starting altitude for the proton (default: 50 km).
+- `altitude::Quantity`: Starting altitude for the primary (default: 112 km).
 - `epsilon`: Small offset to avoid self-intersections (default: 1e-6 m).
 
 # Returns
-- `(initial_proton::Particle, final_proton::Particle, visible_areas, passes_through_rock)`:
-  `initial_proton` is at the detector surface point (before backtracing),
-  `final_proton` is at the specified altitude (after backtracing, ready for CORSIKA).
-  If no visible triangles exist, both particles have `NaN` energy and `visible_areas` is `nothing`.
+- `(initial_primary::Particle, final_primary::Particle, point)`:
+  `initial_primary` is at the detector surface point (before backtracing),
+  `final_primary` is at the specified altitude (after backtracing, ready for CORSIKA),
+  `point` is the `SurfaceCRPoint` phase-space coordinate.
+  If no visible triangles exist, both particles have `NaN` energy and `point` is `nothing`.
 """
-function inject_proton_event(
-    earth::Earth,
+function inject_cosmicray_event(
+    pdg::Int,
+    cs::CoordinateSystem{T},
     as::UniformAngularSampler,
     pl::UnitfulPowerLawSampler,
     detector_props::DetectorProperties{T};
-    altitude::Quantity=50.0u"km",
-    epsilon=1e-6*u"m"
+    altitude::Quantity=112.0u"km",
+    epsilon=1e-6*u"m",
 ) where {T<:Real}
-    cs = CoordinateSystem(earth)
     d = rand(as, cs)
 
     # Same detector point sampling as neutrino
@@ -490,8 +500,8 @@ function inject_proton_event(
     if isnothing(p)
         coord = Coordinate([NaN, NaN, NaN].*u"m", cs)
         dir = Direction([NaN, NaN, NaN], cs)
-        nan_particle = Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, PPlus, NaN*u"GeV", coord, dir)
-        return nan_particle, nan_particle, nothing, false
+        nan_particle = Particle(INJECTION_ERROR_NO_VISIBLE_TRIANGLES, ParticleType(pdg), NaN*u"GeV", coord, dir)
+        return nan_particle, nan_particle, nothing
     end
 
     # Trace back along trajectory to reach the specified altitude above the curved Earth's
@@ -519,23 +529,278 @@ function inject_proton_event(
     discriminant = a_dot_b^2 - a_sq + target_r^2
     t = -a_dot_b + sqrt(discriminant)
 
-    proton_position = Coordinate(p.point + revd.point * t, cs)
+    primary_position = Coordinate(p.point + revd.point * t, cs)
 
     energy = rand(pl)
-    initial_proton = Particle(PPlus, energy, p, d)
-    final_proton = Particle(PPlus, energy, proton_position, d)
+    primary_type = ParticleType(pdg)
+    initial_primary = Particle(primary_type, energy, p, d)
+    final_primary = Particle(primary_type, energy, primary_position, d)
 
-    # Check if the proton path passes through rock (mountains between injection and detector)
-    forward_ray = Ray(proton_position, d)
-    topo_hits = intersect_all(earth.bvh, forward_ray)
-    detector_indices = Set(earth.detector_region)
-    diff = proton_position.point - p.point
-    path_len = sqrt(diff[1]^2 + diff[2]^2 + diff[3]^2)
-    # Check if any non-detector topography triangle (i.e. a mountain) is hit
-    # within the path from the injection point to the detector surface
-    passes_through_rock = any(topo_hits) do ix
-        ix.index ∉ detector_indices && ix.distance < path_len
+    theta, phi = cart_to_sph(d)
+    point = SurfaceCRPoint(energy, theta, phi, sum(visible_areas))
+
+    return initial_primary, final_primary, point
+end
+
+"""
+    _setup_injection(frames, config, prefix, fname) -> (g_frame, m_frame, q_frames)
+
+Shared frame-setup step for all injection backends. Creates and appends one new
+M frame (with `config` snapshotted under `prefix`) and `config["nevent"]` Q
+frames to `frames`, wiring parent pointers for the latest G, C, and D frames.
+
+`fname` is the calling function's name, used only in the "nevent missing" error
+message. Returns `(g_frame, m_frame, q_frames)`.
+"""
+function _setup_injection(frames::TamboFrames, config::Dict, prefix::String, fname::String)
+    haskey(config, "nevent") || error("$fname config must contain \"nevent\"")
+    g_frame = _get_last_frame(frames, 'G')
+    m_parents = Dict{Char,Frame}('G' => g_frame)
+    for s in ('C', 'D')
+        f = _get_last_frame(frames, s; required=false)
+        f !== nothing && (m_parents[s] = f)
     end
+    config_with_hash = merge(config, Dict("geometry_hash" => UInt(g_frame["geometry_hash"])))
+    m_frame = Frame('M', Dict{String,Any}(prefix => config_with_hash), m_parents)
+    push!(frames, m_frame)
+    q_parents = Dict{Char,Frame}('M' => m_frame)
+    for s in ('G', 'C', 'D')
+        haskey(m_parents, s) && (q_parents[s] = m_parents[s])
+    end
+    q_frames = Frame[]
+    for idx in 1:config["nevent"]
+        q_frame = Frame('Q', Dict{String,Any}(), q_parents)
+        q_frame["event_id"] = idx
+        push!(q_frames, q_frame)
+    end
+    append!(frames, q_frames)
+    return g_frame, m_frame, q_frames
+end
 
-    return initial_proton, final_proton, visible_areas, passes_through_rock
+"""
+    inject!(frames::TamboFrames, config::Dict; prefix::String="injection")
+
+Unified injection entrypoint. Reads `config["strategy"]` and dispatches
+to the matching backend:
+
+- `"NeutrinoInjection"`   → [`inject_neutrinos!`](@ref)
+- `"CosmicRayInjection"`  → [`inject_cosmicrays!`](@ref)
+
+Errors loudly if `strategy` is missing or not recognized. The backends
+remain callable directly for tests and power users.
+"""
+function inject!(
+    frames::TamboFrames,
+    config::Dict;
+    prefix::String="injection"
+)
+    haskey(config, "strategy") || error(
+        "inject!: injection config is missing required `strategy` field. " *
+        "Set it to one of \"NeutrinoInjection\" or \"CosmicRayInjection\"."
+    )
+    strategy = config["strategy"]
+    if strategy == "NeutrinoInjection"
+        return inject_neutrinos!(frames, config; prefix=prefix)
+    elseif strategy == "CosmicRayInjection"
+        return inject_cosmicrays!(frames, config; prefix=prefix)
+    else
+        error(
+            "inject!: unknown strategy \"$strategy\". " *
+            "Expected \"NeutrinoInjection\" or \"CosmicRayInjection\"."
+        )
+    end
+end
+
+"""
+    inject_neutrinos!(frames::TamboFrames, config::Dict; prefix::String="injection")
+
+Inject neutrino primaries into a TamboFrames container. Mutates `frames`
+in place by:
+
+1. Appending one new M frame, with the parsed `config` snapshotted on it
+   under `prefix` (default `"injection"`) for provenance.
+2. Appending `config["nevent"]` empty Q frames, each tagged with a
+   sequential `event_id` and parented to the new M frame.
+3. For every Q frame, sampling a primary `(energy, direction)` from
+   `config`'s power-law and angular ranges, tracing it through the
+   geometry, and writing the resulting injection states and a
+   `PhaseSpacePoint` back onto the frame:
+
+   - `<prefix>_initial_state`          — the hypothetical primary at the
+     Earth entry point with source-spectrum energy. Position is the
+     outermost intersection of the backward ray with the terrain or
+     PREM sphere; energy is a draw from the source power law.
+   - `<prefix>_taurunner_output_state` — TauRunner's output: the particle
+     (neutrino or tau) at the point where the stopping condition fired,
+     somewhere along the path through the Earth toward the detector.
+   - `<prefix>_final_state`            — the forced CC interaction vertex
+     inside rock (omitted when no rock crossing is found along the trajectory).
+   - `phase_space_point`               — per-event phase-space coordinates
+     consumed downstream by `oneweight` / `oneweights`.
+
+# Arguments
+- `frames::TamboFrames`: the container to mutate. Must already contain G,
+  C, and D frames (typically loaded from a GCD bundle).
+- `config::Dict`: parsed `[injection]` TOML table. Must contain `"nevent"`;
+  consults `"pdg"`, `"emin"`, `"emax"`, `"gamma"`, `"thetamin/max"`,
+  `"phimin/max"`, `"xs_location"`, and `"seed"` (RNG seed).
+
+# Keyword arguments
+- `prefix::String`: namespace under which states and the config snapshot
+  are stored. Default `"injection"`.
+"""
+function inject_neutrinos!(
+    frames::TamboFrames,
+    config::Dict;
+    prefix::String="injection"
+)
+    g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_neutrinos!")
+    d_frame = m_frame.d_frame
+
+    prem            = g_frame["prem"]
+    bvh             = g_frame["bvh"]
+    cs              = g_frame["cs"]
+    topography      = g_frame["topography"]
+    detector_region = d_frame["detector_region"]
+    detector_bvh    = d_frame["detector_bvh"]
+
+    pl = UnitfulPowerLawSampler(
+        config["gamma"],
+        config["emin"] * u"GeV",
+        config["emax"] * u"GeV"
+    )
+    as = UniformAngularSampler(
+        deg2rad(config["thetamin"]),
+        deg2rad(config["thetamax"]),
+        deg2rad(config["phimin"]),
+        deg2rad(config["phimax"]),
+    )
+    cross_section = CrossSection(config["xs_location"])
+    detector_triangles = detector_bvh.triangles
+    detector_areas  = area.(detector_triangles)
+    detector_normals = normal.(detector_triangles)
+    Random.seed!(config["seed"])
+
+    @llama_showprogress "Injecting" for frame in q_frames
+        tr_seed = rand(UInt32)
+        istate, cstate, fstate, point = inject_neutrino_event(
+            config["pdg"],
+            prem, bvh, cs, detector_region, topography,
+            as, pl, cross_section;
+            detector_areas=detector_areas,
+            detector_normals=detector_normals,
+            detector_bvh=detector_bvh,
+            tr_seed=tr_seed,
+        )
+        frame["$(prefix)_initial_state"] = istate
+        if !isnan(cstate.energy)
+            frame["$(prefix)_taurunner_output_state"] = cstate
+        end
+        if !isnan(fstate.energy)
+            frame["$(prefix)_final_state"] = fstate
+        end
+        point === nothing || (frame["phase_space_point"] = point)
+    end
+end
+
+"""
+    _resolve_primary_pdg(config::Dict) -> Int
+
+Resolve the cosmic-ray primary PDG code from an injection config. Accepts
+either an explicit `"pdg"` key, or an `"A"`/`"Z"` pair converted via
+[`nucleus_pdg`](@ref). Exactly one form must be present — supplying both,
+neither, or only one of `A`/`Z` is an error.
+"""
+function _resolve_primary_pdg(config::Dict)
+    has_pdg = haskey(config, "pdg")
+    has_A   = haskey(config, "A")
+    has_Z   = haskey(config, "Z")
+    if has_pdg && (has_A || has_Z)
+        error("inject_cosmicrays!: config specifies both `pdg` and `A`/`Z` — " *
+              "use one form, not both.")
+    elseif has_pdg
+        return Int(config["pdg"])
+    elseif has_A && has_Z
+        return nucleus_pdg(Int(config["A"]), Int(config["Z"]))
+    else
+        error("inject_cosmicrays!: config must specify either `pdg`, or both " *
+              "`A` and `Z` (mass and atomic number).")
+    end
+end
+
+"""
+    inject_cosmicrays!(frames::TamboFrames, config::Dict; prefix::String="injection")
+
+Inject downgoing cosmic-ray primaries onto the detector surface. The
+primary species is resolved by [`_resolve_primary_pdg`](@ref): give either
+`config["pdg"]` (e.g. `2212` proton, `1000080160` O-16 — any code in the
+`ParticleType` enum), or a `config["A"]`/`config["Z"]` pair for a nucleus.
+The resolved code is canonicalized into the M-frame config snapshot so
+`build_phase_space` / `oneweight` always see an explicit `pdg`. Mutates
+`frames` by appending one new M frame (with `config` snapshotted under
+`prefix` for provenance) and `config["nevent"]` Q frames. Each Q frame
+carries:
+
+- `<prefix>_initial_state` — primary backtraced to `config["altitude"]` above
+  Earth, ready for CORSIKA injection
+- `phase_space_point::SurfaceCRPoint` — surface-injection phase-space
+  coordinates consumed downstream by `oneweight` / `oneweights`.
+
+Q frames where the angular sampler hit no visible detector triangles are
+silently skipped and have none of the above keys written.
+
+Unlike [`inject!`](@ref), this does not force a CC interaction — every
+sampled primary produces a shower at its sampled position by construction,
+so the close- and final-state-of-the-CC-vertex machinery is not needed.
+
+# Arguments
+- `frames::TamboFrames`: container to mutate; must already contain G, C, D.
+- `config::Dict`: parsed config table. Must contain `"nevent"`, and
+  either `"pdg"` or both `"A"` and `"Z"` (mass and atomic number).
+
+# Keyword arguments
+- `prefix::String`: namespace for the config snapshot and per-Q-frame
+  state keys. Default `"injection"`.
+"""
+function inject_cosmicrays!(
+    frames::TamboFrames,
+    config::Dict;
+    prefix::String="injection"
+)
+    pdg = _resolve_primary_pdg(config)
+    # Canonicalize to an explicit `pdg` so the M-frame snapshot (and thus
+    # build_phase_space / oneweight) always sees one, even for A/Z configs.
+    config = merge(config, Dict{String,Any}("pdg" => pdg))
+    g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_cosmicrays!")
+    d_frame = m_frame.d_frame
+
+    cs              = g_frame["cs"]
+    topography      = g_frame["topography"]
+    detector_region = d_frame["detector_region"]
+
+    pl = UnitfulPowerLawSampler(
+        config["gamma"],
+        config["emin"] * u"GeV",
+        config["emax"] * u"GeV"
+    )
+    as = UniformAngularSampler(
+        deg2rad(config["thetamin"]),
+        deg2rad(config["thetamax"]),
+        deg2rad(config["phimin"]),
+        deg2rad(config["phimax"]),
+    )
+    altitude = get(config, "altitude", 112.0) * u"km"
+    detector_props = precompute_detector_properties(topography, detector_region)
+    Random.seed!(config["seed"])
+
+    @llama_showprogress "Injecting cosmic rays" for frame in q_frames
+        initial_primary, final_primary, point = inject_cosmicray_event(
+            pdg, cs, as, pl, detector_props;
+            altitude=altitude,
+        )
+        if !isnan(initial_primary.energy)
+            frame["$(prefix)_initial_state"] = final_primary
+            point === nothing || (frame["phase_space_point"] = point)
+        end
+    end
 end

@@ -1,5 +1,5 @@
-# Custom display methods for Tambo types
-# These provide nice, descriptive output when printing Tambo structures
+# Custom display methods for TamboSim types
+# These provide nice, descriptive output when printing TamboSim structures
 
 # ============================================================================
 # Geometry Types
@@ -264,136 +264,40 @@ function Base.show(io::IO, ::MIME"text/plain", p::Particle{T}) where {T}
 end
 
 # ============================================================================
-# Weighting Types
-# ============================================================================
-
-"""
-    Base.show(io::IO, wp::WeightParameters)
-
-Displays WeightParameters with key sampling information.
-"""
-function Base.show(io::IO, wp::WeightParameters{T}) where {T}
-    emin = ustrip(u"GeV", wp.emin)
-    emax = ustrip(u"GeV", wp.emax)
-
-    function format_energy(e)
-        if isnan(e)
-            return "NaN"
-        elseif e >= 1e6
-            return "$(round(e/1e6, digits=1)) PeV"
-        elseif e >= 1e3
-            return "$(round(e/1e3, digits=1)) TeV"
-        else
-            return "$(round(e, digits=1)) GeV"
-        end
-    end
-
-    print(io, "WeightParameters{$T}(E: $(format_energy(emin))-$(format_energy(emax)), γ: $(round(wp.gamma, digits=2)))")
-end
-
-"""
-    Base.show(io::IO, ::MIME"text/plain", wp::WeightParameters)
-
-Multi-line display for WeightParameters with full details.
-"""
-function Base.show(io::IO, ::MIME"text/plain", wp::WeightParameters{T}) where {T}
-    area = ustrip(u"km^2", wp.area)
-    emin = ustrip(u"GeV", wp.emin)
-    emax = ustrip(u"GeV", wp.emax)
-    gen_e_init = ustrip(u"GeV", wp.generated_initial_e)
-    gen_e_final = ustrip(u"GeV", wp.generated_final_e)
-    gen_cd = ustrip(u"g/cm^2", wp.generated_cd)
-
-    println(io, "WeightParameters{$T}:")
-    println(io, "  Sampling:")
-    println(io, "    area:  $(round(area, digits=6)) km²")
-    println(io, "    E:     $emin - $emax GeV")
-    println(io, "    γ:     $(wp.gamma)")
-    println(io, "    θ:     $(round(rad2deg(wp.thetamin), digits=2))° - $(round(rad2deg(wp.thetamax), digits=2))°")
-    println(io, "    ϕ:     $(round(rad2deg(wp.phimin), digits=2))° - $(round(rad2deg(wp.phimax), digits=2))°")
-    println(io, "  Generated:")
-    println(io, "    initial E:  $gen_e_init GeV")
-    println(io, "    final E:    $gen_e_final GeV")
-    print(io, "    column depth: $gen_cd g/cm²")
-end
-
-# ============================================================================
 # Frame Types
 # ============================================================================
 
 """
     Base.show(io::IO, f::Frame)
 
-Displays a Frame with its number of keys.
+Displays a Frame with its stream type and key count.
 """
 function Base.show(io::IO, f::Frame)
     n_keys = length(f.data)
-    has_parent = !isnothing(f.parent)
-    if has_parent
-        print(io, "Frame($(n_keys) keys, has parent)")
+    if isempty(f.parents)
+        print(io, "Frame (stream='$(f.stream)', no parents, $(n_keys) keys)")
     else
-        print(io, "Frame($(n_keys) keys)")
+        parent_streams = join(sort(collect(keys(f.parents))), ", ")
+        print(io, "Frame (stream='$(f.stream)', parents: $(parent_streams), $(n_keys) keys)")
     end
 end
 
 """
     Base.show(io::IO, ::MIME"text/plain", f::Frame)
 
-Multi-line display for Frame listing all keys.
+Multi-line display for Frame listing stream, parents, and all keys.
 """
 function Base.show(io::IO, ::MIME"text/plain", f::Frame)
     n_keys = length(f.data)
-    has_parent = !isnothing(f.parent)
-
-    println(io, "Frame:")
-    println(io, "  type: '$(f.type)'")
-    println(io, "  keys ($(n_keys)):")
-    for (i, k) in enumerate(sort(collect(Base.keys(f.data))))
-        v = f.data[k]
-        vtype = typeof(v)
-        if i < n_keys
-            println(io, "    $k => $vtype")
-        else
-            print(io, "    $k => $vtype")
-        end
+    parent_info = if isempty(f.parents)
+        "no parents"
+    else
+        "parents: " * join(sort(collect(keys(f.parents))), ", ")
     end
-    if has_parent
-        print(io, "\n  (has parent frame)")
-    end
-end
-
-# ============================================================================
-# Simulation Type
-# ============================================================================
-
-"""
-    Base.show(io::IO, sim::Simulation)
-
-Displays a Simulation with event count and configuration summary.
-"""
-function Base.show(io::IO, sim::Simulation)
-    n_events = length(sim.results)
-    n_config_keys = length(sim.config)
-    print(io, "Simulation($(n_events) events, $(n_config_keys) config sections)")
-end
-
-"""
-    Base.show(io::IO, ::MIME"text/plain", sim::Simulation)
-
-Multi-line display for Simulation with configuration overview.
-"""
-function Base.show(io::IO, ::MIME"text/plain", sim::Simulation)
-    n_events = length(sim.results)
-
-    println(io, "Simulation:")
-    println(io, "  events: $(n_events)")
-    println(io, "  configuration sections:")
-    for (k, v) in sim.config
-        if isa(v, Dict)
-            println(io, "    $k ($(length(v)) params)")
-        else
-            println(io, "    $k => $v")
-        end
+    println(io, "Frame (stream='$(f.stream)', $parent_info)")
+    print(io, "  keys ($n_keys):")
+    for k in sort(collect(String, keys(f.data)))
+        print(io, "\n    $k")
     end
 end
 
@@ -515,6 +419,70 @@ function Base.show(io::IO, ce::CorsikaEvent{T}) where {T}
         estr = "$(round(e, digits=2)) GeV"
     end
     print(io, "CorsikaEvent{$T}($(ce.particle.pdg), E: $estr, w: $(round(ce.weight, sigdigits=3)))")
+end
+
+# ============================================================================
+# PhaseSpace / PhaseSpacePoint
+# ============================================================================
+
+function _format_energy(e_gev)
+    if e_gev >= 1e9
+        return "$(round(e_gev/1e9, digits=2)) EeV"
+    elseif e_gev >= 1e6
+        return "$(round(e_gev/1e6, digits=2)) PeV"
+    elseif e_gev >= 1e3
+        return "$(round(e_gev/1e3, digits=2)) TeV"
+    else
+        return "$(round(e_gev, digits=2)) GeV"
+    end
+end
+
+function Base.show(io::IO, ps::PhaseSpace)
+    emin = _format_energy(ustrip(u"GeV", ps.emin))
+    emax = _format_energy(ustrip(u"GeV", ps.emax))
+    print(io, "$(nameof(typeof(ps)))(pdg=$(ps.pdg), E: $(emin)–$(emax), γ=$(round(ps.gamma, digits=2)), N=$(ps.nevent))")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", ps::PhaseSpace)
+    println(io, "$(nameof(typeof(ps))):")
+    println(io, "  pdg:           $(ps.pdg)")
+    emin = _format_energy(ustrip(u"GeV", ps.emin))
+    emax = _format_energy(ustrip(u"GeV", ps.emax))
+    println(io, "  energy:        $(emin) – $(emax)")
+    println(io, "  gamma:         $(round(ps.gamma, digits=3))")
+    println(io, "  zenith (θ):    $(round(rad2deg(ps.thetamin), digits=2))° – $(round(rad2deg(ps.thetamax), digits=2))°")
+    println(io, "  azimuth (ϕ):   $(round(rad2deg(ps.phimin), digits=2))° – $(round(rad2deg(ps.phimax), digits=2))°")
+    println(io, "  nevent:        $(ps.nevent)")
+    print(io,   "  geometry_hash: $(ps.geometry_hash)")
+end
+
+function Base.show(io::IO, pt::PhaseSpacePoint)
+    e   = _format_energy(ustrip(u"GeV", pt.E))
+    θ   = round(rad2deg(pt.theta), digits=2)
+    φ   = round(rad2deg(pt.phi),   digits=2)
+    print(io, "$(nameof(typeof(pt)))(E: $(e), θ: $(θ)°, ϕ: $(φ)°)")
+end
+
+function _show_point_common!(io::IO, pt::PhaseSpacePoint)
+    println(io, "  E:      $(_format_energy(ustrip(u"GeV", pt.E)))")
+    println(io, "  theta:  $(round(rad2deg(pt.theta), digits=2))°")
+    println(io, "  phi:    $(round(rad2deg(pt.phi),   digits=2))°")
+    print(io,   "  area:   $(round(ustrip(u"m^2", pt.area), digits=1)) m²")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", pt::PhaseSpacePoint)
+    println(io, "$(nameof(typeof(pt))):")
+    _show_point_common!(io, pt)
+end
+
+function Base.show(io::IO, ::MIME"text/plain", pt::ForcedNeutrinoInteractionPoint)
+    println(io, "ForcedNeutrinoInteractionPoint:")
+    _show_point_common!(io, pt)
+    println(io)
+    println(io, "  cd:     $(round(ustrip(u"g/cm^2", pt.cd),    digits=2)) g/cm²")
+    println(io, "  rho:    $(round(ustrip(u"g/cm^3", pt.rho),   digits=3)) g/cm³")
+    println(io, "  sigma:  $(@sprintf("%.3g", ustrip(u"cm^2", pt.sigma))) cm²")
+    print(io,   "  dsigma: $(@sprintf("%.3g", ustrip(u"cm^2", pt.dsigma))) cm²")
 end
 
 # ============================================================================

@@ -1,114 +1,133 @@
+const STREAM_HIERARCHY = ('G', 'C', 'D', 'M', 'Q', 'R')
+
 """
     Frame
 
 A hierarchical, dictionary-like container for simulation data.
 
-A `Frame` holds data in a dictionary. It can have a `parent` frame, creating a
-chain. When a key is accessed, if it's not in the current frame's data, the
-search continues up to the parent. This allows for an efficient way to layer
-data from different processing stages.
+A `Frame` holds data in a dictionary and carries references to parent frames
+from higher-level streams. When a key is accessed, the current frame's data is
+checked first; if the key is absent, parent frames are searched in stream
+hierarchy order (G → C → D → M → Q → R).
+
+Q frames require an M parent (simulation meta/config always travels with events)
+but not G, C, or D parents — analysis workflows that do not need earth/detector
+geometry can load M+Q frames without a GCD bundle. Accessing `.g_frame`,
+`.c_frame`, or `.d_frame` on a Q frame without the corresponding parent raises an
+error at that point.
 
 # Fields
-- `data::Dict{String, Any}`: The dictionary holding the data for this frame.
-- `parent::Union{Nothing, Frame}`: The parent frame, or `nothing` if it's a root frame.
-- `type::Char`: A character indicating the type of the frame (e.g., 'T' for top-level).
+- `stream::Char`: Stream type ('G' geometry, 'C' calibration, 'D' detector, 'M' meta/config, 'Q' event, 'R' reconstructed).
+- `data::Dict{String, Any}`: Data stored in this frame.
+- `parents::Dict{Char, Frame}`: Parent frames indexed by their stream type.
 
 # Constructors
-- `Frame()`: Creates an empty root frame.
-- `Frame(data::Dict)`: Creates a root frame with the given data.
-- `Frame(data::Dict, type::Char)`: Creates a root frame with the given data and type.
-- `Frame(data::Dict, parent::Frame, type::Char)`: Creates a frame with the given data, parent, and type.
+- `Frame(stream)`: Empty frame with the given stream type.
+- `Frame(stream, data)`: Frame with pre-populated data.
+- `Frame(stream, data, parents)`: Frame with data and explicit parent map.
 """
-struct Frame
+mutable struct Frame
+    stream::Char
     data::Dict{String, Any}
-    parent::Union{Nothing, Frame}
-    type::Char
-    Frame() = new(Dict{String, Any}(), nothing, 'T')
-    Frame(data::Dict) = new(data, nothing, 'T')
-    Frame(data::Dict, type::Char) = new(data, nothing, type)
-    Frame(data::Dict, parent::Frame, type::Char) = new(data, parent, type)
-end
-
-"""
-    Base.getindex(frame::Frame, key::String)
-
-Accesses a value in the frame hierarchy.
-
-If the `key` is present in the current `frame`'s data, its value is returned.
-Otherwise, the search continues recursively up to the `parent` frame.
-Throws a `KeyError` if the key is not found anywhere in the hierarchy.
-"""
-function Base.getindex(frame::Frame, key::String)
-    if haskey(frame.data, key)
-        return frame.data[key]
-    elseif isnothing(frame.parent)
-        throw(KeyError(key))
-    else
-        return frame.parent[key]
+    parents::Dict{Char, Frame}
+    Frame(stream::Char) = Frame(stream, Dict{String,Any}(), Dict{Char,Frame}())
+    Frame(stream::Char, data::Dict) = Frame(stream, data, Dict{Char,Frame}())
+    function Frame(stream::Char, data::Dict, parents::Dict{Char,Frame})
+        if stream == 'Q'
+            haskey(parents, 'M') || error("Q frame requires an M parent")
+        end
+        new(stream, data, parents)
     end
 end
 
 """
-    Base.setindex!(frame::Frame, value, key::String)
+    f.g_frame, f.c_frame, f.d_frame, f.m_frame
 
-Sets a value in the frame's data.
+Convenience property accessors that look up the named parent frame by stream
+letter (`G`, `C`, `D`, `M`) and return it, erroring descriptively if the parent
+is absent. Accessing any other symbol delegates to `getfield`.
+"""
+function Base.getproperty(f::Frame, sym::Symbol)
+    if sym === :g_frame
+        haskey(f.parents, 'G') || error("Frame (stream='$(f.stream)') has no G parent")
+        return f.parents['G']
+    elseif sym === :c_frame
+        haskey(f.parents, 'C') || error("Frame (stream='$(f.stream)') has no C parent")
+        return f.parents['C']
+    elseif sym === :d_frame
+        haskey(f.parents, 'D') || error("Frame (stream='$(f.stream)') has no D parent")
+        return f.parents['D']
+    elseif sym === :m_frame
+        haskey(f.parents, 'M') || error("Frame (stream='$(f.stream)') has no M parent")
+        return f.parents['M']
+    end
+    return getfield(f, sym)
+end
 
-The value is always set in the current frame's own `data` dictionary. It does not
-affect any parent frames.
+"""
+    frame[key::String]
+
+Look up `key` in this frame's own data dict; if absent, walk up the parent
+chain in `STREAM_HIERARCHY` order and return the first match. Throws `KeyError`
+if the key is not found in the frame or any ancestor.
+"""
+function Base.getindex(frame::Frame, key::String)
+    haskey(frame.data, key) && return frame.data[key]
+    for s in STREAM_HIERARCHY
+        if haskey(frame.parents, s)
+            parent = frame.parents[s]
+            haskey(parent.data, key) && return parent.data[key]
+        end
+    end
+    throw(KeyError(key))
+end
+
+"""
+    frame[key::String] = value
+
+Write `value` into this frame's own data dict under `key`. Never writes to a
+parent frame.
 """
 function Base.setindex!(frame::Frame, value, key::String)
     frame.data[key] = value
 end
 
 """
-    Base.haskey(frame::Frame, key::String) -> Bool
+    haskey(frame::Frame, key::String) -> Bool
 
-Checks if a key exists in the frame hierarchy.
-
-Recursively checks for the presence of `key` in the current frame's data and
-in all its parent frames.
-
-# Returns
-- `true` if the key is found, `false` otherwise.
+Return `true` if `key` is present in this frame's own data or in any ancestor
+frame reachable via the parent chain.
 """
 function Base.haskey(frame::Frame, key::String)
-    if haskey(frame.data, key)
-        return true
-    elseif isnothing(frame.parent)
-        return false
-    else
-        return haskey(frame.parent, key)
+    haskey(frame.data, key) && return true
+    for s in STREAM_HIERARCHY
+        if haskey(frame.parents, s)
+            haskey(frame.parents[s].data, key) && return true
+        end
     end
+    return false
 end
 
 """
-    Base.keys(frame::Frame)
+    keys(frame::Frame) -> Set{String}
 
-Returns all unique keys in the frame hierarchy.
-
-Collects all keys from the current frame and all its parent frames and returns
-their union.
+Return the union of all keys visible from this frame — its own data plus all
+keys reachable through the parent chain.
 """
 function Base.keys(frame::Frame)
-    if isnothing(frame.parent)
-        return keys(frame.data)
-    else
-        return union(keys(frame.data), keys(frame.parent))
+    ks = Set(keys(frame.data))
+    for s in STREAM_HIERARCHY
+        haskey(frame.parents, s) && union!(ks, keys(frame.parents[s].data))
     end
+    return ks
 end
 
 """
-    Base.getkey(frame::Frame, k::String, default)
+    getkey(frame::Frame, key::String, default)
 
-Gets a key from the frame hierarchy with a default value.
-
-If the key `k` is found in the frame or its parents, its value is returned.
-Otherwise, the `default` value is returned.
+Return `frame[key]` if the key is visible (own data or any ancestor), otherwise
+return `default`. Equivalent to `get(frame, key, default)`.
 """
 function Base.getkey(frame::Frame, k::String, default)
-    if haskey(frame, k)
-        return frame[k]
-    else
-        return default
-    end
+    haskey(frame, k) ? frame[k] : default
 end

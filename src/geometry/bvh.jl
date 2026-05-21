@@ -85,9 +85,9 @@ of the `OBB`.
 # Returns
 - The enclosing `AABB`.
 """
-function AABB(obb::OBB)
-    min_corner = fill(Inf*u"m", 3)
-    max_corner = fill(-Inf*u"m", 3)
+function AABB(obb::OBB{T}) where T
+    min_corner = fill(T(Inf)*u"m", 3)
+    max_corner = fill(T(-Inf)*u"m", 3)
     
     for i in 1:8
         vertex = obb.vertices[i]
@@ -113,8 +113,8 @@ Creates an `AABB` that encloses a vector of `OBB`s (Oriented Bounding Boxes).
 function AABB(
     obbs::AbstractVector{OBB{T}}
 ) where {T<:Real}
-    min_corner = fill(Inf*u"m", 3)
-    max_corner = fill(-Inf*u"m", 3)
+    min_corner = fill(T(Inf)*u"m", 3)
+    max_corner = fill(T(-Inf)*u"m", 3)
     
     for obb in obbs
         for i in 1:8
@@ -188,34 +188,6 @@ function AABB(
     return AABB(min_corner, max_corner)
 end
 
-"""
-    AABB(obbs::Vector{OBB}) -> AABB
-
-Creates an `AABB` that tightly encloses a vector of `OBB`s (Oriented Bounding Boxes).
-
-This constructor calculates the minimum and maximum coordinates across all vertices
-of the provided `OBB`s to form a new Axis-Aligned Bounding Box.
-
-# Arguments
-- `obbs::Vector{OBB}`: A vector of `OBB` objects.
-
-# Returns
-- A new `AABB` object.
-"""
-function AABB(obbs::Vector{OBB})
-    min_corner = fill(Inf, 3)
-    max_corner = fill(-Inf, 3)
-
-    for obb in obbs
-        for i in 1:8
-            vertex = obb.vertices[:, i]
-            min_corner = min.(min_corner, vertex)
-            max_corner = max.(max_corner, vertex)
-        end
-    end
-
-    new(SVector{3}(min_corner), SVector{3}(max_corner))
-end
 
 # BVH Node
 """
@@ -279,7 +251,7 @@ end
 
 # Merge two AABBs
 """
-    merge(a::AABB{T}, b::AABB{T}) where {T<:Real} -> AABB
+    Base.merge(a::AABB{T}, b::AABB{T}) where {T<:Real} -> AABB
 
 Merges two `AABB`s into a single `AABB` that encloses both.
 
@@ -290,7 +262,7 @@ Merges two `AABB`s into a single `AABB` that encloses both.
 # Returns
 - A new `AABB` that is the union of `a` and `b`.
 """
-function merge(a::AABB{T}, b::AABB{T}) where {T<:Real}
+function Base.merge(a::AABB{T}, b::AABB{T}) where {T<:Real}
     min_corner = min.(a.min.point, b.min.point)
     max_corner = max.(a.max.point, b.max.point)
     cs = CoordinateSystem(a)
@@ -318,7 +290,7 @@ function surface_area_fast(
     lx = max_vals[1] - min_vals[1]
     ly = max_vals[2] - min_vals[2] 
     lz = max_vals[3] - min_vals[3]
-    return 2.0 * (lx * ly + ly * lz + lz * lx)
+    return 2 * (lx * ly + ly * lz + lz * lx)
 end
 
 """
@@ -343,7 +315,7 @@ function surface_area_fast(
     lx = max_vals[1] - min_vals[1]
     ly = max_vals[2] - min_vals[2] 
     lz = max_vals[3] - min_vals[3]
-    return 2.0 * (lx * ly + ly * lz + lz * lx)
+    return 2 * (lx * ly + ly * lz + lz * lx)
 end
 
 """
@@ -379,7 +351,7 @@ Used for the Surface Area Heuristic (SAH) during BVH construction.
 """
 @inline function surface_area(bbox::AABB{T}) where {T<:Real}
     lengths = bbox.max - bbox.min
-    return 2.0 * (lengths[1] * lengths[2] + lengths[2] * lengths[3] + lengths[3] * lengths[1])
+    return 2 * (lengths[1] * lengths[2] + lengths[2] * lengths[3] + lengths[3] * lengths[1])
 end
 
 # AABB center
@@ -395,7 +367,7 @@ Calculates the geometric center of an `AABB`.
 - A `Coordinate` representing the center of the bounding box.
 """
 @inline function center(bbox::AABB{T})::Coordinate{T} where {T<:Real}
-    return (bbox.min + bbox.max) / 2.0
+    return (bbox.min + bbox.max) / 2
 end
 
 """
@@ -678,11 +650,11 @@ function static_extrema_per_dim(
     indices,
 ) where {T<:Real}
     ndims = 3
-    mins = MVector{3}(fill(Inf, 3))
-    maxs = MVector{3}(fill(-Inf, 3))
+    mins = MVector{3}(fill(T(Inf), 3))
+    maxs = MVector{3}(fill(T(-Inf), 3))
     for idx in indices
-        p1 = ustrip.(aabbs[idx].min.point)
-        p2 = ustrip.(aabbs[idx].max.point)
+        p1 = ustrip.(u"m", aabbs[idx].min.point)
+        p2 = ustrip.(u"m", aabbs[idx].max.point)
         @inbounds for i in 1:ndims
 
             mins[i] = min(mins[i], p1[i])

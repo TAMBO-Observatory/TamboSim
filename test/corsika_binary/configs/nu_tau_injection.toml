@@ -12,7 +12,7 @@
 
 name = "nu_tau_injection"
 description = "Full neutrino chain: nu_tau -> tau -> decay -> air shower, 100 TeV."
-max_showers = 8        # cap planned showers (injection yield is stochastic)
+max_showers = 20        # cap planned showers (injection yield is stochastic)
 
 [injection]
 strategy = "NeutrinoInjection"

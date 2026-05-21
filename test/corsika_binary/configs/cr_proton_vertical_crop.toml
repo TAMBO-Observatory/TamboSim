@@ -8,11 +8,13 @@
 
 name = "cr_proton_vertical_crop"
 description = "Terrain-crop path: proton, 10 TeV, near-vertical, max_radius_km = 30."
+max_showers = 20           # showers to run — enough for a stable per-config median.
+baseline = true            # opt in to the statistical-consistency baseline.
 
 [injection]
 strategy = "CosmicRayInjection"
 seed     = 925
-nevent   = 3
+nevent   = 5              # inject extra; max_showers caps how many actually run.
 pdg      = 2212
 gamma    = 2.7
 emin     = 1.0e4

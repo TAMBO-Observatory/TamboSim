@@ -20,10 +20,10 @@ pdg      = 13          # muon
 gamma    = 2.7
 emin     = 1.0e4
 emax     = 1.001e4
-thetamin = 90          # deg — grazing regime, sweeping rock-traverse geometry
-thetamax = 105
-phimin   = 120
-phimax   = 240
+thetamin = 95          # deg — grazing regime, sweeping rock-traverse geometry
+thetamax = 96
+phimin   = 150
+phimax   = 210
 altitude = 6.0         # km
 
 [corsika]

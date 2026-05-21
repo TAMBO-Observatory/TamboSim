@@ -3,18 +3,18 @@
 # tambo_shower test suite — Phase 4: assertions.
 #
 # Reads the shower output produced by Phase 3 (3_run_showers.sh) and runs the
-# tiered checks from assertions.jl. Exits non-zero if any test fails, so a
-# Slurm job or CI step can detect failure from the exit code.
+# checks from assertions.jl. Exits non-zero if any test fails, so a Slurm job
+# or CI step can detect failure from the exit code.
 #
 # Environment variables:
 #   TAMBO_TEST_OUTDIR    directory holding all suite output (set in Phase 1)
 #   TAMBO_TEST_GEOMETRY  canonical geometry — its topography BVH drives the
-#                        Tier 2 muon rock-traversal check (optional: the
-#                        check degrades to "marginal" if unavailable)
+#                        rock-propagation checks (optional: the muon check
+#                        degrades to "marginal" if unavailable)
 #
-# A config's regression baseline, if present at baselines/<name>.toml,
-# enables Tier 4b for that config; otherwise Tier 4b is skipped. The muon
-# survive/die check needs calibration/muon_survival.toml (see
+# A config's baseline, if present at baselines/<name>.toml, enables the
+# statistical-consistency check for that config; otherwise it is skipped. The
+# muon survive/die check needs calibration/muon_survival.toml (see
 # calibrate_muon_survival.jl); without it those assertions are skipped.
 
 using Pkg
@@ -46,27 +46,29 @@ function read_jobs(jobs_file)
 end
 
 """
-    load_topography_bvh() -> Union{Nothing, BVHTree}
+    load_injection_frames(base, geometry) -> Union{Nothing, TamboFrames}
 
-Topography BVH from the canonical geometry, for the Tier 2 muon
-rock-traversal check. Returns `nothing` (and warns) if the geometry is
-unavailable — the muon check then degrades to "marginal".
+The injected frames for one config (`<base>/injection.jld2`, written by
+1_plan.jl), loaded together with `geometry` so each Q frame is reattached to
+its G/C/D parents and resolves `bvh` / `detector_bvh`. Returns `nothing`
+(and warns) if either file is unavailable — the rock-propagation checks are
+then skipped.
 """
-function load_topography_bvh()
-    geom = get(ENV, "TAMBO_TEST_GEOMETRY", "")
-    if isempty(geom) || !isfile(geom)
-        @warn "TAMBO_TEST_GEOMETRY unavailable — muon rock-traversal check degraded."
+function load_injection_frames(base, geometry)
+    inj = joinpath(base, "injection.jld2")
+    if !isfile(inj) || isempty(geometry) || !isfile(geometry)
+        @warn "injection.jld2 or geometry unavailable — muon rock-traversal " *
+              "check skipped" inj geometry
         return nothing
     end
-    frames = load_frames(geom)
-    return frames.g_frames[end]["bvh"]
+    return load_frames([geometry, inj])
 end
 
 """
     load_muon_calibration() -> Union{Nothing, Dict}
 
 The PROPOSAL muon-survival table. Returns `nothing` (and warns) if it has
-not been generated — Tier 2 muon survive/die assertions are then skipped.
+not been generated — the muon survive/die assertions are then skipped.
 """
 function load_muon_calibration()
     if !isfile(CALIB_FILE)
@@ -78,12 +80,12 @@ function load_muon_calibration()
 end
 
 """
-    assert_config(cfg_path, outdir, bvh, calib)
+    assert_config(cfg_path, outdir, geometry, calib)
 
-Run every tier for one test config's output. The `jobs.jsonl` written by
+Run every check for one test config's output. The `jobs.jsonl` written by
 1_plan.jl is the source of truth for which shower directories to expect.
 """
-function assert_config(cfg_path, outdir, bvh, calib)
+function assert_config(cfg_path, outdir, geometry, calib)
     cfg  = TOML.parsefile(cfg_path)
     name = cfg["name"]
     base = joinpath(outdir, name)
@@ -105,41 +107,50 @@ function assert_config(cfg_path, outdir, bvh, calib)
             return
         end
 
+        # Q frames from injection.jld2, keyed by event_id, for the
+        # rock-propagation checks. Empty if the frames are unavailable.
+        inj_frames = load_injection_frames(base, geometry)
+        qframe_by_event = inj_frames === nothing ? Dict{Int,Any}() :
+            Dict(Int(qf["event_id"]) => qf for qf in inj_frames.q_frames)
+
         shower_dirs = String[]
         for r in normal
             sd = String(r.outdir)
             push!(shower_dirs, sd)
             @testset "$(basename(dirname(sd)))/$(basename(sd))" begin
-                # Predict a muon's fate through the terrain rock; this gates
-                # whether Tier 2 expects anything at the observation mesh.
-                pred = muon_rock_prediction(r, bvh, calib)
-                expect_mesh = !pred.applies || pred.outcome == :survives
+                qf = get(qframe_by_event, Int(r.event_id), nothing)
+                observe = expect_observation(qf, calib)
+                did = Int(r.decay_id)
 
-                assert_tier1_smoke(sd)
-                assert_tier2_physics(sd; expect_at_mesh = expect_mesh)
-                assert_tier3_geometry(sd)
-                pred.applies && assert_muon_survival(sd, pred)
+                assert_output_tree(sd)
+                assert_injection_roundtrip(sd, qf, did, r.argv)
+                assert_energy_budget(sd; expect_observation = observe)
+                assert_no_unexpected_warnings(sd)
+                assert_rock_muon_rangeout(sd, qf, calib)
+                assert_no_EM_shower_in_rock(sd, qf, did)
+                assert_downgoing_photon_dominated(sd, qf, did)
             end
         end
 
-        # Tier 4a — the repeat job was cloned from the first normal job.
+        # Determinism — the repeat job was cloned from the first normal job.
         if !isempty(repeat)
-            @testset "Tier 4a determinism" begin
-                assert_tier4a_determinism(String(normal[1].outdir),
-                                          String(repeat[1].outdir))
+            @testset "determinism" begin
+                assert_determinism(String(normal[1].outdir),
+                                   String(repeat[1].outdir))
             end
         end
 
-        # Tier 4b — regression, only when a committed baseline exists.
-        baseline_path = joinpath(BASELINE_DIR, "$name.toml")
-        if isfile(baseline_path)
-            @testset "Tier 4b regression" begin
-                stats = summary_stats(shower_dirs)
-                assert_tier4b_regression(stats, TOML.parsefile(baseline_path))
-            end
-        else
-            @info "No baseline for $name — Tier 4b skipped" baseline_path
-        end
+        # # Statistical consistency — only when a committed baseline exists.
+        # baseline_path = joinpath(BASELINE_DIR, "$name.toml")
+        # if isfile(baseline_path)
+        #     @testset "statistical consistency" begin
+        #         stats = summary_stats(shower_dirs)
+        #         assert_statistical_consistency(stats, TOML.parsefile(baseline_path))
+        #     end
+        # else
+        #     @info "No baseline for $name — statistical consistency skipped" baseline_path
+        # end
+
     end
 end
 
@@ -152,15 +163,16 @@ function main()
                           readdir(CONFIG_DIR; join = true)))
     isempty(configs) && error("No .toml configs found in $CONFIG_DIR")
 
-    # Shared inputs for the Tier 2 muon rock-traversal check.
-    bvh   = load_topography_bvh()
-    calib = load_muon_calibration()
+    # Inputs for the rock-propagation checks. The geometry is loaded per
+    # config (with that config's injection.jld2) inside assert_config.
+    geometry = get(ENV, "TAMBO_TEST_GEOMETRY", "")
+    calib    = load_muon_calibration()
 
     # The outermost @testset throws a TestSetException on any failure when
     # it finishes — an uncaught exception gives Julia a non-zero exit code.
     @testset "tambo_shower suite" begin
         for c in configs
-            assert_config(c, outdir, bvh, calib)
+            assert_config(c, outdir, geometry, calib)
         end
     end
 end

@@ -7,12 +7,14 @@
 
 name = "cr_proton_vertical"
 description = "Baseline hadronic shower: proton, 10 TeV, near-vertical downgoing."
-determinism_check = true   # Tier 4a reruns this case's first shower.
+determinism_check = true   # rerun this case's first shower for the determinism check.
+max_showers = 20           # showers to run — enough for a stable per-config median.
+baseline = true            # opt in to the statistical-consistency baseline.
 
 [injection]
 strategy = "CosmicRayInjection"
 seed     = 925
-nevent   = 3
+nevent   = 5              # inject extra; max_showers caps how many actually run.
 pdg      = 2212        # proton
 gamma    = 2.7
 emin     = 1.0e4       # GeV

@@ -60,7 +60,14 @@ function plan_corsika_jobs(frames::TamboFrames, config::Dict, base_outdir::Strin
                 abs(Int(particle.pdg)) in (12, 14, 16) && continue
                 job = _make_job(particle, event_id, idx, base_seed,
                                 detector_bvh, base_outdir)
-                isnothing(job) && continue
+                if isnothing(job)
+                    @warn "plan_corsika_jobs: decay product trajectory does not " *
+                          "intersect the detector region; skipping shower " *
+                          "(event_id=$(event_id), decay_id=$(idx), " *
+                          "pdg=$(Int(particle.pdg)), " *
+                          "E=$(round(typeof(1.0u"GeV"), particle.energy; digits=3)))"
+                    continue
+                end
                 push!(jobs, job)
             end
 
@@ -68,7 +75,17 @@ function plan_corsika_jobs(frames::TamboFrames, config::Dict, base_outdir::Strin
             haskey(frame, "injection_initial_state") || continue
             job = _make_job(frame["injection_initial_state"], event_id, 1,
                             base_seed, detector_bvh, base_outdir)
-            isnothing(job) && continue
+            if isnothing(job)
+                p = frame["injection_initial_state"]
+                @warn "plan_corsika_jobs: cosmic-ray primary trajectory does not " *
+                      "intersect the detector region; skipping shower " *
+                      "(event_id=$(event_id), " *
+                      "pdg=$(Int(p.pdg)), " *
+                      "E=$(round(typeof(1.0u"GeV"), p.energy; digits=3))). " *
+                      "This is unexpected for a CosmicRayInjection event — " *
+                      "check that the injection geometry and detector BVH are consistent."
+                continue
+            end
             push!(jobs, job)
             
         else

@@ -139,18 +139,33 @@ function __init__()
     end
 
     try
+        # Authoritative version from Project.toml. `pkgversion` works for
+        # every install mode — registry, git-pin, or Pkg.dev — because
+        # Project.toml ships in the package dir even without a .git. The
+        # git tag/hash/dirty checks below only resolve from a working
+        # clone with a real .git (Pkg.dev or running inside the repo),
+        # never from a Pkg-installed dependency checkout.
+        pkgver = pkgversion(TamboSim)
+        println("Version: $(pkgver === nothing ? "unknown" : pkgver)")
+
         tag = get_git_tag()
         if tag !== nothing
-            println("Version: $tag")
-        else
-            hash = something(get_git_commit_hash(), "unknown")
-            println("Git commit hash: $hash")
+            # Cross-check the tag at HEAD against Project.toml; a mismatch
+            # usually means the version wasn't bumped for the release.
+            tagver = tryparse(VersionNumber, chopprefix(tag, "v"))
+            if tagver !== nothing && pkgver !== nothing && tagver != pkgver
+                @warn "Git tag at HEAD disagrees with Project.toml version" git_tag=tag project_version=string(pkgver)
+            end
         end
+
+        hash = get_git_commit_hash()
+        hash !== nothing && println("Git commit hash: $hash")
+
         if is_git_dirty()
             @warn "Working tree has uncommitted changes — version label may be inaccurate"
         end
     catch
-        println("Git commit hash: unknown")
+        # Version metadata is informational; never fail package init over it.
     end
 end
 

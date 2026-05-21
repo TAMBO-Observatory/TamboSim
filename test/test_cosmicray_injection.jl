@@ -201,6 +201,12 @@ function test_nucleus_pdg()
     @test nucleus_pdg(16, 8)  == Int(O16Nucleus)
     @test nucleus_pdg(56, 26) == 1000260560
     @test nucleus_pdg(56, 26) == Int(Fe56Nucleus)
+    # A=1, Z=1 should warn and return 2212 (PPlus)
+    @test (@test_warn r"free proton" nucleus_pdg(1, 1)) == 2212
+    # bounds checks
+    @test_throws ErrorException nucleus_pdg(8, 0)    # Z < 1
+    @test_throws ErrorException nucleus_pdg(4, 6)    # A < Z
+    @test_throws ErrorException nucleus_pdg(300, 119) # Z > 118
 end
 
 function test_resolve_primary_pdg()

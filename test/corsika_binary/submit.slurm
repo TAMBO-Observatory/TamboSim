@@ -5,10 +5,10 @@
 # Runs every phase in one Slurm job:
 #   Phase 0  geometry  — build the canonical GCD bundle (cached after first run)
 #   Phase 1  plan      — inject + plan jobs.jsonl                  (Julia)
-#   Phase 2  CLI       — argument-contract checks (Tier 0)         (bash)
+#   Phase 2  CLI       — argument-contract checks                  (bash)
 #   Phase 3  run       — replay showers in parallel                (bash/xargs)
-#   Phase 4  assert    — tiered checks over the output             (Julia)
-# The job exits non-zero if the Tier 0 checks or any assertion fail.
+#   Phase 4  assert    — physics / geometry checks over the output (Julia)
+# The job exits non-zero if the CLI checks or any assertion fail.
 #
 #   sbatch test/corsika_binary/submit.slurm
 #
@@ -78,28 +78,35 @@ else
         || { echo "Phase 0 (0_make_geometry.jl) failed — aborting."; exit 1; }
 fi
 
+echo
 echo "=== Phase 1: plan (inject + plan jobs) ==="
 julia 1_plan.jl || { echo "Phase 1 (1_plan.jl) failed — aborting."; exit 1; }
 
-echo "=== Phase 2: CLI contract checks (Tier 0) ==="
+echo
+echo "=== Phase 2: CLI contract checks ==="
 bash 2_cli_tests.sh
 cli_rc=$?
 
+echo
 echo "=== Phase 3: run showers ==="
 bash 3_run_showers.sh
 
+echo
 echo "=== Phase 4: assertions ==="
 julia 4_assert.jl
 assert_rc=$?
 
+echo
 echo "=== Timing overview ==="
 julia timing_overview.jl || true
 
+echo
 # The mesh PLYs only feed Phase 3 (the binary's --obs-mesh / --terrain-mesh);
 # nothing in Phase 4 reads them. Phase 1 regenerates them on any re-run.
 echo "=== Cleanup: removing intermediate mesh PLYs ==="
 rm -f "$TAMBO_TEST_OUTDIR"/*/obs_surface.ply "$TAMBO_TEST_OUTDIR"/*/terrain.ply
 
+echo
 echo "==========================================================="
 if [[ $cli_rc -eq 0 && $assert_rc -eq 0 ]]; then
     echo "SUITE PASSED"

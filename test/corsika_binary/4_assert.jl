@@ -90,7 +90,7 @@ function assert_config(cfg_path, outdir, geometry, calib)
     name = cfg["name"]
     base = joinpath(outdir, name)
 
-    @testset "$name" begin
+    @testset verbose = true "$name" begin
         jobs_file = joinpath(base, "jobs.jsonl")
         if !isfile(jobs_file)
             @test false   # Phase 1 never planned this config
@@ -191,7 +191,7 @@ function main()
 
     # The outermost @testset throws a TestSetException on any failure when
     # it finishes — an uncaught exception gives Julia a non-zero exit code.
-    @testset "tambo_shower suite" begin
+    @testset verbose = true "tambo_shower suite" begin
         for c in configs
             assert_config(c, outdir, geometry, calib)
         end

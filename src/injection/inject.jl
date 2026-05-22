@@ -768,9 +768,15 @@ function inject_cosmicrays!(
     prefix::String="injection"
 )
     pdg = _resolve_primary_pdg(config)
-    # Canonicalize to an explicit `pdg` so the M-frame snapshot (and thus
-    # build_phase_space / oneweight) always sees one, even for A/Z configs.
-    config = merge(config, Dict{String,Any}("pdg" => pdg))
+    # Canonicalize `pdg` and `altitude` onto the config before snapshotting, so
+    # the M-frame snapshot (and thus build_phase_space / oneweight / any flux
+    # lookup) always sees explicit values — even for A/Z configs or when
+    # `altitude` is left at its default. The resolved altitude is needed to
+    # weight injected showers against an altitude-dependent flux.
+    config = merge(config, Dict{String,Any}(
+        "pdg"      => pdg,
+        "altitude" => get(config, "altitude", 112.0),
+    ))
     g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_cosmicrays!")
     d_frame = m_frame.d_frame
 
@@ -789,7 +795,7 @@ function inject_cosmicrays!(
         deg2rad(config["phimin"]),
         deg2rad(config["phimax"]),
     )
-    altitude = get(config, "altitude", 112.0) * u"km"
+    altitude = config["altitude"] * u"km"  # canonicalized above; default already resolved
     detector_props = precompute_detector_properties(topography, detector_region)
     Random.seed!(config["seed"])
 

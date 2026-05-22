@@ -1,9 +1,33 @@
 """
-    _corsika_module_hit(event::CorsikaEvent, bvh) -> NamedTuple | nothing
+    _traceback_cap(p::Particle) -> (max_air_distance, max_rock_grammage)
 
-Project a single `CorsikaEvent` onto the detector-unit OBB BVH and
-return a hit record `(particle, module_index, weight)`, or `nothing` if
-the particle's trajectory does not pass through any module.
+Per-particle limits on how far the straight-line projection in
+[`_corsika_module_hit`](@ref) may be trusted. The projection assumes a
+particle travels in a straight line from where CORSIKA recorded it to a
+detector module — only physical out to the distance the particle could
+actually have covered. EM particles (the shower bulk) shower out almost
+immediately, so they get a short air budget and a near-zero rock budget;
+muons penetrate far, so their rock budget reuses the energy-aware
+[`particle_rock_range`](@ref).
+
+Returns `(max_air_distance, max_rock_grammage)`: a candidate hit whose
+traceback exceeds either budget is treated as a projection artifact and
+dropped. These are physics constants, baked in like [`particle_masses`](@ref);
+a finer energy-dependent treatment for the EM / hadron caps can come later.
+"""
+function _traceback_cap(p::Particle)
+    p.pdg in (EMinus, EPlus, Gamma) && return (300.0u"m", 5.0u"g/cm^2")
+    p.pdg in (MuMinus, MuPlus) &&
+        return (5.0u"km", particle_rock_range(p.energy, p.pdg) |> u"g/cm^2")
+    return (1.0u"km", 100.0u"g/cm^2")   # hadrons and everything else
+end
+
+"""
+    _corsika_module_hit(event::CorsikaEvent, det_bvh, topo_bvh) -> NamedTuple | nothing
+
+Project a single `CorsikaEvent` onto the detector-unit OBB BVH `det_bvh`
+and return a hit record `(particle, module_index, weight)`, or `nothing`
+if the particle's trajectory does not pass through any module.
 
 Each detector OBB straddles its terrain triangle by ±DETECTOR_HEIGHT, so
 a particle recorded at that triangle lies inside the module's volume.
@@ -12,17 +36,34 @@ The reverse-ray branch drifts the particle backward to the entry face
 enter the detector" timestamp. The forward-ray branch is a fallback for
 floating-point edge cases and the rare event where the recorded
 crossing and the hit module are on adjacent triangles.
+
+The straight-line projection is only physical over a short range, so a
+candidate hit is dropped when its traceback exceeds the per-particle
+budget from [`_traceback_cap`](@ref) — either too far through air, or
+through too much rock (measured against the topography mesh `topo_bvh`
+by [`rock_traversed`](@ref)). Without this guard the projection happily
+traces a particle kilometres through solid rock onto a module on the far
+side of the mountain.
 """
-function _corsika_module_hit(event::CorsikaEvent, bvh)
+function _corsika_module_hit(event::CorsikaEvent, det_bvh, topo_bvh)
     ray = Ray(event.particle)
-    ixs = intersect_all(bvh, reverse(ray))
+    rev = reverse(ray)
+    ixs = intersect_all(det_bvh, rev)
     if !isempty(ixs)
-        ix, sign = last(ixs), -1
+        used, ix, sign = rev, last(ixs), -1
     else
-        ixs = intersect_all(bvh, ray)
+        ixs = intersect_all(det_bvh, ray)
         isempty(ixs) && return nothing
-        ix, sign = first(ixs), +1
+        used, ix, sign = ray, first(ixs), +1
     end
+
+    # Reject unphysical tracebacks: the straight-line projection onto a
+    # module is only trustworthy out to the distance the particle could
+    # plausibly have traveled straight (see `_traceback_cap`).
+    max_air, max_rock = _traceback_cap(event.particle)
+    rock_len, rock_gram = rock_traversed(used, topo_bvh; cap = ix.distance)
+    ((ix.distance - rock_len) > max_air || rock_gram > max_rock) && return nothing
+
     p = event.particle
     corrected_time = p.time + sign * ix.distance / p.speed
     corrected_particle = Particle(p.pdg, p.energy, ix.point, p.direction,
@@ -93,6 +134,12 @@ function read_corsika_hits!(
     )
     detector_unit_bvh = d_frame["detector_unit_bvh"]
 
+    haskey(g_frame, "bvh") || error(
+        "read_corsika_hits!: G frame is missing \"bvh\" (topography mesh). " *
+        "The traceback guard needs it to reject hits traced through rock."
+    )
+    topo_bvh = g_frame["bvh"]
+
     if isnothing(cs)
         cs = g_frame["cs"]
     end
@@ -115,7 +162,7 @@ function read_corsika_hits!(
                 continue
             end
             for event in events
-                hit = _corsika_module_hit(event, detector_unit_bvh)
+                hit = _corsika_module_hit(event, detector_unit_bvh, topo_bvh)
                 isnothing(hit) || push!(hits, hit)
             end
         end

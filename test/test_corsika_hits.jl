@@ -10,7 +10,9 @@ the physics of OBB projection — that lives in test_geometry.jl /
 test_bvh.jl.
 """
 
-import TamboSim: Frame, _get_last_frame, place_detector_units
+import TamboSim: Frame, _get_last_frame, place_detector_units,
+                 _traceback_cap, particle_rock_range,
+                 Gamma, MuMinus, PiPlus
 
 using YAML
 
@@ -18,12 +20,13 @@ using YAML
 # Fixture builders
 # ---------------------------------------------------------------------------
 
-# A minimal G frame with a CRS; a D frame with detector_bvh + the
-# detector_unit_bvh that read_corsika_hits! requires; an M frame parented
-# to both. Returns (frames, m_frame, q_frames_holder).
+# A minimal G frame with a CRS + topography mesh (`"bvh"`); a D frame with
+# detector_bvh + the detector_unit_bvh that read_corsika_hits! requires; an
+# M frame parented to both. Returns (frames, m_frame, q_frames_holder).
 function _hits_frames(; n_q=2)
     cs = ecefcoordinates
-    # One flat triangle to place units on.
+    # One flat triangle to place units on. It doubles as the topography
+    # mesh the traceback guard tests against.
     half, z = 300.0, 100.0
     tri = Triangle(
         Coordinate([-half*u"m", -half*u"m", z*u"m"], cs),
@@ -31,7 +34,7 @@ function _hits_frames(; n_q=2)
         Coordinate([ 0.0u"m",    half*u"m", z*u"m"], cs),
     )
     bvh = BVHTree([tri])
-    g_frame = Frame('G', Dict{String,Any}("cs" => cs))
+    g_frame = Frame('G', Dict{String,Any}("cs" => cs, "bvh" => bvh))
     d_frame = Frame('D', Dict{String,Any}("detector_bvh" => bvh))
     _, obb_bvh = place_detector_units(g_frame, d_frame)
     d_frame["detector_unit_bvh"] = obb_bvh
@@ -158,6 +161,35 @@ function run_corsika_hits_tests()
             qs[1]["corsika_directories"] = shower_dirs
             @test_throws ErrorException read_corsika_hits!(frames)
         end
+    end
+
+    @testset "errors when topography bvh is absent" begin
+        # The traceback guard needs the G-frame topography mesh.
+        frames, m_frame, qs = _hits_frames(n_q=1)
+        delete!(m_frame.g_frame.data, "bvh")
+        mktempdir() do base
+            _, shower_dirs = _make_event_dir!(base, 1, parquet_path; n_showers=1)
+            qs[1]["corsika_directories"] = shower_dirs
+            @test_throws ErrorException read_corsika_hits!(frames)
+        end
+    end
+
+    @testset "_traceback_cap: per-particle traceback budgets" begin
+        cs  = ecefcoordinates
+        pos = Coordinate([0.0u"m", 0.0u"m", 0.0u"m"], cs)
+        dir = Direction([0.0, 0.0, 1.0], cs)
+        mk(pdg, E) = Particle(pdg, E, pos, dir)
+
+        em_air, em_rock = _traceback_cap(mk(Gamma,   0.01u"GeV"))
+        mu_air, mu_rock = _traceback_cap(mk(MuMinus, 100.0u"GeV"))
+        h_air,  _       = _traceback_cap(mk(PiPlus,  10.0u"GeV"))
+
+        # EM particles get the tightest air budget, muons the most generous.
+        @test em_air < h_air < mu_air
+        # EM rock budget is near-zero; muons may cross far more.
+        @test em_rock < mu_rock
+        # The muon rock budget is the energy-aware particle_rock_range.
+        @test mu_rock ≈ (particle_rock_range(100.0u"GeV", MuMinus) |> u"g/cm^2")
     end
 
 end

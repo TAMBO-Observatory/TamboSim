@@ -84,6 +84,7 @@ function run_geometry_tests()
         test_place_detector_units_basic()
         test_place_detector_units_slope_filter()
         test_place_detector_units_spacing()
+        test_place_detector_units_tilt_mode()
     end
 end
 
@@ -550,6 +551,60 @@ function test_place_detector_units_spacing()
     obbs_coarse, _ = TamboSim.place_detector_units(g_frame, d_frame; spacing=200.0u"m")
     obbs_fine,   _ = TamboSim.place_detector_units(g_frame, d_frame; spacing=100.0u"m")
     @test length(obbs_fine) > length(obbs_coarse)         # smaller spacing → more modules
+end
+
+# A "roof": front slope (y < 0) tilts one way, back slope (y > 0) the other,
+# so the surface carries TWO distinct normals. Lets us distinguish :terrain
+# (per-site orientation → ≥2 distinct axes) from :fixed (one shared axis).
+function _roof_detector_frames(; half_m=300.0, base_z=100.0, ridge_h=80.0, cs=ecefcoordinates)
+    half = half_m; z = base_z; zr = base_z + ridge_h
+    FL = Coordinate([-half*u"m", -half*u"m",  z*u"m"], cs)
+    FR = Coordinate([ half*u"m", -half*u"m",  z*u"m"], cs)
+    RL = Coordinate([-half*u"m",  0.0*u"m",   zr*u"m"], cs)
+    RR = Coordinate([ half*u"m",  0.0*u"m",   zr*u"m"], cs)
+    BL = Coordinate([-half*u"m",  half*u"m",  z*u"m"], cs)
+    BR = Coordinate([ half*u"m",  half*u"m",  z*u"m"], cs)
+    tris = [
+        Triangle(FL, FR, RR), Triangle(FL, RR, RL),   # front slope
+        Triangle(RL, RR, BR), Triangle(RL, BR, BL),   # back slope
+    ]
+    bvh    = BVHTree(tris)
+    g_frame = Frame('G', Dict{String,Any}("cs" => cs))
+    d_frame = Frame('D', Dict{String,Any}("detector_bvh" => bvh))
+    return g_frame, d_frame
+end
+
+# Compare OBB orientations by their AngleAxis fields (the value is bit-identical
+# across sites that share a normal, so exact comparison is appropriate here).
+_axis_key(o) = (o.axes.theta, o.axes.axis_x, o.axes.axis_y, o.axes.axis_z)
+
+function test_place_detector_units_tilt_mode()
+    g_frame, d_frame = _roof_detector_frames()
+
+    obbs_terrain, _ = TamboSim.place_detector_units(g_frame, d_frame; tilt_mode=:terrain)
+    obbs_fixed,   _ = TamboSim.place_detector_units(g_frame, d_frame; tilt_mode=:fixed)
+
+    @test length(obbs_terrain) > 0
+    @test length(obbs_fixed) == length(obbs_terrain)      # same sites survive in both modes
+
+    # :terrain follows the two slopes → at least two distinct orientations.
+    @test length(unique(_axis_key.(obbs_terrain))) ≥ 2
+    # :fixed gives every module the one mean-normal orientation.
+    @test length(unique(_axis_key.(obbs_fixed))) == 1
+
+    @test_throws ArgumentError TamboSim.place_detector_units(g_frame, d_frame; tilt_mode=:bogus)
+
+    # Explicit fixed tilt angle: 0° = horizontal (identity), 90° = vertical (ψ = π/2).
+    g_flat, d_flat = _flat_detector_frames()
+    obbs_h, _ = TamboSim.place_detector_units(g_flat, d_flat; tilt_mode=:fixed, fixed_tilt_deg=0.0)
+    obbs_v, _ = TamboSim.place_detector_units(g_flat, d_flat; tilt_mode=:fixed, fixed_tilt_deg=90.0)
+    @test all(o -> isapprox(o.axes.theta, 0.0; atol=1e-9), obbs_h)
+    @test all(o -> isapprox(o.axes.theta, π/2; rtol=1e-9), obbs_v)
+    @test length(unique(_axis_key.(obbs_v))) == 1                  # still one shared orientation
+
+    # fixed_tilt_deg requires :fixed, and must be in range.
+    @test_throws ArgumentError TamboSim.place_detector_units(g_flat, d_flat; fixed_tilt_deg=90.0)
+    @test_throws ArgumentError TamboSim.place_detector_units(g_flat, d_flat; tilt_mode=:fixed, fixed_tilt_deg=200.0)
 end
 if abspath(PROGRAM_FILE) == @__FILE__
     @testset "Geometry" begin

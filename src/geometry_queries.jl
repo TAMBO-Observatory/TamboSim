@@ -62,6 +62,8 @@ is_above_topography(particle::Particle, bvh::BVHTree) =
         max_slope_deg      = 35.0,
         half_lengths       = [1.0u"m", 1.0u"m", 0.125u"m"],
         grid_margin        = 500.0u"m",
+        tilt_mode          = :terrain,
+        fixed_tilt_deg     = nothing,
     ) -> (Vector{OBB{Float64}}, Union{BVHTree, Nothing})
 
 Lay out detector OBBs on a hexagonal grid covering the detector surface
@@ -72,8 +74,10 @@ The grid is laid out in the local-tangent plane derived from the
 area-weighted mean of the detector-region triangle normals, with
 per-axis tilt correction so the *projected* nearest-neighbor distance
 on the surface matches `spacing`. Grid points whose surface-slope
-exceeds `max_slope_deg` get dropped; the rest receive OBBs aligned to
-their local triangle normal.
+exceeds `max_slope_deg` get dropped; the rest receive OBBs whose
+orientation is set by `tilt_mode` (each module's local triangle normal,
+or one fixed array-wide tilt). The array is otherwise uniform (single
+`spacing`); use `half_lengths` to set the module footprint.
 
 Typical caller pattern:
 
@@ -93,6 +97,17 @@ Typical caller pattern:
 - `grid_margin`: extra distance past the detector-centroid bounding box used
   when sizing the candidate grid (handles edge effects from irregular
   detector outlines, FP noise, hex offsets pushing rows just outside).
+- `tilt_mode`: orientation strategy for every placed module. `:terrain`
+  (default) aligns each OBB to its own local triangle normal; `:fixed`
+  gives every OBB one shared orientation. The slope filter always uses each
+  site's local normal, so `tilt_mode` changes only the assigned orientation,
+  not which sites survive.
+- `fixed_tilt_deg`: only valid with `tilt_mode=:fixed`. `nothing` (default)
+  freezes every module at the area-weighted mean detector normal. A number
+  sets the panel tilt angle from horizontal — `0` = horizontal (normal up),
+  `90` = vertical — in the azimuth of the mean normal's horizontal projection
+  (tilts "downhill"; azimuth defaults to +x if the mean normal is vertical).
+  Must lie in `[0, 180]`.
 
 # Returns
 - `(obbs, obb_bvh)` — `Vector{OBB{Float64}}` of placed modules and a
@@ -108,7 +123,16 @@ function place_detector_units(
     max_slope_deg = 35.0,
     half_lengths  = [1.0u"m", 1.0u"m", 0.125u"m"],
     grid_margin   = 500.0u"m",
+    tilt_mode      = :terrain,
+    fixed_tilt_deg = nothing,
 )
+    tilt_mode in (:terrain, :fixed) ||
+        throw(ArgumentError("tilt_mode must be :terrain or :fixed, got $(repr(tilt_mode))"))
+    fixed_tilt_deg === nothing || tilt_mode === :fixed ||
+        throw(ArgumentError("fixed_tilt_deg is only valid with tilt_mode=:fixed"))
+    fixed_tilt_deg === nothing || (0 ≤ fixed_tilt_deg ≤ 180) ||
+        throw(ArgumentError("fixed_tilt_deg must be in [0, 180] degrees, got $fixed_tilt_deg"))
+
     cs  = g_frame["cs"]
     bvh = d_frame["detector_bvh"]
     det_triangles = bvh.triangles
@@ -159,6 +183,28 @@ function place_detector_units(
 
     # OBBs aligned to the local triangle normal, slope-filtered.
     max_slope_rad = deg2rad(max_slope_deg)
+
+    # In :fixed tilt mode every module shares one orientation, computed once
+    # here. With no `fixed_tilt_deg` the shared orientation is the area-weighted
+    # mean detector normal (`direction`). With an explicit `fixed_tilt_deg` the
+    # panel normal is set to that polar angle from vertical (0° = horizontal
+    # panel, 90° = vertical), in the azimuth of the mean normal's horizontal
+    # projection (so it tilts "downhill"); azimuth defaults to +x when the mean
+    # normal is vertical.
+    fixed_normal = if tilt_mode === :fixed && fixed_tilt_deg !== nothing
+        θ = deg2rad(fixed_tilt_deg)
+        nx, ny, _ = direction.point
+        φ = hypot(nx, ny) < eps(Float64) ? 0.0 : atan(ny, nx)
+        Direction([sin(θ) * cos(φ), sin(θ) * sin(φ), cos(θ)], cs)
+    else
+        direction
+    end
+    # (Same NaN-safe AngleAxis construction as the per-site case below.)
+    fixed_rot = let ψf = acos(clamp(dot(fixed_normal, up), -1.0, 1.0))
+        ψf < eps(Float64) ? AngleAxis(0.0, 1.0, 0.0, 0.0) :
+                            AngleAxis(ψf, cross(up, fixed_normal)...)
+    end
+
     obbs = OBB{Float64}[]
     for p in ps
         ray = Ray(p, up)
@@ -169,11 +215,12 @@ function place_detector_units(
         # When ψ ≈ 0 the cross-product axis collapses to (0,0,0); AngleAxis
         # normalization then yields NaN and poisons the OBB. The rotation
         # is the identity in that limit, so dispatch to a safe axis.
-        rot = if ψ < eps(Float64)
+        local_rot = if ψ < eps(Float64)
             AngleAxis(0.0, 1.0, 0.0, 0.0)
         else
             AngleAxis(ψ, cross(up, ixs[1].normal)...)
         end
+        rot = tilt_mode === :fixed ? fixed_rot : local_rot
         center = ixs[1].point
         push!(obbs, OBB(center, rot, half_lengths))
     end

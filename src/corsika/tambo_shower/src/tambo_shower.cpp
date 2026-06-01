@@ -138,6 +138,12 @@ using Particle = StackType::particle_type;
 // containing layer (L1 below the inner boundary, L2 above, ...) without ever
 // reaching the rock.  node.getVolume().contains() is the same primitive
 // Intersect.inl and getContainingNode use.
+// DEBUG (rock/air seed hunt): counters shared with the tripwire so the
+// STUCK_ONSET diagnostic can report whether any rock-exit crossing fired
+// before a particle got stuck.  Pure diagnostics; no behavioral effect.
+static long g_rockRelocatorCalls = 0;
+static long g_stuckOnsetLogs = 0;
+
 struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
   EnvType& env_;
   void const* rockNode_; // stable address of the terrain-rock node, or nullptr
@@ -149,6 +155,7 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
                                    typename TParticle::node_type const& /*to*/) {
     if (rockNode_ == nullptr || static_cast<void const*>(&from) != rockNode_)
       return ProcessReturn::Ok;
+    ++g_rockRelocatorCalls; // DEBUG
     auto const pos = particle.getPosition();
     auto const& uk = env_.getUniverse()->getChildNodes();
     auto* L = uk.empty() ? nullptr : uk[0].get();
@@ -159,6 +166,13 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
       L = k.empty() ? nullptr : k[0].get(); // index-0 child is the next layer
     }
     if (layer != nullptr) particle.setNode(layer);
+    else { // DEBUG (hypothesis A): relocator ran but could not reassign a layer
+      auto const dc = pos.getCoordinates(get_root_CoordinateSystem());
+      CORSIKA_LOG_WARN("RELOC_NULL_LAYER pid={} E={} GeV pos=({:.1f},{:.1f},{:.1f}) m"
+                       " -- node NOT corrected, stays rock",
+                       particle.getPID(), particle.getEnergy() / 1_GeV,
+                       dc.getX() / 1_m, dc.getY() / 1_m, dc.getZ() / 1_m);
+    }
     // Nudge the particle off the rock surface into air.  setNode alone is
     // insufficient: the cascade re-derives the next step from getPosition(),
     // and the tracker leaves a rock-exiting particle numerically pinned onto
@@ -208,6 +222,14 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
       }
     }
     particle.setPosition(pos + along * 1_m * particle.getDirection());
+    if (from.getVolume().contains(particle.getPosition())) { // DEBUG: nudge cleared?
+      auto const dc =
+          particle.getPosition().getCoordinates(get_root_CoordinateSystem());
+      CORSIKA_LOG_WARN("RELOC_NUDGE_FAIL along={} m pid={} E={} GeV"
+                       " pos=({:.1f},{:.1f},{:.1f}) m -- still inside rock after nudge",
+                       along, particle.getPID(), particle.getEnergy() / 1_GeV,
+                       dc.getX() / 1_m, dc.getY() / 1_m, dc.getZ() / 1_m);
+    }
     return ProcessReturn::Ok;
   }
 };
@@ -296,8 +318,10 @@ struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
 // (rockNode_ == nullptr); one pointer compare per step otherwise, with the
 // contains() test reached only while a particle is logically in the rock.
 struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
+  EnvType& env_; // DEBUG: for getContainingNode at the stuck onset
   void const* rockNode_;
-  explicit RockInterfaceTripwire(void const* rockNode) : rockNode_(rockNode) {}
+  RockInterfaceTripwire(EnvType& env, void const* rockNode)
+      : env_(env), rockNode_(rockNode) {}
   template <typename TParticle>
   ProcessReturn doContinuous(Step<TParticle>& step, bool const) {
     if (rockNode_ == nullptr) return ProcessReturn::Ok;
@@ -314,7 +338,26 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
       return ProcessReturn::Ok;
     }
     constexpr long kStuckLimit = 1000; // a real loop racks up tens of thousands
-    if (++stuck >= kStuckLimit) {
+    ++stuck;
+    // DEBUG: report the onset of a genuine stuck burst once it is clearly not
+    // transient surface noise (kOnsetReport steps), rate-limited.  A real stuck
+    // particle climbs monotonically to kStuckLimit; transient near-surface
+    // particles get rescued long before kOnsetReport.  getContainingNode here
+    // is unambiguous (the stuck point sits ~0.5 m off the surface, far outside
+    // the degenerate on-surface zone).
+    constexpr long kOnsetReport = 200;
+    if (stuck == kOnsetReport && g_stuckOnsetLogs < 20) {
+      ++g_stuckOnsetLogs;
+      auto const oc = pre.getPosition().getCoordinates(get_root_CoordinateSystem());
+      auto const* cn = env_.getUniverse()->getContainingNode(pre.getPosition());
+      CORSIKA_LOG_WARN("STUCK_ONSET pid={} E={} GeV pos=({:.1f},{:.1f},{:.1f}) m"
+                       " containingIsNull={} containingIsRock={} relocatorCalls={}",
+                       pre.getPID(), pre.getEnergy() / 1_GeV, oc.getX() / 1_m,
+                       oc.getY() / 1_m, oc.getZ() / 1_m, (cn == nullptr),
+                       (static_cast<void const*>(cn) == rockNode_),
+                       g_rockRelocatorCalls);
+    }
+    if (stuck >= kStuckLimit) {
       auto const c =
           pre.getPosition().getCoordinates(get_root_CoordinateSystem());
       CORSIKA_LOG_ERROR(
@@ -1140,7 +1183,7 @@ int main(int argc, char** argv) {
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
     RockExitRelocator rockRelocator{env, rockNodePtr};
     RockEMAbsorber rockEMAbsorber{rockNodePtr};
-    RockInterfaceTripwire rockTripwire{rockNodePtr};
+    RockInterfaceTripwire rockTripwire{env, rockNodePtr};
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut.
     // rockRelocator runs early so any later boundary-aware process in the same

@@ -67,6 +67,9 @@ function run_corsika_orchestrator_tests()
     @testset "plan_corsika_jobs — neutrinos" begin
         test_plan_neutrino_pdg_skip(nu_combined)
     end
+    @testset "plan_corsika_jobs — MuonNeutrinoInjection" begin
+        test_plan_munu_uses_final_state()
+    end
     @testset "build_corsika_argv" begin
         test_argv_has_required_flags(cr_frames)
         test_argv_terrain_mesh_optional(cr_frames)
@@ -153,6 +156,44 @@ function test_plan_neutrino_pdg_skip(nu_combined)
     @test !isempty(jobs)
     @test all(j -> !(abs(Int(j.primary.pdg)) in (12, 14, 16)), jobs)
     @test length(jobs) <= n_charged
+end
+
+
+# ============================================================================
+# plan_corsika_jobs — MuonNeutrinoInjection
+# ============================================================================
+
+function test_plan_munu_uses_final_state()
+    # Build a minimal TamboFrames with strategy=MuonNeutrinoInjection.
+    # Q frames have injection_final_state (a muon) but no proposal_decay_products.
+    # plan_corsika_jobs should emit one job per event with decay_id=1 and PDG=13.
+    frames = load_frames(_GEOMETRY_PATH)
+
+    muon_config = Dict{String,Any}(
+        "strategy"  => "MuonNeutrinoInjection",
+        "seed"      => 42,
+        "nevent"    => 5,
+        "pdg"       => 14,
+        "gamma"     => 1.0,
+        "emin"      => 1e6, "emax" => 1e7,
+        "thetamin"  => 91.0, "thetamax" => 117.0,
+        "phimin"    => 90.0, "phimax"   => 290.0,
+        "xs_location" => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
+                                  "resources", "cross_section_tables",
+                                  "cross_sections.h5:CSMS_numu"),
+    )
+    inject!(frames, muon_config)
+    filter!(f -> haskey(f, "injection_final_state"), frames)
+
+    cfg = _default_corsika_config()
+    base_outdir = mktempdir()
+    jobs = plan_corsika_jobs(frames, cfg, base_outdir)
+
+    @test !isempty(jobs)
+    @test all(j -> j.decay_id == 1, jobs)
+    @test all(j -> abs(Int(j.primary.pdg)) == 13, jobs)
+    @test all(j -> startswith(j.outdir, base_outdir), jobs)
+    @test length(jobs) <= length(frames.q_frames)
 end
 
 # ============================================================================

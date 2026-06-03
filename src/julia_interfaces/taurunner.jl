@@ -253,7 +253,15 @@ function make_stopping_condition()
                 remaining_distance = TR.x_to_d(track, 1.0 - p.position)
                 return d > remaining_distance
             end
-            return true  # Other charged leptons: stop
+            # For muon: propagate forward until rock range < remaining distance
+            if abs(Int(p.id)) == 13
+                energy_GeV = p.energy / TR.units.GeV * u"GeV"
+                lrange = particle_rock_range(energy_GeV, ParticleType(Int(p.id)))
+                d = ustrip(u"m", lrange) / (TR.length(body) / TR.units.meter)
+                remaining_distance = TR.x_to_d(track, 1.0 - p.position)
+                return d > remaining_distance
+            end
+            return true  # Other charged leptons: stop immediately
         elseif TR.is_neutrino(p.id)
             # For neutrinos: check if interaction depth exceeds remaining column depth
             remaining_depth = TR.total_column_depth(track, body) - TR.x_to_X(track, body, p.position)

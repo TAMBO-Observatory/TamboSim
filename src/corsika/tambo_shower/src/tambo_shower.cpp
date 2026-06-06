@@ -139,9 +139,11 @@ using Particle = StackType::particle_type;
 // reaching the rock.  node.getVolume().contains() is the same primitive
 // Intersect.inl and getContainingNode use.
 // DEBUG (rock/air seed hunt): counters shared with the tripwire so the
-// STUCK_ONSET diagnostic can report whether any rock-exit crossing fired
-// before a particle got stuck.  Pure diagnostics; no behavioral effect.
+// STUCK_ONSET diagnostic can report whether any rock-exit crossing fired --
+// and how many rock entries occurred -- before a particle got stuck.  Pure
+// diagnostics; no behavioral effect.
 static long g_rockRelocatorCalls = 0;
+static long g_rockEntryCrossings = 0;
 static long g_stuckOnsetLogs = 0;
 
 struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
@@ -152,9 +154,15 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
   template <typename TParticle>
   ProcessReturn doBoundaryCrossing(TParticle& particle,
                                    typename TParticle::node_type const& from,
-                                   typename TParticle::node_type const& /*to*/) {
-    if (rockNode_ == nullptr || static_cast<void const*>(&from) != rockNode_)
-      return ProcessReturn::Ok;
+                                   typename TParticle::node_type const& to) {
+    if (rockNode_ == nullptr) return ProcessReturn::Ok;
+    // DEBUG: tally air->rock entries (to==rock) so STUCK_ONSET can distinguish a
+    // missed near-tangent EXIT (entryCrossings>0, relocatorCalls==0) from a node
+    // that became rock without any tracked entry crossing (entryCrossings==0).
+    // from==rock and to==rock are mutually exclusive on one crossing, so this
+    // never double-counts against the relocator path below.
+    if (static_cast<void const*>(&to) == rockNode_) ++g_rockEntryCrossings;
+    if (static_cast<void const*>(&from) != rockNode_) return ProcessReturn::Ok;
     ++g_rockRelocatorCalls; // DEBUG
     auto const pos = particle.getPosition();
     auto const& uk = env_.getUniverse()->getChildNodes();
@@ -351,11 +359,12 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
       auto const oc = pre.getPosition().getCoordinates(get_root_CoordinateSystem());
       auto const* cn = env_.getUniverse()->getContainingNode(pre.getPosition());
       CORSIKA_LOG_WARN("STUCK_ONSET pid={} E={} GeV pos=({:.1f},{:.1f},{:.1f}) m"
-                       " containingIsNull={} containingIsRock={} relocatorCalls={}",
+                       " containingIsNull={} containingIsRock={} relocatorCalls={}"
+                       " entryCrossings={}",
                        pre.getPID(), pre.getEnergy() / 1_GeV, oc.getX() / 1_m,
                        oc.getY() / 1_m, oc.getZ() / 1_m, (cn == nullptr),
                        (static_cast<void const*>(cn) == rockNode_),
-                       g_rockRelocatorCalls);
+                       g_rockRelocatorCalls, g_rockEntryCrossings);
     }
     if (stuck >= kStuckLimit) {
       auto const c =

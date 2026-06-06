@@ -146,6 +146,7 @@ static long g_rockRelocatorCalls = 0;
 static long g_rockEntryCrossings = 0;
 static long g_stuckOnsetLogs = 0;
 static long g_approachLogs = 0;
+static long g_muRockSteps = 0;
 
 struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
   EnvType& env_;
@@ -341,14 +342,18 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
     bool const inside = static_cast<NodeT const*>(rockNode_)
                             ->getVolume()
                             .contains(pre.getPosition());
-    // DEBUG (approach probe): for a high-energy muon logically resident in rock,
-    // replicate the tracker's forward ray query (TrackingStraight.inl: direction
-    // = momentum/energy normalized) and log what it sees as the muon nears and
-    // crosses the surface.  The question this answers: at the slip step (inside
-    // flips false), does a NEAR real exit hit (> boundaryPadding) exist along the
-    // ray, or has the nearest real hit jumped to the far mesh wall (~1.27e7 m)
-    // while contains() flips?  cosI = |dir.n| at the nearest face measures how
-    // grazing the exit is.  Gated to the surface window, rate-limited.
+    // DEBUG (approach probe v2): for a high-energy muon logically resident in
+    // rock, replicate the tracker's forward ray query (TrackingStraight.inl:
+    // direction = momentum/energy normalized) and log what it sees.  v1 showed
+    // the exit is NOT grazing (cosI ~ 0.56) and the ray cleanly tracks a far
+    // exit that marches in -- but v1's budget exhausted during the long creep
+    // and never captured the SLIP (inside -> false).  v2 skips the far creep:
+    // sparse periodic context over the whole traverse, dense logging only in the
+    // final approach (nearestReal < 20 m) and through the slip + stuck phase
+    // (!inside).  The decisive question: at the slip, is forward nearestRealHit
+    // still LARGE (position crossed a different/nearer surface than the ray
+    // tracks -> containment-check fix) or ~0 (reached the exit, crossing failed
+    // to fire -> dispatch fix)?
     {
       Code const pid = pre.getPID();
       if ((pid == Code::MuMinus || pid == Code::MuPlus) &&
@@ -356,6 +361,7 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
         auto const* tmesh = dynamic_cast<TriangularMesh const*>(
             &static_cast<NodeT const*>(rockNode_)->getVolume());
         if (tmesh != nullptr) {
+          ++g_muRockSteps;
           auto const dir = pre.getDirection();
           auto const hits = tmesh->intersectRayAll(pre.getPosition(), dir);
           LengthType const pad = tmesh->getBoundaryPadding();
@@ -374,15 +380,16 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
               ++nNear;
             }
           }
-          if ((foundReal && nearestReal < 200 * 1_m) || nNear > 0 || !inside) {
+          if ((g_muRockSteps % 3000 == 0) ||
+              (foundReal && nearestReal < 20 * 1_m) || nNear > 0 || !inside) {
             ++g_approachLogs;
             auto const oc =
                 pre.getPosition().getCoordinates(get_root_CoordinateSystem());
             CORSIKA_LOG_WARN(
-                "APPROACH inside={} nHits={} nNearPad={} nearestRealHit_m={}"
-                " cosI={} E={} GeV pos=({:.1f},{:.1f},{:.1f})",
-                inside, hits.size(), nNear, nearestReal / 1_m, cosI,
-                pre.getEnergy() / 1_GeV, oc.getX() / 1_m, oc.getY() / 1_m,
+                "APPROACH step={} inside={} nHits={} nNearPad={}"
+                " nearestRealHit_m={} cosI={} E={} GeV pos=({:.1f},{:.1f},{:.1f})",
+                g_muRockSteps, inside, hits.size(), nNear, nearestReal / 1_m,
+                cosI, pre.getEnergy() / 1_GeV, oc.getX() / 1_m, oc.getY() / 1_m,
                 oc.getZ() / 1_m);
           }
         }

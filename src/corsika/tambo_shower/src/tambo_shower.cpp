@@ -145,6 +145,7 @@ using Particle = StackType::particle_type;
 static long g_rockRelocatorCalls = 0;
 static long g_rockEntryCrossings = 0;
 static long g_stuckOnsetLogs = 0;
+static long g_approachLogs = 0;
 
 struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
   EnvType& env_;
@@ -340,6 +341,53 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
     bool const inside = static_cast<NodeT const*>(rockNode_)
                             ->getVolume()
                             .contains(pre.getPosition());
+    // DEBUG (approach probe): for a high-energy muon logically resident in rock,
+    // replicate the tracker's forward ray query (TrackingStraight.inl: direction
+    // = momentum/energy normalized) and log what it sees as the muon nears and
+    // crosses the surface.  The question this answers: at the slip step (inside
+    // flips false), does a NEAR real exit hit (> boundaryPadding) exist along the
+    // ray, or has the nearest real hit jumped to the far mesh wall (~1.27e7 m)
+    // while contains() flips?  cosI = |dir.n| at the nearest face measures how
+    // grazing the exit is.  Gated to the surface window, rate-limited.
+    {
+      Code const pid = pre.getPID();
+      if ((pid == Code::MuMinus || pid == Code::MuPlus) &&
+          pre.getEnergy() > 1000 * 1_GeV && g_approachLogs < 1500) {
+        auto const* tmesh = dynamic_cast<TriangularMesh const*>(
+            &static_cast<NodeT const*>(rockNode_)->getVolume());
+        if (tmesh != nullptr) {
+          auto const dir = pre.getDirection();
+          auto const hits = tmesh->intersectRayAll(pre.getPosition(), dir);
+          LengthType const pad = tmesh->getBoundaryPadding();
+          LengthType nearestReal = std::numeric_limits<double>::infinity() * 1_m;
+          bool foundReal = false;
+          double cosI = -1.0;
+          size_t nNear = 0; // hits within padding (self-hits on the exit face)
+          for (auto const& h : hits) {
+            if (h.distance > pad) {
+              if (h.distance < nearestReal) {
+                nearestReal = h.distance;
+                foundReal = true;
+                cosI = std::abs(dir.dot(h.normal).magnitude());
+              }
+            } else if (h.distance > 0_m) {
+              ++nNear;
+            }
+          }
+          if ((foundReal && nearestReal < 200 * 1_m) || nNear > 0 || !inside) {
+            ++g_approachLogs;
+            auto const oc =
+                pre.getPosition().getCoordinates(get_root_CoordinateSystem());
+            CORSIKA_LOG_WARN(
+                "APPROACH inside={} nHits={} nNearPad={} nearestRealHit_m={}"
+                " cosI={} E={} GeV pos=({:.1f},{:.1f},{:.1f})",
+                inside, hits.size(), nNear, nearestReal / 1_m, cosI,
+                pre.getEnergy() / 1_GeV, oc.getX() / 1_m, oc.getY() / 1_m,
+                oc.getZ() / 1_m);
+          }
+        }
+      }
+    }
     static long stuck = 0;
     if (inside) {
       stuck = 0;

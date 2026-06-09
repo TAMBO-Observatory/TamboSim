@@ -149,6 +149,7 @@ static long g_approachLogs = 0;
 static long g_muRockSteps = 0;
 static long g_slipLogs = 0;     // DEBUG: energy-independent slip captures
 static long g_rockXingLogs = 0; // DEBUG: per-muon rock entry/exit crossing log
+static long g_rockHeals = 0;    // node-reroot self-heals performed (behavioral)
 
 struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
   EnvType& env_;
@@ -327,26 +328,36 @@ struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
   }
 };
 
-// Production safety net for the rock/air interface.  RockExitRelocator's
-// position nudge resolves the known way a particle can end up logically
-// resident in the terrain rock while geometrically outside it (a degenerate
-// on-surface re-resolution after a rock-exit boundary crossing).  This process
-// is deliberately pathway-agnostic: rather than handle a specific entry route,
-// it watches for the *invariant violation itself* -- logical node == rock yet
-// rock.contains(position) == false -- which is the signature underlying a
-// particle that bleeds StandardRock dE/dx while geometrically in air and
-// silently ranges out before reaching any readout.  A healthy rock traversal
-// has logical == rock AND contains() == true and resets the counter every
-// step; the pathology accumulates logical == rock AND !contains() for tens of
-// thousands of consecutive steps.  On crossing a generous persistence
-// threshold the run is aborted with diagnostics rather than allowed to emit a
-// complete-looking shower output in which an Earth-skimming signal particle
-// was quietly lost.  The counter is a deliberately coarse run-global burst
-// detector, not a per-particle accountant: a stuck particle steps thousands
-// of times with no interleaving secondary, so a global count is a sufficient
-// and cheap tripwire.  No-op when the terrain mesh is disabled
-// (rockNode_ == nullptr); one pointer compare per step otherwise, with the
-// contains() test reached only while a particle is logically in the rock.
+// Self-heal + safety net for the rock/air interface.  A particle can end up
+// logically resident in the terrain rock while geometrically outside it -- the
+// signature of a particle that bleeds StandardRock dE/dx in air and silently
+// ranges out before reaching any readout.  Two known routes produce it:
+// (1) a degenerate on-surface re-resolution after a rock-EXIT crossing
+// (handled at the source by RockExitRelocator's nudge), and (2) a near-tangent
+// grazing ENTRY through a thin rock feature, where the tracker fires the
+// air->rock entry crossing but the matching rock->air exit crossing is filtered
+// away by the mesh boundary padding, so the logical node is never corrected and
+// RockExitRelocator (from==rock only) never runs.
+//
+// This process is deliberately pathway-agnostic: rather than handle a specific
+// route it watches for the invariant violation itself -- logical node == rock
+// yet rock.contains(position) == false -- and, once that has persisted kHealAt
+// steps (far enough off-surface that contains()/getContainingNode are
+// unambiguous), SELF-HEALS by re-rooting the logical node to the geometrically
+// correct containing air layer (getContainingNode).  The cascade does not
+// re-derive the node after a continuous step, so the correction persists into
+// the next step; at most kHealAt wrong-medium steps are spent per grazing event.
+//
+// The abort is retained only as a backstop for a heal that fails to do its job,
+// in either of two shapes: kStuckLimit consecutive un-cleared steps (no
+// containing air node could be resolved), or kMaxHeals total heals (the
+// particle heals, re-sticks, and heals again -- a livelock the consecutive
+// counter cannot see because each heal zeroes it).  Counters are run-global:
+// grazing events are rare enough run-wide that the heal cap won't false-trip,
+// and a livelock concentrates on one particle and blows the cap unambiguously.
+// No-op when the terrain mesh is disabled (rockNode_ == nullptr); one pointer
+// compare per step otherwise, with the contains() test reached only while a
+// particle is logically in the rock.
 struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
   EnvType& env_; // DEBUG: for getContainingNode at the stuck onset
   void const* rockNode_;
@@ -490,20 +501,53 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
                        g_rockRelocatorCalls, g_rockEntryCrossings);
       if (isMuon) logRayReport("STUCK_ONSET_RAY");
     }
-    if (stuck >= kStuckLimit) {
-      auto const c =
-          pre.getPosition().getCoordinates(get_root_CoordinateSystem());
+    auto abortStuck = [&](char const* why) {
+      auto const c = pre.getPosition().getCoordinates(get_root_CoordinateSystem());
       CORSIKA_LOG_ERROR(
-          "Rock/air interface stuck state: a particle has been logically "
-          "resident in the terrain rock while geometrically OUTSIDE it for {} "
-          "consecutive steps -- it is bleeding StandardRock dE/dx in air and "
-          "will silently range out before reaching any readout.  Reached via "
-          "a path RockExitRelocator's nudge does not cover.  pid={} "
-          "E={} GeV pos=({:.1f},{:.1f},{:.1f}) m.  Aborting rather than emit "
-          "a misleading shower output.",
-          stuck, pre.getPID(), pre.getEnergy() / 1_GeV, c.getX() / 1_m,
-          c.getY() / 1_m, c.getZ() / 1_m);
+          "Rock/air interface stuck state [{}]: a particle has been logically "
+          "resident in the terrain rock while geometrically OUTSIDE it -- it "
+          "bleeds StandardRock dE/dx in air and silently ranges out before "
+          "reaching any readout.  stuck={} heals={} pid={} E={} GeV "
+          "pos=({:.1f},{:.1f},{:.1f}) m.  Aborting rather than emit a "
+          "misleading shower output.",
+          why, stuck, g_rockHeals, pre.getPID(), pre.getEnergy() / 1_GeV,
+          c.getX() / 1_m, c.getY() / 1_m, c.getZ() / 1_m);
       std::exit(EXIT_FAILURE);
+    };
+    // Self-heal once the invariant has persisted kHealAt steps (see the struct
+    // comment): re-root the logical node to the geometrically-correct containing
+    // node.  getContainingNode is unambiguous here -- the particle is meters off
+    // the surface -- and, as STUCK_ONSET confirms, returns the air layer, not the
+    // rock.  The Step interface exposes the pre-step particle as const, but the
+    // underlying stack particle is mutable and no ContinuousProcess node hook
+    // exists upstream, so the const_cast is sound; setNode takes a
+    // node_type const* so the const containing-node pointer passes directly.
+    constexpr long kHealAt = 200;   // == kOnsetReport: heal right after onset
+    constexpr long kMaxHeals = 300; // livelock backstop (total heals run-wide)
+    if (stuck >= kHealAt) {
+      auto const* cn = env_.getUniverse()->getContainingNode(pre.getPosition());
+      if (cn != nullptr && static_cast<void const*>(cn) != rockNode_) {
+        if (g_rockHeals >= kMaxHeals) {
+          abortStuck("heal-loop -- node re-rooted to air but particle keeps re-sticking");
+        }
+        const_cast<TParticle&>(pre).setNode(cn);
+        ++g_rockHeals;
+        if (g_rockHeals <= 50) {
+          auto const c = pre.getPosition().getCoordinates(get_root_CoordinateSystem());
+          CORSIKA_LOG_WARN(
+              "ROCK_HEAL #{} pid={} E={} GeV pos=({:.1f},{:.1f},{:.1f}) m stuck={}"
+              " -- re-rooted logical node to containing air layer",
+              g_rockHeals, pre.getPID(), pre.getEnergy() / 1_GeV, c.getX() / 1_m,
+              c.getY() / 1_m, c.getZ() / 1_m, stuck);
+        }
+        stuck = 0;
+        return ProcessReturn::Ok;
+      }
+      // No valid containing air node (cn null or still rock): cannot heal --
+      // fall through to the consecutive-step backstop.
+    }
+    if (stuck >= kStuckLimit) {
+      abortStuck("unhealed -- no containing air node could be resolved");
     }
     return ProcessReturn::Ok;
   }

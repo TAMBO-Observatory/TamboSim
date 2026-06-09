@@ -147,6 +147,8 @@ static long g_rockEntryCrossings = 0;
 static long g_stuckOnsetLogs = 0;
 static long g_approachLogs = 0;
 static long g_muRockSteps = 0;
+static long g_slipLogs = 0;     // DEBUG: energy-independent slip captures
+static long g_rockXingLogs = 0; // DEBUG: per-muon rock entry/exit crossing log
 
 struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
   EnvType& env_;
@@ -163,8 +165,26 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
     // that became rock without any tracked entry crossing (entryCrossings==0).
     // from==rock and to==rock are mutually exclusive on one crossing, so this
     // never double-counts against the relocator path below.
-    if (static_cast<void const*>(&to) == rockNode_) ++g_rockEntryCrossings;
-    if (static_cast<void const*>(&from) != rockNode_) return ProcessReturn::Ok;
+    bool const toRock = static_cast<void const*>(&to) == rockNode_;
+    bool const fromRock = static_cast<void const*>(&from) == rockNode_;
+    if (toRock) ++g_rockEntryCrossings;
+    // DEBUG: log every muon rock entry/exit crossing so the stuck particle's
+    // entry can be matched against the (possibly missing) exit crossing.  A
+    // missed exit shows up as an entry near the stuck point with no subsequent
+    // dir=exit line -- the signature of the dispatch/tracking failure mode.
+    {
+      Code const pid = particle.getPID();
+      if ((pid == Code::MuMinus || pid == Code::MuPlus) && (toRock || fromRock) &&
+          g_rockXingLogs < 200) {
+        ++g_rockXingLogs;
+        auto const dc = particle.getPosition().getCoordinates(get_root_CoordinateSystem());
+        CORSIKA_LOG_WARN("ROCK_XING dir={} pid={} E={} GeV pos=({:.1f},{:.1f},{:.1f}) m",
+                         fromRock ? "exit" : "entry", particle.getPID(),
+                         particle.getEnergy() / 1_GeV, dc.getX() / 1_m,
+                         dc.getY() / 1_m, dc.getZ() / 1_m);
+      }
+    }
+    if (!fromRock) return ProcessReturn::Ok;
     ++g_rockRelocatorCalls; // DEBUG
     auto const pos = particle.getPosition();
     auto const& uk = env_.getUniverse()->getChildNodes();
@@ -342,6 +362,47 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
     bool const inside = static_cast<NodeT const*>(rockNode_)
                             ->getVolume()
                             .contains(pre.getPosition());
+    // DEBUG (rev N+1): energy-independent forward-ray probe + report, for use at
+    // the slip (stuck==1) and onset (stuck==200).  Replicates the straight-line
+    // tracker's forward query against the terrain mesh from the current point.
+    // Decisive readout: nearestRealHit_m ~ 0  => the particle reached the exit
+    // face but no from==rock boundary crossing fired (dispatch/tracking fix);
+    // large => the position crossed a nearer surface the ray does not track
+    // (position/containment fix).  Called only at slip/onset for muons; the
+    // dynamic_cast and ray query are paid a handful of times per run.
+    auto logRayReport = [&](char const* tag) {
+      auto const* tmesh = dynamic_cast<TriangularMesh const*>(
+          &static_cast<NodeT const*>(rockNode_)->getVolume());
+      size_t nHits = 0, nNear = 0;
+      double nearestReal = std::numeric_limits<double>::infinity();
+      double cosI = -1.0;
+      if (tmesh != nullptr) {
+        auto const dir = pre.getDirection();
+        auto const hits = tmesh->intersectRayAll(pre.getPosition(), dir);
+        LengthType const pad = tmesh->getBoundaryPadding();
+        LengthType nearest = std::numeric_limits<double>::infinity() * 1_m;
+        nHits = hits.size();
+        for (auto const& h : hits) {
+          if (h.distance > pad) {
+            if (h.distance < nearest) {
+              nearest = h.distance;
+              cosI = std::abs(dir.dot(h.normal).magnitude());
+            }
+          } else if (h.distance > 0_m) {
+            ++nNear;
+          }
+        }
+        nearestReal = nearest / 1_m;
+      }
+      auto const oc = pre.getPosition().getCoordinates(get_root_CoordinateSystem());
+      CORSIKA_LOG_WARN(
+          "{} pid={} E={} GeV pos=({:.1f},{:.1f},{:.1f}) m nHits={} nNearPad={}"
+          " nearestRealHit_m={} cosI={}",
+          tag, pre.getPID(), pre.getEnergy() / 1_GeV, oc.getX() / 1_m,
+          oc.getY() / 1_m, oc.getZ() / 1_m, nHits, nNear, nearestReal, cosI);
+    };
+    bool const isMuon =
+        pre.getPID() == Code::MuMinus || pre.getPID() == Code::MuPlus;
     // DEBUG (approach probe v2): for a high-energy muon logically resident in
     // rock, replicate the tracker's forward ray query (TrackingStraight.inl:
     // direction = momentum/energy normalized) and log what it sees.  v1 showed
@@ -402,6 +463,13 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
     }
     constexpr long kStuckLimit = 1000; // a real loop racks up tens of thousands
     ++stuck;
+    // DEBUG (rev N+1): capture the slip itself -- the first step a muon is
+    // logically rock but geometrically outside -- with the forward-ray probe,
+    // independent of energy (this muon is ~30 GeV, below the APPROACH gate).
+    if (stuck == 1 && isMuon && g_slipLogs < 50) {
+      ++g_slipLogs;
+      logRayReport("SLIP");
+    }
     // DEBUG: report the onset of a genuine stuck burst once it is clearly not
     // transient surface noise (kOnsetReport steps), rate-limited.  A real stuck
     // particle climbs monotonically to kStuckLimit; transient near-surface
@@ -420,6 +488,7 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
                        oc.getY() / 1_m, oc.getZ() / 1_m, (cn == nullptr),
                        (static_cast<void const*>(cn) == rockNode_),
                        g_rockRelocatorCalls, g_rockEntryCrossings);
+      if (isMuon) logRayReport("STUCK_ONSET_RAY");
     }
     if (stuck >= kStuckLimit) {
       auto const c =

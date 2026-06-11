@@ -1,6 +1,8 @@
 
 # Hola y bienvenidos!
 
+[![License: LGPL v3](https://img.shields.io/badge/License-LGPL_v3-blue.svg)](https://www.gnu.org/licenses/lgpl-3.0)
+
 Welcome to TamboSim! This is the main simulation code for the TamboSim Collaboration, and is (thus far) capable of:
 - Injecting (and forcing the interaction of) neutrinos, cosmic rays, in a realistic canyon geometry
 - Propagating charged leptonic secondaries through rock and air with PROPOSAL,
@@ -101,6 +103,10 @@ Running CORSIKA is computationally expensive, so it typically only makes sense t
 Example uses of `TamboSim` can be found in the `examples/` directory. 
 
 If you are a member of the TAMBO Collaboration and interested in producing *lots* of simulation, you should look at the related package [TAMBOSim-pipeline](https://github.com/TAMBO-Observatory/TAMBOSim-pipeline).
+
+## License
+
+TamboSim is distributed under the [GNU Lesser General Public License v3.0](LICENSE). You are free to use, modify, and distribute this software under the terms of the LGPL 3.0.
 
 ## Citation
 Tell people how to cite us.

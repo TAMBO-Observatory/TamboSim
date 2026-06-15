@@ -256,7 +256,7 @@ function make_stopping_condition()
             # For muon: propagate forward until rock range < remaining distance
             if abs(Int(p.id)) == 13
                 energy_GeV = p.energy / TR.units.GeV * u"GeV"
-                lrange = particle_rock_range(energy_GeV, ParticleType(Int(p.id)))
+                lrange = particle_rock_range(energy_GeV, ParticleType(Int(p.id))) / ROCK_DENSITY
                 d = ustrip(u"m", lrange) / (TR.length(body) / TR.units.meter)
                 remaining_distance = TR.x_to_d(track, 1.0 - p.position)
                 return d > remaining_distance

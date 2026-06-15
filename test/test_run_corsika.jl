@@ -19,6 +19,8 @@ const _GEOMETRY_PATH = joinpath(_TAMBOSIM_PATH, "resources", "geometry",
                                 "colca_valley_3000.jld2")
 const _NEUTRINO_OUTPUT_PATH = joinpath(_TAMBOSIM_PATH, "examples",
                                         "resources", "example_output.jld2")
+const _NUMU_OUTPUT_PATH = joinpath(_TAMBOSIM_PATH, "examples",
+                                    "resources", "example_numu_output.jld2")
 
 function _cr_injection_config(; nevent::Int=5, seed::Int=42)
     return Dict{String,Any}(
@@ -58,7 +60,8 @@ function run_corsika_orchestrator_tests()
 
     # Combined load: load_frames stitches the M frame's parents to the
     # geometry's G/C/D so plan_corsika_jobs can walk to D for the BVH.
-    nu_combined = load_frames([_GEOMETRY_PATH, _NEUTRINO_OUTPUT_PATH])
+    nu_combined   = load_frames([_GEOMETRY_PATH, _NEUTRINO_OUTPUT_PATH])
+    numu_combined = load_frames([_GEOMETRY_PATH, _NUMU_OUTPUT_PATH])
 
     @testset "plan_corsika_jobs — cosmic rays" begin
         test_plan_cosmic_rays(cr_frames)
@@ -68,7 +71,7 @@ function run_corsika_orchestrator_tests()
         test_plan_neutrino_pdg_skip(nu_combined)
     end
     @testset "plan_corsika_jobs — MuonNeutrinoInjection" begin
-        test_plan_munu_uses_final_state()
+        test_plan_munu_uses_final_state(numu_combined)
     end
     @testset "build_corsika_argv" begin
         test_argv_has_required_flags(cr_frames)
@@ -163,27 +166,11 @@ end
 # plan_corsika_jobs — MuonNeutrinoInjection
 # ============================================================================
 
-function test_plan_munu_uses_final_state()
-    # Build a minimal TamboFrames with strategy=MuonNeutrinoInjection.
-    # Q frames have injection_final_state (a muon) but no proposal_decay_products.
-    # plan_corsika_jobs should emit one job per event with decay_id=1 and PDG=13.
-    frames = load_frames(_GEOMETRY_PATH)
+function test_plan_munu_uses_final_state(numu_combined)
+    frames = deepcopy(numu_combined)
 
-    muon_config = Dict{String,Any}(
-        "strategy"  => "MuonNeutrinoInjection",
-        "seed"      => 42,
-        "nevent"    => 50,
-        "pdg"       => 14,
-        "gamma"     => 1.0,
-        "emin"      => 1e6, "emax" => 1e7,
-        "thetamin"  => 91.0, "thetamax" => 117.0,
-        "phimin"    => 0.0, "phimax"   => 360.0,
-        "xs_location" => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
-                                  "resources", "cross_section_tables",
-                                  "cross_sections.h5:CSMS_nutau"),
-    )
-    inject!(frames, muon_config)
-    filter!(f -> haskey(f, "injection_final_state"), frames)
+    m = _get_last_frame(frames, 'M')
+    @test m["injection"]["strategy"] == "MuonNeutrinoInjection"
 
     cfg = _default_corsika_config()
     base_outdir = mktempdir()

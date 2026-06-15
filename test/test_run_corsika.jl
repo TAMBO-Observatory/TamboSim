@@ -180,7 +180,7 @@ function test_plan_munu_uses_final_state()
         "phimin"    => 90.0, "phimax"   => 290.0,
         "xs_location" => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
                                   "resources", "cross_section_tables",
-                                  "cross_sections.h5:CSMS_numu"),
+                                  "cross_sections.h5:CSMS_nutau"),
     )
     inject!(frames, muon_config)
     filter!(f -> haskey(f, "injection_final_state"), frames)

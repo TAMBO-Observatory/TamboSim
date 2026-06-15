@@ -16,7 +16,7 @@ thetamin = 0   # degrees
 thetamax = 117 # degrees
 phimin = 90    # degrees
 phimax = 290   # degrees
-xs_location = "_TAMBOSIM_PATH_/resources/cross_section_tables/cross_sections.h5:CSMS_numu"
+xs_location = "_TAMBOSIM_PATH_/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
 [proposal]
 seed = 925

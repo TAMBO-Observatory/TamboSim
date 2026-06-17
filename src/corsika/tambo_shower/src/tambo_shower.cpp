@@ -1160,6 +1160,11 @@ int main(int argc, char** argv) {
   // because RadioProcess takes the propagator by non-const lvalue reference; it
   // must outlive the process.  Both are declared before the runOneShower lambda
   // (which captures by reference) and live in scope for the whole shower loop.
+  //
+  // First-cut choice: the dummy straight-line / uniform-refractive-index
+  // propagator (matches the CoREAS example).  For a curved / tabulated
+  // atmosphere swap in make_numerical_integrating_radio_propagator(env, step)
+  // -- see RADIO_NOTES.md section 4.
   auto radioPropagator = make_dummy_test_radio_propagator(env);
   RadioProcess<decltype(radioObservers),
                CoREAS<decltype(radioObservers), decltype(radioPropagator)>,
@@ -1347,6 +1352,7 @@ int main(int argc, char** argv) {
                                       decaySequence, emCascade,
                                       // prodprof,
                                       emContinuous,
+                                      // radio: continuous E-field sampling; order-independent
                                       radioProcess,
                                       longprof, sequence,
                                       // trackWriter,  

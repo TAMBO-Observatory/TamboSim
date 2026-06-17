@@ -3,8 +3,6 @@
 These tests use synthetic numpy data only -- no CORSIKA output required.
 """
 
-import os
-
 import numpy as np
 import pytest
 
@@ -109,3 +107,19 @@ def test_energy_fluence_zero_field():
     times = np.linspace(0.0, 5.0, 6)
     zeros = np.zeros_like(times)
     assert energy_fluence(times, zeros, zeros, zeros) == pytest.approx(0.0)
+
+
+def test_plot_writes_png_all_zero_fluence(tmp_path):
+    """An all-zero fluence array still writes a PNG (exercises the no-positive
+    LogNorm floor branch)."""
+    n = 20
+    a = np.linspace(-100, 100, n)
+    b = np.zeros(n)
+    fluence = np.zeros(n)
+
+    out = tmp_path / "all_zero.png"
+    result = plot_footprint(a, b, fluence, out, title="all zero")
+
+    assert result == out
+    assert out.is_file()
+    assert out.stat().st_size > 0

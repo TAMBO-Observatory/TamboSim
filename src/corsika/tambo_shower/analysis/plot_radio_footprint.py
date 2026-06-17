@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import argparse
 import csv
-import os
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -276,6 +276,13 @@ def load_run(run_dir):
     if "shower" in cols:
         shower = np.asarray(table.column(cols["shower"]).to_numpy())
         first = shower[0]
+        n_showers = np.unique(shower).size
+        if n_showers > 1:
+            print(
+                f"[plot_radio_footprint] note: {n_showers} showers in the parquet; "
+                f"plotting only the first (shower id {first}).",
+                file=sys.stderr,
+            )
         mask = shower == first
         time, ex, ey, ez = time[mask], ex[mask], ey[mask], ez[mask]
 

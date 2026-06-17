@@ -223,17 +223,27 @@ $BIN --radio -p 2212 -E 1e7 --zenith 45  --azimuth 0 --inject-distance 50 \
 $BIN --radio -p 11   -E 1e7 --zenith 100 --azimuth 0 --inject-distance 5  \
      --obs-mesh obs_surface.ply --radio-antenna-stride 16 --force -f out_up
 
-# 3. Plot the energy-fluence footprints (v x B vs v x (v x B), log eV/m^2):
-PY=/workspace/.venv/bin/python   # or any python with numpy+matplotlib+pyarrow
-$PY src/corsika/tambo_shower/analysis/plot_radio_footprint.py out_down \
+# 3. Plot the energy-fluence footprints (v x B vs v x (v x B), log eV/m^2).
+#    The plot script has its own Julia environment (CairoMakie + Parquet2);
+#    instantiate it once:
+ANALYSIS=src/corsika/tambo_shower/analysis
+julia --project=$ANALYSIS -e 'using Pkg; Pkg.instantiate()'
+
+julia --project=$ANALYSIS $ANALYSIS/plot_radio_footprint.jl out_down \
     -o /workspace/plots/footprint_downgoing.png --title "Downgoing p, 1e7 GeV, 45 deg"
-$PY src/corsika/tambo_shower/analysis/plot_radio_footprint.py out_up \
+julia --project=$ANALYSIS $ANALYSIS/plot_radio_footprint.jl out_up \
     -o /workspace/plots/footprint_upgoing.png   --title "Upgoing e-, 1e7 GeV, 100 deg, 5 km"
 ```
 
-`plot_radio_footprint.py` reads `radio/observers.parquet` and `radio/antennas.csv`
-from the output directory and produces a scatter of the obs-mesh antenna
-positions projected into the shower plane.
+`plot_radio_footprint.jl` reads `radio/observers.parquet` and `radio/antennas.csv`
+(plus `radio/shower_geometry.csv` for the core/direction/field) from the output
+directory and produces a scatter of the obs-mesh antenna positions projected
+into the shower plane. The pure-math helpers live in `analysis/radio_fluence.jl`
+and have stdlib-only unit tests:
+
+```bash
+julia src/corsika/tambo_shower/analysis/test_radio_fluence.jl
+```
 
 ## Notes on the terrain mesh
 

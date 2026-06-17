@@ -585,6 +585,7 @@ to the matching backend:
 
 - `"NeutrinoInjection"`   → [`inject_neutrinos!`](@ref)
 - `"CosmicRayInjection"`  → [`inject_cosmicrays!`](@ref)
+- `"MuonInjection"`       → [`inject_cosmicrays!`](@ref) (alias for atmospheric muon injection)
 
 Errors loudly if `strategy` is missing or not recognized. The backends
 remain callable directly for tests and power users.
@@ -596,17 +597,17 @@ function inject!(
 )
     haskey(config, "strategy") || error(
         "inject!: injection config is missing required `strategy` field. " *
-        "Set it to one of \"NeutrinoInjection\" or \"CosmicRayInjection\"."
+        "Set it to one of \"NeutrinoInjection\", \"CosmicRayInjection\", or \"MuonInjection\"."
     )
     strategy = config["strategy"]
     if strategy == "NeutrinoInjection"
         return inject_neutrinos!(frames, config; prefix=prefix)
-    elseif strategy == "CosmicRayInjection"
+    elseif strategy == "CosmicRayInjection" || strategy == "MuonInjection"
         return inject_cosmicrays!(frames, config; prefix=prefix)
     else
         error(
             "inject!: unknown strategy \"$strategy\". " *
-            "Expected \"NeutrinoInjection\" or \"CosmicRayInjection\"."
+            "Expected \"NeutrinoInjection\", \"CosmicRayInjection\", or \"MuonInjection\"."
         )
     end
 end

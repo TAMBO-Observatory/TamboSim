@@ -30,7 +30,7 @@ Branches on the latest M frame's `m["injection"]["strategy"]`:
 
 - `"NeutrinoInjection"`: one job per non-neutrino (`pdg ∉ {12,14,16}`)
   particle in `q["proposal_decay_products"]`.
-- `"CosmicRayInjection"`: one job per `q["injection_initial_state"]`
+- `"CosmicRayInjection"` / `"MuonInjection"`: one job per `q["injection_initial_state"]`
   (the arriving primary), with `decay_id = 1`.
 
 Jobs whose primary trajectory does not intersect the detector region are
@@ -64,13 +64,13 @@ function plan_corsika_jobs(frames::TamboFrames, config::Dict, base_outdir::Strin
                 push!(jobs, job)
             end
 
-        elseif strategy == "CosmicRayInjection"
+        elseif strategy == "CosmicRayInjection" || strategy == "MuonInjection"
             haskey(frame, "injection_initial_state") || continue
             job = _make_job(frame["injection_initial_state"], event_id, 1,
                             base_seed, detector_bvh, base_outdir)
             isnothing(job) && continue
             push!(jobs, job)
-            
+
         else
             error("plan_corsika_jobs: unknown injection strategy $(strategy)")
         end

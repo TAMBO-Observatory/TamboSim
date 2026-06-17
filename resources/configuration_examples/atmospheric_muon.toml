@@ -1,0 +1,48 @@
+# Downgoing atmospheric muon configuration for the TAMBO site.
+#
+# Muons are injected directly via the MuonInjection strategy, which routes
+# through the same inject_cosmicrays! backend as CosmicRayInjection. Every
+# injected muon is placed at the specified altitude and propagated down to
+# the detector by CORSIKA.
+#
+# To weight events against the physical atmospheric muon flux, multiply each
+# event's oneweight by Φ_μ(E, cosθ, h) evaluated at the injected energy,
+# direction, and altitude. TamboAtmMuonFlux.jl provides this flux model.
+# The injection altitude is always recorded on the M frame at
+# m["injection"]["altitude"] (km) so flux evaluation can recover it.
+#
+# Altitude choice: 3.0 km matches the TAMBO site elevation. Use a surface
+# muon flux parametrization (or MCEq at h=3 km) as the matching Φ_μ.
+
+[geometry]
+geometry_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_3000.jld2"
+
+[injection]
+strategy = "MuonInjection"
+seed = 925
+nevent = 100000
+pdg = 13       # muon (use -13 for anti-muon)
+gamma = 2.7
+emin = 1.0e2   # GeV
+emax = 1.0e6   # GeV
+thetamin = 0   # degrees (downgoing)
+thetamax = 90  # degrees
+phimin = 0     # degrees
+phimax = 360   # degrees
+altitude = 3.0 # km — TAMBO terrain elevation; must match the flux model
+
+[corsika]
+seed = 925
+thinning = 1.0e-6
+hadron_model = "SIBYLL-2.3d"
+hadron_ecut = 1.0  # GeV
+em_ecut = 1.0      # GeV
+mu_ecut = 1.0      # GeV
+corsika_path = "_TAMBOSIM_PATH_/src/corsika/tambo_shower/build/tambo_shower"
+
+# Executor selection (optional; default = "run_local"):
+#   executor = "run_sbatch"
+#   executor_sbatch_prefix = "--time=01:00:00 --mem=4G"
+# or
+#   executor = "dump_to_file"
+#   executor_dump_path = "jobs.jsonl"

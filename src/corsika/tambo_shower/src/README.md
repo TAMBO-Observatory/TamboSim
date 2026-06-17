@@ -125,6 +125,16 @@ time, so no prebuilt PLYs are shipped.
 rm -rf output_dir
 ```
 
+### Particle gun (angle-based injection)
+
+As an alternative to the ECEF `--inject-x/y/z` + `--intercept-x/y/z` pair, the
+trajectory can be specified with a particle gun: `--zenith`, `--azimuth`, and
+`--inject-distance`. Specify EITHER the ECEF pair OR all three gun flags, not
+both. The injection point is computed as `core - inject_distance * v_hat`,
+where `core` defaults to the obs-mesh centroid (override with `--core-x/y/z`)
+and the direction `v_hat` comes from (zenith, azimuth) in the local ENU frame
+(azimuth measured from East toward North; zenith > 90° is up-going).
+
 ### Key options
 
 | Option | Description | Default |
@@ -132,8 +142,17 @@ rm -rf output_dir
 | `-Z -A` | Atomic number and mass of primary | required (or `--pdg`) |
 | `-p,--pdg` | Primary PDG code (e.g. 2212=proton, 22=gamma) | required (or `-Z -A`) |
 | `-E,--energy` | Primary energy (GeV) | required (or `--energy_range`) |
-| `--inject-x/y/z` | Injection point in ECEF metres | required |
-| `--intercept-x/y/z` | Shower-core intercept on detection region in ECEF metres | required |
+| `--inject-x/y/z` | Injection point in ECEF metres | required (or gun flags) |
+| `--intercept-x/y/z` | Shower-core intercept on detection region in ECEF metres | required (or gun flags) |
+| `--zenith` | Gun: primary zenith angle (deg; >90 = up-going) | (gun mode) |
+| `--azimuth` | Gun: primary azimuth angle (deg, ENU, from East toward North) | (gun mode) |
+| `--inject-distance` | Gun: distance (km) from shower core back along the axis to the injection point | (gun mode) |
+| `--core-x/y/z` | Gun: optional shower-core ECEF metres | obs-mesh centroid |
+| `--radio` | Enable radio emission (CoREAS), sampled at obs-mesh vertices; requires `--obs-mesh` | off |
+| `--radio-antenna-stride` | Place an antenna on every Nth obs-mesh vertex (cost control) | 16 |
+| `--radio-time-window` | Antenna trace duration (ns) | 200 |
+| `--radio-sampling` | Antenna sampling rate (GHz) | 5 |
+| `--radio-formalism` | Emission formalism (currently only `coreas`) | coreas |
 | `--obs-mesh` | Path to observation-region PLY (ECEF m) | required |
 | `--terrain-mesh` | Path to terrain PLY (ECEF m); omit to disable | (disabled) |
 | `-N` | Number of showers | 1 |
@@ -175,6 +194,46 @@ Output is written to `<filename>/`, one subdirectory per writer:
 
 A top-level `config.yaml` (run configuration) and `summary.yaml` (shower
 count, seed, timing) are written alongside the subdirectories.
+
+With `--radio`, an additional `radio/` subdirectory is written, containing:
+
+- `antennas.csv` — antenna placements (`id,vertex_index,x,y,z`; ECEF m)
+- `shower_geometry.csv` — shower core/direction and geomagnetic field
+- `observers.parquet` — CORSIKA's per-antenna time-domain E-field traces
+  (columns `shower`, `Time[ns]`, `Ex`, `Ey`, `Ez` [V/m])
+
+## Radio footprint quick start
+
+This walks through generating the observation mesh, running two gun cases with
+radio emission enabled, and plotting their energy-fluence footprints.
+
+```bash
+# 1. Generate the observation-mesh PLY (one-time; ~1154 vertices for the committed geometry)
+julia src/corsika/tambo_shower/analysis/make_obs_ply.jl obs_surface.ply
+
+# 2. Build tambo_shower (on FASRC, per Step 2 above), then run the two gun cases
+#    (terrain mesh omitted so the shower develops cleanly in air):
+BIN=src/corsika/tambo_shower/src/build/tambo_shower
+
+# Downgoing cosmic-ray-like proton (zenith 45 deg, injected far up the axis):
+$BIN --radio -p 2212 -E 1e7 --zenith 45  --azimuth 0 --inject-distance 50 \
+     --obs-mesh obs_surface.ply --radio-antenna-stride 16 --force -f out_down
+
+# Upgoing / horizontal tau-decay-like e- (zenith 100 deg, injected 5 km out):
+$BIN --radio -p 11   -E 1e7 --zenith 100 --azimuth 0 --inject-distance 5  \
+     --obs-mesh obs_surface.ply --radio-antenna-stride 16 --force -f out_up
+
+# 3. Plot the energy-fluence footprints (v x B vs v x (v x B), log eV/m^2):
+PY=/workspace/.venv/bin/python   # or any python with numpy+matplotlib+pyarrow
+$PY src/corsika/tambo_shower/analysis/plot_radio_footprint.py out_down \
+    -o /workspace/plots/footprint_downgoing.png --title "Downgoing p, 1e7 GeV, 45 deg"
+$PY src/corsika/tambo_shower/analysis/plot_radio_footprint.py out_up \
+    -o /workspace/plots/footprint_upgoing.png   --title "Upgoing e-, 1e7 GeV, 100 deg, 5 km"
+```
+
+`plot_radio_footprint.py` reads `radio/observers.parquet` and `radio/antennas.csv`
+from the output directory and produces a scatter of the obs-mesh antenna
+positions projected into the shower plane.
 
 ## Notes on the terrain mesh
 

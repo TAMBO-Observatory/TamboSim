@@ -7,12 +7,18 @@
  *   obs_surface.ply  -  valley floor observation surface
  *   terrain.ply      -  surrounding terrain rock volume (optional)
  *
- * The shower trajectory is specified by two ECEF points passed on the command
- * line: the injection point (--inject-x/y/z, upstream, ~112 km altitude) and
- * the intercept on the detection region (--intercept-x/y/z).  In normal use
- * these coordinates are computed by the Julia corsika_run! orchestrator
- * (src/corsika/run_corsika.jl), which traces the particle trajectory to the
- * detector mesh and emits the argv for this binary.
+ * The shower trajectory is specified in one of two mutually exclusive modes:
+ *
+ *   ECEF mode: two ECEF points passed on the command line -- the injection
+ *     point (--inject-x/y/z, upstream, ~112 km altitude) and the intercept on
+ *     the detection region (--intercept-x/y/z).  In normal use these are
+ *     computed by the Julia corsika_run! orchestrator (src/corsika/run_corsika.jl),
+ *     which traces the particle trajectory to the detector mesh and emits the
+ *     argv for this binary.
+ *
+ *   Gun mode: a direction (--zenith/--azimuth, ENU at the core) plus a
+ *     back-projection distance (--inject-distance, km).  The core defaults to
+ *     the obs-mesh centroid but can be overridden with --core-x/y/z.
  *
  * Usage is modelled after c8_air_shower.cpp from the CORSIKA 8 repository.
  */
@@ -686,26 +692,59 @@ int main(int argc, char** argv) {
       ->default_val("")
       ->group("Geometry");
   app.add_option("--inject-x", "X component of the injection point (ECEF metres)")
-      ->required()
       ->group("Geometry");
   app.add_option("--inject-y", "Y component of the injection point (ECEF metres)")
-      ->required()
       ->group("Geometry");
   app.add_option("--inject-z", "Z component of the injection point (ECEF metres)")
-      ->required()
       ->group("Geometry");
   app.add_option("--intercept-x",
                  "X component of the shower-core intercept on the detection region (ECEF metres)")
-      ->required()
       ->group("Geometry");
   app.add_option("--intercept-y",
                  "Y component of the shower-core intercept on the detection region (ECEF metres)")
-      ->required()
       ->group("Geometry");
   app.add_option("--intercept-z",
                  "Z component of the shower-core intercept on the detection region (ECEF metres)")
-      ->required()
       ->group("Geometry");
+
+  // ---- Radio ----
+  bool enable_radio = false;
+  app.add_flag("--radio", enable_radio,
+               "Enable radio emission (CoREAS) sampled at obs-mesh vertices")
+      ->group("Radio");
+  app.add_option("--radio-antenna-stride",
+                 "Place an antenna on every Nth obs-mesh vertex (cost control)")
+      ->default_val(16)
+      ->check(CLI::PositiveNumber)
+      ->group("Radio");
+  app.add_option("--radio-time-window", "Antenna trace duration in ns")
+      ->default_val(200.0)
+      ->check(CLI::PositiveNumber)
+      ->group("Radio");
+  app.add_option("--radio-sampling", "Antenna sampling rate in GHz")
+      ->default_val(5.0)
+      ->check(CLI::PositiveNumber)
+      ->group("Radio");
+  app.add_option("--radio-formalism", "Radio emission formalism")
+      ->default_val("coreas")
+      ->check(CLI::IsMember({"coreas"}))
+      ->group("Radio");
+
+  // ---- Gun (alternative to --inject/--intercept) ----
+  app.add_option("--zenith", "Gun: primary zenith angle (deg; >90 = up-going)")
+      ->group("Gun");
+  app.add_option("--azimuth",
+                 "Gun: primary azimuth angle (deg, ENU from East toward North)")
+      ->group("Gun");
+  app.add_option("--inject-distance",
+                 "Gun: distance (km) from core back along the axis to the injection point")
+      ->group("Gun");
+  app.add_option("--core-x", "Gun: shower-core X (ECEF m; default = obs-mesh centroid)")
+      ->group("Gun");
+  app.add_option("--core-y", "Gun: shower-core Y (ECEF m; default = obs-mesh centroid)")
+      ->group("Gun");
+  app.add_option("--core-z", "Gun: shower-core Z (ECEF m; default = obs-mesh centroid)")
+      ->group("Gun");
 
   // ---- Config ----
   app.add_option("--emcut",
@@ -831,6 +870,19 @@ int main(int argc, char** argv) {
     }
   }
 
+  // ---- Validate injection-geometry mode (ECEF pair XOR gun triple) ----
+  bool const gun_mode = app.count("--zenith") && app.count("--azimuth") &&
+                        app.count("--inject-distance");
+  bool const ecef_mode = app.count("--inject-x") && app.count("--inject-y") &&
+                         app.count("--inject-z") && app.count("--intercept-x") &&
+                         app.count("--intercept-y") && app.count("--intercept-z");
+  if (gun_mode == ecef_mode) {
+    CORSIKA_LOG_CRITICAL(
+        "Specify EITHER --inject-x/y/z + --intercept-x/y/z, OR the gun flags "
+        "--zenith + --azimuth + --inject-distance (not both, not neither).");
+    return EXIT_FAILURE;
+  }
+
   // ---- Random streams ----
   auto seed = registerRandomStreams(app["--seed"]->as<long>());
 
@@ -856,15 +908,39 @@ int main(int argc, char** argv) {
 
   #pragma endregion
 
-  #pragma region Intercept + ENU
-  /* === INTERCEPT POINT AND ENU FRAME ===
-   * The intercept is the pre-computed intersection of the particle trajectory
-   * with the detector region, passed in ECEF metres from the Julia caller.
-   * The ENU frame at the intercept is used for the magnetic field and escape plane.
+  #pragma region Core + ENU
+  /* === SHOWER CORE AND ENU FRAME ===
+   * The core (cx, cy, cz) is the reference point on the detector region in ECEF
+   * metres.  In ECEF mode it is the pre-computed intercept passed by the Julia
+   * caller (--intercept-x/y/z).  In gun mode it is either --core-x/y/z or, by
+   * default, the obs-mesh centroid.  The ENU frame at the core is used for the
+   * magnetic field, the escape plane, and (in gun mode) the propagation axis.
    */
-  double const cx = app["--intercept-x"]->as<double>();
-  double const cy = app["--intercept-y"]->as<double>();
-  double const cz = app["--intercept-z"]->as<double>();
+  double cx, cy, cz;
+  if (ecef_mode) {
+    cx = app["--intercept-x"]->as<double>();
+    cy = app["--intercept-y"]->as<double>();
+    cz = app["--intercept-z"]->as<double>();
+  } else {
+    // gun mode: core = --core-x/y/z if given, else obs-mesh centroid
+    if (app.count("--core-x") && app.count("--core-y") && app.count("--core-z")) {
+      cx = app["--core-x"]->as<double>();
+      cy = app["--core-y"]->as<double>();
+      cz = app["--core-z"]->as<double>();
+    } else {
+      double sx = 0.0, sy = 0.0, sz = 0.0;
+      size_t const nv = obsMesh.getVertexCount();
+      for (size_t i = 0; i < nv; ++i) {
+        auto const c = obsMesh.getVertex(i).getCoordinates(rootCS);
+        sx += c.getX() / 1_m;
+        sy += c.getY() / 1_m;
+        sz += c.getZ() / 1_m;
+      }
+      cx = sx / nv;
+      cy = sy / nv;
+      cz = sz / nv;
+    }
+  }
   std::array<double, 3> eastHat, northHat, upHat;
   ecefToENU(cx, cy, cz, eastHat, northHat, upHat);
 
@@ -932,21 +1008,54 @@ int main(int argc, char** argv) {
 
   #pragma region Injection geometry
   /* === INJECTION GEOMETRY ===
-   * The injection point and shower-core intercept are provided directly in
-   * ECEF metres. The shower direction is the unit vector from inject to intercept.
+   * Two modes resolve the same trio of quantities: the propagation direction
+   * (pnx, pny, pnz, ECEF unit vector), the shower core (cx, cy, cz, resolved in
+   * the Core + ENU region), and the injection point (injectX/Y/Z, ECEF metres).
+   *
+   *   ECEF mode: inject and intercept are given directly; the direction is the
+   *              unit vector from inject to intercept (core).
+   *   Gun mode:  the direction is built from (zenith, azimuth) in the ENU frame
+   *              at the core, and inject = core - inject_distance * propDir.
    */
-  double const injectX = app["--inject-x"]->as<double>();
-  double const injectY = app["--inject-y"]->as<double>();
-  double const injectZ = app["--inject-z"]->as<double>();
+  double injectX, injectY, injectZ;  // ECEF metres
+  double pnx, pny, pnz;              // propagation unit vector (ECEF)
 
-  // Propagation direction: inject → intercept (normalised)
-  double const dx = cx - injectX, dy = cy - injectY, dz = cz - injectZ;
-  double const dnorm = std::sqrt(dx * dx + dy * dy + dz * dz);
-  if (dnorm == 0.0) {
-    CORSIKA_LOG_CRITICAL("Inject and intercept points are identical.");
-    return EXIT_FAILURE;
+  if (ecef_mode) {
+    injectX = app["--inject-x"]->as<double>();
+    injectY = app["--inject-y"]->as<double>();
+    injectZ = app["--inject-z"]->as<double>();
+
+    // Propagation direction: inject → intercept (normalised)
+    double const dx = cx - injectX, dy = cy - injectY, dz = cz - injectZ;
+    double const dnorm = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (dnorm == 0.0) {
+      CORSIKA_LOG_CRITICAL("Inject and intercept points are identical.");
+      return EXIT_FAILURE;
+    }
+    pnx = dx / dnorm;
+    pny = dy / dnorm;
+    pnz = dz / dnorm;
+  } else {
+    // Gun mode: direction from (zenith, azimuth) in the ENU frame at the core.
+    constexpr double kDeg2Rad = M_PI / 180.0;
+    double const zen = app["--zenith"]->as<double>() * kDeg2Rad;
+    double const azi = app["--azimuth"]->as<double>() * kDeg2Rad;
+    // ENU components of the propagation direction.  Azimuth measured from East
+    // toward North; zenith from local up (>90 deg = up-going).
+    double const dE = std::sin(zen) * std::cos(azi);
+    double const dN = std::sin(zen) * std::sin(azi);
+    double const dU = std::cos(zen);
+    // Rotate ENU → ECEF using the local basis at the core.
+    pnx = dE * eastHat[0] + dN * northHat[0] + dU * upHat[0];
+    pny = dE * eastHat[1] + dN * northHat[1] + dU * upHat[1];
+    pnz = dE * eastHat[2] + dN * northHat[2] + dU * upHat[2];
+
+    // injection point = core - inject_distance * propDir
+    double const L = app["--inject-distance"]->as<double>() * 1000.0;  // km → m
+    injectX = cx - L * pnx;
+    injectY = cy - L * pny;
+    injectZ = cz - L * pnz;
   }
-  double const pnx = dx / dnorm, pny = dy / dnorm, pnz = dz / dnorm;
 
   DirectionVector const propDir{rootCS, {pnx, pny, pnz}};
   Point const showerCore{rootCS, cx * 1_m, cy * 1_m, cz * 1_m};
@@ -957,10 +1066,15 @@ int main(int argc, char** argv) {
                                      env};
   auto const dX = 10_g / square(1_cm);
 
-  CORSIKA_LOG_INFO("Injection point (ECEF m): ({:.1f}, {:.1f}, {:.1f})", injectX, injectY, injectZ);
-  CORSIKA_LOG_INFO("Shower core / intercept (ECEF m): ({:.1f}, {:.1f}, {:.1f})", cx, cy, cz);
-  CORSIKA_LOG_INFO("Injection distance: {:.1f} km", dnorm / 1000.);
-  CORSIKA_LOG_INFO("Propagation direction (ECEF): ({:.4f}, {:.4f}, {:.4f})", pnx, pny, pnz);
+  {
+    double const dx = cx - injectX, dy = cy - injectY, dz = cz - injectZ;
+    double const dnorm = std::sqrt(dx * dx + dy * dy + dz * dz);
+    CORSIKA_LOG_INFO("Injection point (ECEF m): ({:.1f}, {:.1f}, {:.1f})", injectX, injectY,
+                     injectZ);
+    CORSIKA_LOG_INFO("Shower core (ECEF m): ({:.1f}, {:.1f}, {:.1f})", cx, cy, cz);
+    CORSIKA_LOG_INFO("Injection distance: {:.1f} km", dnorm / 1000.);
+    CORSIKA_LOG_INFO("Propagation direction (ECEF): ({:.4f}, {:.4f}, {:.4f})", pnx, pny, pnz);
+  }
 
   #pragma endregion
 

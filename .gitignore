@@ -22,3 +22,7 @@ examples/output/
 # Coverage and profiling artifacts
 *.cov
 *.profraw
+
+# Python bytecode (radio analysis scripts)
+__pycache__/
+*.pyc

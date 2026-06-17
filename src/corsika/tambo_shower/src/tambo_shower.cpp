@@ -86,8 +86,11 @@
 #include <corsika/modules/ProductionProfile.hpp>
 
 // Radio emission (CoREAS) -- see RADIO_NOTES.md for the pinned API names.
+#include <corsika/modules/radio/RadioProcess.hpp>
+#include <corsika/modules/radio/CoREAS.hpp>
 #include <corsika/modules/radio/observers/TimeDomainObserver.hpp>
 #include <corsika/modules/radio/detectors/ObserverCollection.hpp>
+#include <corsika/modules/radio/propagators/DummyTestPropagator.hpp>
 
 #ifdef WITH_FLUKA
 #include <corsika/modules/FLUKA.hpp>
@@ -1149,6 +1152,27 @@ int main(int argc, char** argv) {
                      radioStride, nV);
   }
 
+  // === RADIO PROCESS (CoREAS) ===
+  // Constructed unconditionally: with an empty radioObservers collection it is a
+  // safe no-op (RadioProcess::doContinuous returns early on size()==0, and the
+  // CoREAS/endOfShower loops over getObservers() never execute -- see
+  // RADIO_NOTES.md section 10).  The propagator is a NAMED main-scope local
+  // because RadioProcess takes the propagator by non-const lvalue reference; it
+  // must outlive the process.  Both are declared before the runOneShower lambda
+  // (which captures by reference) and live in scope for the whole shower loop.
+  auto radioPropagator = make_dummy_test_radio_propagator(env);
+  RadioProcess<decltype(radioObservers),
+               CoREAS<decltype(radioObservers), decltype(radioPropagator)>,
+               decltype(radioPropagator)>
+      radioProcess(radioObservers, radioPropagator);
+
+  // Register the radio output only when --radio is set, so that with radio off
+  // the process stays in the sequence as a no-op but writes nothing (no radio/
+  // subdir, no observers.parquet).  When on, it writes <outdir>/radio/observers.parquet.
+  if (enable_radio) {
+    output.add("radio", radioProcess);
+  }
+
   EnergyLossWriter dEdX{showerAxis, dX};
   output.add("energyloss", dEdX);
 
@@ -1320,9 +1344,10 @@ int main(int argc, char** argv) {
     auto fullSequence = make_sequence(stackInspect, rockRelocator, rockEMAbsorber,
                                       rockTripwire,
                                       neutrinoPrimaryPythia, hadronSequence,
-                                      decaySequence, emCascade, 
-                                      // prodprof, 
+                                      decaySequence, emCascade,
+                                      // prodprof,
                                       emContinuous,
+                                      radioProcess,
                                       longprof, sequence,
                                       // trackWriter,  
                                       inter_writer, 

@@ -85,6 +85,10 @@
 #include <corsika/modules/LongitudinalProfile.hpp>
 #include <corsika/modules/ProductionProfile.hpp>
 
+// Radio emission (CoREAS) -- see RADIO_NOTES.md for the pinned API names.
+#include <corsika/modules/radio/observers/TimeDomainObserver.hpp>
+#include <corsika/modules/radio/detectors/ObserverCollection.hpp>
+
 #ifdef WITH_FLUKA
 #include <corsika/modules/FLUKA.hpp>
 #else
@@ -104,6 +108,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
+#include <fstream>
 #include <limits>
 #include <type_traits>
 #include <string>
@@ -1094,6 +1099,50 @@ int main(int argc, char** argv) {
     }
   }
   OutputManager output(outFilename, seed, args.str(), compressOutput);
+
+  // === RADIO OBSERVERS ===
+  // Declared at main scope (even when empty) so Task 3 can pass it into the
+  // CoREAS RadioProcess.  Populated only when --radio is set: one
+  // TimeDomainObserver per (strided) obs-mesh vertex.  See RADIO_NOTES.md.
+  ObserverCollection<TimeDomainObserver> radioObservers;
+  size_t const radioStride =
+      static_cast<size_t>(app["--radio-antenna-stride"]->as<int>());
+  if (enable_radio) {
+    double const radioTimeWindowNs = app["--radio-time-window"]->as<double>();
+    double const radioSamplingGHz = app["--radio-sampling"]->as<double>();
+    TimeType const tWindow = radioTimeWindowNs * 1_ns;
+    InverseTimeType const fSample = radioSamplingGHz * 1_GHz;
+    // First cut: start the trace at t=0 and use the same value for the
+    // ground-hit reference time (cf. radio_em_shower.cpp, which passes one
+    // value for both start_time and ground_hit_time).
+    TimeType const tStart = 0_ns;
+    TimeType const tGround = 0_ns;
+
+    size_t const nV = obsMesh.getVertexCount();
+
+    // Write the id -> ECEF position + vertex index map for the plot script.
+    // The OutputManager ctor has already created <outdir>; make the radio/
+    // subdirectory only now (so no radio/ dir exists when --radio is off).
+    boost::filesystem::create_directories(outFilename + "/radio");
+    std::ofstream antennaCsv(outFilename + "/radio/antennas.csv");
+    antennaCsv << "id,vertex_index,x,y,z\n";
+
+    int id = 0;
+    for (size_t vi = 0; vi < nV; vi += radioStride) {
+      // getVertex returns a Point const& (already expressed in rootCS, since the
+      // obs-mesh was loaded into rootCS); pass it straight to the observer.
+      Point const& loc = obsMesh.getVertex(vi);
+      auto const coords = loc.getCoordinates(rootCS);  // QuantityVector<length_d>
+      radioObservers.addObserver(TimeDomainObserver{std::to_string(id), loc, rootCS,
+                                                    tStart, tWindow, fSample, tGround});
+      antennaCsv << id << "," << vi << "," << coords.getX() / 1_m << ","
+                 << coords.getY() / 1_m << "," << coords.getZ() / 1_m << "\n";
+      ++id;
+    }
+    antennaCsv.close();
+    CORSIKA_LOG_INFO("radio observers: {} (stride {} over {} vertices)", id,
+                     radioStride, nV);
+  }
 
   EnergyLossWriter dEdX{showerAxis, dX};
   output.add("energyloss", dEdX);

@@ -1150,6 +1150,21 @@ int main(int argc, char** argv) {
     antennaCsv.close();
     CORSIKA_LOG_INFO("radio observers: {} (stride {} over {} vertices)", id,
                      radioStride, nV);
+
+    // Shower-frame geometry for the footprint plot script: the core (ECEF m),
+    // the propagation direction v (ECEF unit), and the magnetic field B (nT,
+    // ECEF).  The plot projects antenna positions into the (v x B, v x (v x B))
+    // shower plane, so it needs exactly these three vectors (only B's direction
+    // matters for the basis).  cx/cy/cz, pnx/pny/pnz and obsField are all already
+    // resolved above (both gun and ECEF modes); nT matches the field log above.
+    std::ofstream geomCsv(outFilename + "/radio/shower_geometry.csv");
+    geomCsv.precision(12);
+    geomCsv << "core_x,core_y,core_z,dir_x,dir_y,dir_z,bx_nT,by_nT,bz_nT\n";
+    geomCsv << cx << "," << cy << "," << cz << ","
+            << pnx << "," << pny << "," << pnz << ","
+            << obsField.getX(rootCS) / 1_nT << "," << obsField.getY(rootCS) / 1_nT
+            << "," << obsField.getZ(rootCS) / 1_nT << "\n";
+    geomCsv.close();
   }
 
   // === RADIO PROCESS (CoREAS) ===

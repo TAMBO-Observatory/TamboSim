@@ -1125,6 +1125,11 @@ int main(int argc, char** argv) {
     // subdirectory only now (so no radio/ dir exists when --radio is off).
     boost::filesystem::create_directories(outFilename + "/radio");
     std::ofstream antennaCsv(outFilename + "/radio/antennas.csv");
+    // ECEF coordinates are ~6.4e6 m; the default ostream precision of 6
+    // significant digits would quantise them to ~10 m and destroy the
+    // sub-metre antenna spacing the footprint plot relies on.  12 sig figs
+    // resolves 6.4e6 m to well below a millimetre.
+    antennaCsv.precision(12);
     antennaCsv << "id,vertex_index,x,y,z\n";
 
     int id = 0;

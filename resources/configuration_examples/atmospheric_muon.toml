@@ -11,8 +11,11 @@
 # The injection altitude is always recorded on the M frame at
 # m["injection"]["altitude"] (km) so flux evaluation can recover it.
 #
-# Altitude choice: 3.0 km matches the TAMBO site elevation. Use a surface
-# muon flux parametrization (or MCEq at h=3 km) as the matching Φ_μ.
+# Altitude choice: must be ABOVE the detector terrain (the volcano/colca
+# detector region tops out near 3.9 km above sea level), otherwise the
+# backtrace-to-altitude geometry has no solution. 5.0 km clears the mesh and
+# sits within the TamboAtmMuonFlux table (0–20 km). The injection altitude is
+# where Φ_μ(E, cosθ, h) is evaluated, so it must match the flux model.
 
 [geometry]
 geometry_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_3000.jld2"
@@ -25,11 +28,11 @@ pdg = 13       # muon (use -13 for anti-muon)
 gamma = 2.7
 emin = 1.0e2   # GeV
 emax = 1.0e6   # GeV
-thetamin = 0   # degrees (downgoing)
-thetamax = 90  # degrees
+thetamin = 91  # degrees (downgoing: zenith > 90°)
+thetamax = 130 # degrees
 phimin = 0     # degrees
 phimax = 360   # degrees
-altitude = 3.0 # km — TAMBO terrain elevation; must match the flux model
+altitude = 5.0 # km — must exceed detector terrain top (~3.9 km); see note above
 
 [corsika]
 seed = 925

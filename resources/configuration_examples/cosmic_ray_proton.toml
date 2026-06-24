@@ -36,6 +36,7 @@ hadron_model = "SIBYLL-2.3d"
 hadron_ecut = 1.0  # GeV
 em_ecut = 1.0      # GeV
 mu_ecut = 1.0      # GeV
+backstop_distance = 1000.0   # m behind observatory; absorbing plane perpendicular to primary axis; 0 disables
 corsika_path = "_TAMBOSIM_PATH_/src/corsika/tambo_shower/build/tambo_shower"
 
 # Executor selection (optional; default = "run_local"):

@@ -94,7 +94,10 @@ Build the argv vector for one invocation of `tambo_shower`.
   `1e-6`), `"nevent"` (default `1`), `"force_overwrite"` (default
   `false`; passes `--force` to the binary), `"time_command"` (default
   unset; when set to e.g. `["/usr/bin/time", "-v"]` it is prepended to
-  argv so each `tambo_shower` call is wrapped by that timing command).
+  argv so each `tambo_shower` call is wrapped by that timing command),
+  `"backstop_distance"` (default `1000.0`; metres behind the observatory
+  at which the binary places an absorbing backstop plane perpendicular to
+  the primary axis -- set to `0` to disable).
 """
 function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, config::Dict)
     primary = job.primary
@@ -114,6 +117,7 @@ function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, conf
     thinning        = get(config, "thinning", 1e-6)
     nevent          = get(config, "nevent", 1)
     force_overwrite = get(config, "force_overwrite", false)
+    backstop_distance = get(config, "backstop_distance", 1000.0)
 
     argv = [
         config["corsika_path"],
@@ -134,6 +138,7 @@ function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, conf
         "-N",            string(nevent),
         "--seed",        string(job.seed),
         "--emthin",      string(thinning),
+        "--backstop-distance", string(backstop_distance),
         "-f",            job.outdir,
     ]
     if !isempty(mesh_paths.terrain)

@@ -142,6 +142,7 @@ rm -rf output_dir
 | `--hadcut` | Min kinetic energy of hadrons (GeV) | 1 |
 | `--mucut` | Min kinetic energy of muons (GeV) | 10 |
 | `--taucut` | Min kinetic energy of tau leptons (GeV) | 10 |
+| `--backstop-distance` | Distance (m) behind the observatory for an absorbing backstop plane perpendicular to the primary axis, terminating skimming showers; `0` disables | 1000 |
 | `-M` | High-energy hadronic model (SIBYLL-2.3d, QGSJet-II.04, QGSJet-III, EPOS-LHC, EPOS-LHC-R, Pythia8) | SIBYLL-2.3d |
 | `-s` | Random seed (0 = auto) | 0 |
 | `--force-interaction` | Force first interaction at injection point | off |

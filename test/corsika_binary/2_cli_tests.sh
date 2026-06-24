@@ -89,5 +89,8 @@ check_fail "nonexistent --obs-mesh rejected" "${v[@]}"
 mapfile -t v < <(argv_with --emcut 1e20)
 check_fail "out-of-range --emcut rejected"   "${v[@]}"
 
+# Out-of-range backstop distance (valid range is [-1, 1e7] m).
+check_fail "out-of-range --backstop-distance rejected" "${base[@]}" --backstop-distance 1e20
+
 echo "Tier 0: $pass passed, $fail failed."
 [[ $fail -eq 0 ]]

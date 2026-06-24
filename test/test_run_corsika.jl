@@ -187,6 +187,16 @@ function test_argv_has_required_flags(frames)
     @test "-f" in argv && job.outdir in argv
     pdg_idx = findfirst(==("--pdg"), argv)
     @test argv[pdg_idx + 1] == string(Int(job.primary.pdg))
+
+    # backstop plane: defaults to 1000 m when the config omits the key, and an
+    # explicit config value flows through to the binary flag.
+    @test "--backstop-distance" in argv
+    bs_idx = findfirst(==("--backstop-distance"), argv)
+    @test argv[bs_idx + 1] == "1000.0"
+    cfg_bs = merge(cfg, Dict("backstop_distance" => 500.0))
+    argv_bs = build_corsika_argv(job, mesh_paths, ecuts, cfg_bs)
+    bs_idx2 = findfirst(==("--backstop-distance"), argv_bs)
+    @test argv_bs[bs_idx2 + 1] == "500.0"
 end
 
 function test_argv_terrain_mesh_optional(frames)

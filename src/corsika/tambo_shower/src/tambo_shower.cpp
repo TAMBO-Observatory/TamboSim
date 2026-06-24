@@ -28,6 +28,7 @@
 #include <corsika/framework/core/Logging.hpp>
 #include <corsika/framework/core/PhysicalUnits.hpp>
 #include <corsika/framework/geometry/PhysicalGeometry.hpp>
+#include <corsika/framework/geometry/Plane.hpp>
 #include <corsika/framework/geometry/RootCoordinateSystem.hpp>
 #include <corsika/framework/geometry/Sphere.hpp>
 #include <corsika/framework/geometry/TriangularMesh.hpp>
@@ -48,6 +49,7 @@
 #include <corsika/modules/writers/PrimaryWriter.hpp>
 #include <corsika/modules/writers/SubWriter.hpp>
 #include <corsika/modules/writers/ParticleWriterParquet.hpp>
+#include <corsika/modules/writers/WriterOff.hpp>
 // #include <corsika/modules/TrackWriter.hpp>
 #include <corsika/output/OutputManager.hpp>
 
@@ -67,6 +69,7 @@
 #include <corsika/modules/Epos.hpp>
 #include <corsika/modules/EposLhcr.hpp>
 #include <corsika/modules/ObservationMesh.hpp>
+#include <corsika/modules/ObservationPlane.hpp>
 #include <corsika/modules/PROPOSAL.hpp>
 #include <corsika/modules/ParticleCut.hpp>
 #include <corsika/modules/Pythia8.hpp>
@@ -783,6 +786,15 @@ int main(int argc, char** argv) {
       ->default_val(0.2)
       ->check(CLI::Range(1e-8, 1.))
       ->group("Config");
+  app.add_option("--backstop-distance",
+                 "Distance (m) past the most-downstream observation-mesh vertex at "
+                 "which to place an absorbing backstop plane, perpendicular to the "
+                 "primary axis. Kills forward-going shower remnants that skim the "
+                 "observatory, preventing runaway propagation into distant air. "
+                 "Set to 0 to disable.")
+      ->default_val(1000.0)
+      ->check(CLI::Range(0.0, 1.e7))
+      ->group("Config");
 
   bool track_neutrinos = false;
   app.add_flag("--track-neutrinos", track_neutrinos, "Enable neutrino tracking")
@@ -1170,6 +1182,68 @@ int main(int argc, char** argv) {
 
   #pragma endregion
 
+  #pragma region Backstop plane
+  /* === BACKSTOP PLANE (absorbing: kills forward-going shower remnants) ===
+   * A skimming shower that misses the valley floor never deposits its EM
+   * component into dense rock, so nothing kills it geometrically -- the EM
+   * tail keeps multiplying and stepping through thin distant air (paying the
+   * per-step terrain-mesh query each time) until the job times out.  We place
+   * an absorbing ObservationPlane a fixed distance behind the observatory,
+   * perpendicular to the primary axis, to terminate that tail.
+   *
+   * Anchor = the most-downstream observation-mesh vertex (projected onto
+   * propDir), so the plane sits behind the WHOLE observatory footprint
+   * regardless of incidence angle; offset a further --backstop-distance metres
+   * downstream.  Any particle reaching the obs mesh is absorbed there first
+   * (the mesh is upstream of the plane), so the backstop only removes remnants
+   * that have already passed the entire detector -- pure compute savings, no
+   * physics bias.  The WriterOff output template makes it a silent killer.
+   *
+   * Normal points upstream (-propDir): a forward-going particle that overshoots
+   * the plane lands on the normal's negative side, which is the condition
+   * ObservationPlane::doContinuous re-checks to catch overshoots (see the
+   * !stepLimit branch); a +propDir normal would let such overshoots escape.
+   */
+  double const backstopDistance = app["--backstop-distance"]->as<double>();
+  double maxProjM = -std::numeric_limits<double>::infinity();
+  for (size_t vi = 0; vi < obsMesh.getVertexCount(); ++vi) {
+    auto const vc = obsMesh.getVertex(vi).getCoordinates(rootCS);
+    double const proj =
+        (vc.getX() / 1_m - cx) * pnx + (vc.getY() / 1_m - cy) * pny +
+        (vc.getZ() / 1_m - cz) * pnz;
+    maxProjM = std::max(maxProjM, proj);
+  }
+  // Disabled (distance == 0): place the plane far downstream so it never fires.
+  double const backstopOffsetM =
+      (backstopDistance > 0.0) ? (maxProjM + backstopDistance) : 1.0e9;
+  Point const backstopCenter{rootCS, (cx + backstopOffsetM * pnx) * 1_m,
+                             (cy + backstopOffsetM * pny) * 1_m,
+                             (cz + backstopOffsetM * pnz) * 1_m};
+  DirectionVector const backstopNormal{rootCS, {-pnx, -pny, -pnz}};
+  // Any unit vector perpendicular to the normal; the output frame is unused
+  // (WriterOff), but x_axis must not be parallel to the normal.  Cross propDir
+  // with whichever cardinal axis it is least aligned with.
+  double refx = 0.0, refy = 0.0, refz = 1.0;
+  if (std::abs(pnz) > 0.9) { refx = 1.0; refz = 0.0; }
+  double const xx = pny * refz - pnz * refy;
+  double const xy = pnz * refx - pnx * refz;
+  double const xz = pnx * refy - pny * refx;
+  double const xn = std::sqrt(xx * xx + xy * xy + xz * xz);
+  DirectionVector const backstopXAxis{rootCS, {xx / xn, xy / xn, xz / xn}};
+  Plane const backstopPlane{backstopCenter, backstopNormal};
+  ObservationPlane<TrackingType, WriterOff> backstop{
+      backstopPlane, backstopXAxis, /*absorbing=*/true, 1e-6_m};
+  if (backstopDistance > 0.0) {
+    CORSIKA_LOG_INFO(
+        "Backstop plane: {:.1f} m behind most-downstream obs-mesh vertex "
+        "({:.1f} m downstream of intercept along primary axis).",
+        backstopDistance, backstopOffsetM);
+  } else {
+    CORSIKA_LOG_INFO("Backstop plane disabled (--backstop-distance == 0).");
+  }
+
+  #pragma endregion
+
   #pragma region Shower loop
   /* === SHOWER LOOP === */
   // Per-shower quantities extracted from CLI to avoid repeated parsing
@@ -1206,11 +1280,12 @@ int main(int argc, char** argv) {
                                       rockTripwire,
                                       neutrinoPrimaryPythia, hadronSequence,
                                       decaySequence, emCascade, 
-                                      // prodprof, 
+                                      // prodprof,
                                       emContinuous,
                                       longprof, sequence,
-                                      // trackWriter,  
-                                      inter_writer, 
+                                      backstop,
+                                      // trackWriter,
+                                      inter_writer,
                                       thinning, cut);
 
     TrackingType tracking(maxDefl);

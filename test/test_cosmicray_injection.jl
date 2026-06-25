@@ -239,11 +239,11 @@ function test_muon_injection_produces_frames()
         "gamma"     => 2.7,
         "emin"      => 1e2,
         "emax"      => 1e6,
-        "thetamin"  => 0.0,
-        "thetamax"  => 90.0,
+        "thetamin"  => 91.0,   # downgoing (zenith > 90°), matching cosmic-ray convention
+        "thetamax"  => 130.0,
         "phimin"    => 0.0,
         "phimax"    => 360.0,
-        "altitude"  => 3.0,
+        "altitude"  => 50.0,   # above the detector terrain, as for cosmic rays
     )
     frames = load_frames(geometry_path)
     inject!(frames, injection_config)
@@ -252,7 +252,7 @@ function test_muon_injection_produces_frames()
     @test length(q_frames) == 20
     @test count(f -> haskey(f, "injection_initial_state"), q_frames) > 0
     @test frames.m_frames[end]["injection"]["strategy"] == "MuonInjection"
-    @test frames.m_frames[end]["injection"]["altitude"] == 3.0
+    @test frames.m_frames[end]["injection"]["altitude"] == 50.0
 end
 
 # ============================================================================

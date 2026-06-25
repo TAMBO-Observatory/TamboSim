@@ -393,6 +393,33 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
 };
 
 // ---------------------------------------------------------------------------
+// Backstop output writer
+// ---------------------------------------------------------------------------
+// Records every backstop-plane crossing like ParticleWriterParquet, but the
+// parquet footer is only written at endOfLibrary -- a shower that times out
+// leaves an unreadable file and no summary, so the parquet gives NO live
+// signal of whether the backstop is doing work.  This subclass additionally
+// keeps a running count and logs it periodically; CORSIKA_LOG flushes
+// immediately, so `tail` on a running job shows the backstop engaging long
+// before the shower completes.  The parquet record itself is unchanged.
+struct BackstopWriter : public ParticleWriterParquet {
+  using ParticleWriterParquet::ParticleWriterParquet;
+  long nAbsorbed_ = 0;
+  void write(Code const pid, HEPEnergyType const kineticEnergy,
+             LengthType const x, LengthType const y, LengthType const z,
+             double const nx, double const ny, double const nz,
+             TimeType const time, double const weight,
+             int32_t const triangleIndex = -1, double const snx = 0.0,
+             double const sny = 0.0, double const snz = 0.0) {
+    ParticleWriterParquet::write(pid, kineticEnergy, x, y, z, nx, ny, nz, time,
+                                 weight, triangleIndex, snx, sny, snz);
+    if (++nAbsorbed_ == 1 || nAbsorbed_ % 100000 == 0) {
+      CORSIKA_LOG_INFO("Backstop: absorbed {} particle(s) so far", nAbsorbed_);
+    }
+  }
+};
+
+// ---------------------------------------------------------------------------
 // Random stream registration
 // ---------------------------------------------------------------------------
 long registerRandomStreams(long seed) {
@@ -1196,12 +1223,12 @@ int main(int argc, char** argv) {
    * downstream.  Any particle reaching the obs mesh is absorbed there first
    * (the mesh is upstream of the plane), so the backstop only removes remnants
    * that have already passed the entire detector -- pure compute savings, no
-   * physics bias.  Output goes through ParticleWriterParquet (registered as
-   * "backstop"): the absorbed-particle count and total energy land in
-   * summary.yaml (getEnergyGround), and every crossing is recorded to
-   * backstop/particles.parquet for diagnostics -- so we can see exactly what
-   * the plane is killing (count, energy spectrum, PDG) instead of inferring it
-   * from wall-clock.
+   * physics bias.  Output goes through BackstopWriter (a ParticleWriterParquet
+   * subclass, registered as "backstop"): on completion, the absorbed-particle
+   * count and total energy land in summary.yaml (getEnergyGround) and every
+   * crossing is recorded to backstop/particles.parquet (count, energy spectrum,
+   * PDG).  It also logs a running absorbed-count to the live job log, so a
+   * still-running shower reveals whether the backstop is engaging.
    *
    * Normal points upstream (-propDir): a forward-going particle that overshoots
    * the plane lands on the normal's negative side, which is the condition
@@ -1235,7 +1262,7 @@ int main(int argc, char** argv) {
   double const xn = std::sqrt(xx * xx + xy * xy + xz * xz);
   DirectionVector const backstopXAxis{rootCS, {xx / xn, xy / xn, xz / xn}};
   Plane const backstopPlane{backstopCenter, backstopNormal};
-  ObservationPlane<TrackingType, ParticleWriterParquet> backstop{
+  ObservationPlane<TrackingType, BackstopWriter> backstop{
       backstopPlane, backstopXAxis, /*absorbing=*/true, 1e-6_m};
   output.add("backstop", backstop);
   if (backstopDistance > 0.0) {

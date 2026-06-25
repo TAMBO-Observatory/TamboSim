@@ -49,7 +49,6 @@
 #include <corsika/modules/writers/PrimaryWriter.hpp>
 #include <corsika/modules/writers/SubWriter.hpp>
 #include <corsika/modules/writers/ParticleWriterParquet.hpp>
-#include <corsika/modules/writers/WriterOff.hpp>
 // #include <corsika/modules/TrackWriter.hpp>
 #include <corsika/output/OutputManager.hpp>
 
@@ -1197,7 +1196,12 @@ int main(int argc, char** argv) {
    * downstream.  Any particle reaching the obs mesh is absorbed there first
    * (the mesh is upstream of the plane), so the backstop only removes remnants
    * that have already passed the entire detector -- pure compute savings, no
-   * physics bias.  The WriterOff output template makes it a silent killer.
+   * physics bias.  Output goes through ParticleWriterParquet (registered as
+   * "backstop"): the absorbed-particle count and total energy land in
+   * summary.yaml (getEnergyGround), and every crossing is recorded to
+   * backstop/particles.parquet for diagnostics -- so we can see exactly what
+   * the plane is killing (count, energy spectrum, PDG) instead of inferring it
+   * from wall-clock.
    *
    * Normal points upstream (-propDir): a forward-going particle that overshoots
    * the plane lands on the normal's negative side, which is the condition
@@ -1220,9 +1224,9 @@ int main(int argc, char** argv) {
                              (cy + backstopOffsetM * pny) * 1_m,
                              (cz + backstopOffsetM * pnz) * 1_m};
   DirectionVector const backstopNormal{rootCS, {-pnx, -pny, -pnz}};
-  // Any unit vector perpendicular to the normal; the output frame is unused
-  // (WriterOff), but x_axis must not be parallel to the normal.  Cross propDir
-  // with whichever cardinal axis it is least aligned with.
+  // Any unit vector perpendicular to the normal; x_axis defines the recorded
+  // output frame and must not be parallel to the normal.  Cross propDir with
+  // whichever cardinal axis it is least aligned with.
   double refx = 0.0, refy = 0.0, refz = 1.0;
   if (std::abs(pnz) > 0.9) { refx = 1.0; refz = 0.0; }
   double const xx = pny * refz - pnz * refy;
@@ -1231,8 +1235,9 @@ int main(int argc, char** argv) {
   double const xn = std::sqrt(xx * xx + xy * xy + xz * xz);
   DirectionVector const backstopXAxis{rootCS, {xx / xn, xy / xn, xz / xn}};
   Plane const backstopPlane{backstopCenter, backstopNormal};
-  ObservationPlane<TrackingType, WriterOff> backstop{
+  ObservationPlane<TrackingType, ParticleWriterParquet> backstop{
       backstopPlane, backstopXAxis, /*absorbing=*/true, 1e-6_m};
+  output.add("backstop", backstop);
   if (backstopDistance > 0.0) {
     CORSIKA_LOG_INFO(
         "Backstop plane: {:.1f} m behind most-downstream obs-mesh vertex "

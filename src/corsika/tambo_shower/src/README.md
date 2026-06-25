@@ -171,6 +171,9 @@ Output is written to `<filename>/`, one subdirectory per writer:
 - `profile/` — longitudinal shower profile (`profile.parquet`)
 - `energyloss/` — longitudinal energy-deposit profile (`dEdX.parquet`)
 - `interactions/` — first-interaction secondaries (`interactions.parquet`)
+- `backstop/` — particles absorbed by the backstop plane behind the observatory
+  (`particles.parquet`); count and total absorbed energy also appear in
+  `summary.yaml`. Empty when `--backstop-distance 0` (disabled)
 - `primary/` — primary-particle record (`summary.yaml` only; this writer
   emits no parquet)
 

@@ -221,7 +221,7 @@ end
 
 Construct the appropriate `PhaseSpace` subtype from an M frame's injection
 config. The config table at `m[prefix]` must declare `strategy`, set to
-one of `"NeutrinoInjection"` or `"CosmicRayInjection"`, and must carry the
+one of `"NeutrinoInjection"`, `"CosmicRayInjection"`, or `"MuonInjection"`, and must carry the
 `geometry_hash` snapshot that `_setup_injection` writes at injection time.
 """
 function build_phase_space(m::Frame; prefix::String="injection")
@@ -240,19 +240,19 @@ function build_phase_space(m::Frame; prefix::String="injection")
     )
     haskey(cfg, "strategy") || error(
         "build_phase_space: M frame config (prefix=\"$prefix\") is missing " *
-        "required `strategy` field. Set it to one of \"NeutrinoInjection\" " *
-        "or \"CosmicRayInjection\". See resources/configuration_examples/ " *
+        "required `strategy` field. Set it to one of \"NeutrinoInjection\", " *
+        "\"CosmicRayInjection\", or \"MuonInjection\". See resources/configuration_examples/ " *
         "for the current schema."
     )
     strategy = cfg["strategy"]
     if strategy == "NeutrinoInjection"
         return NeutrinoInjectionPS(args...)
-    elseif strategy == "CosmicRayInjection"
+    elseif strategy == "CosmicRayInjection" || strategy == "MuonInjection"
         return CosmicRayInjectionPS(args...)
     else
         error(
             "build_phase_space: unknown strategy \"$strategy\". " *
-            "Known strategies: \"NeutrinoInjection\", \"CosmicRayInjection\"."
+            "Known strategies: \"NeutrinoInjection\", \"CosmicRayInjection\", \"MuonInjection\"."
         )
     end
 end

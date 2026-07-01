@@ -37,6 +37,7 @@
 #include <corsika/framework/process/DynamicInteractionProcess.hpp>
 #include <corsika/framework/process/SecondariesProcess.hpp>
 #include <corsika/framework/process/ProcessSequence.hpp>
+#include <corsika/framework/process/StackProcess.hpp>
 #include <corsika/framework/process/SwitchProcessSequence.hpp>
 #include <corsika/framework/random/RNGManager.hpp>
 #include <corsika/framework/random/PowerLawDistribution.hpp>
@@ -97,6 +98,7 @@
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
 
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
@@ -416,6 +418,45 @@ struct BackstopWriter : public ParticleWriterParquet {
     if (++nAbsorbed_ == 1 || nAbsorbed_ % 100000 == 0) {
       CORSIKA_LOG_INFO("Backstop: absorbed {} particle(s) so far", nAbsorbed_);
     }
+  }
+};
+
+// ---------------------------------------------------------------------------
+// Shower progress logger
+// ---------------------------------------------------------------------------
+// Logs the energy-based "fraction of primary energy processed" at INFO for the
+// WHOLE run.  CORSIKA's StackInspector computes the same metric (plus an ETA)
+// but logs it at DEBUG and caps at 10 printouts -- all in the first ~100k steps
+// -- so it is useless for monitoring a multi-day shower.  This StackProcess
+// scans the stack every nStep steps and logs one line each time another 1% of
+// the primary energy has left the stack (deposited, cut, or absorbed), so
+// `tail` on a running job shows steady progress and a naive linear ETA -- and
+// reveals a shower stalled at e.g. 99% for days.
+struct ShowerProgress : public StackProcess<ShowerProgress> {
+  HEPEnergyType E0_;
+  double lastLoggedPct_ = -100.0;
+  std::chrono::steady_clock::time_point t0_;
+  ShowerProgress(unsigned int const nStep, HEPEnergyType const E0)
+      : StackProcess<ShowerProgress>(nStep)
+      , E0_(E0)
+      , t0_(std::chrono::steady_clock::now()) {}
+  void setE0(HEPEnergyType const E0) { E0_ = E0; }
+  void doStack(StackType const& stack) {
+    HEPEnergyType Etot = 0_GeV;
+    for (auto const& p : stack) Etot += p.getEnergy();
+    double const progress = (E0_ - Etot) / E0_;
+    double const pct = 100.0 * progress;
+    if (pct - lastLoggedPct_ < 1.0) return; // one line per +1% processed
+    lastLoggedPct_ = pct;
+    double const mins = std::chrono::duration<double>(
+                            std::chrono::steady_clock::now() - t0_)
+                            .count() /
+                        60.0;
+    double const etaMin = (pct > 0.0) ? mins * (100.0 - pct) / pct : -1.0;
+    CORSIKA_LOG_INFO(
+        "Shower progress: {:.1f}% of primary energy processed, stackSize={}, "
+        "Estack={:.3e} GeV, elapsed={:.1f} min, naive linear ETA={:.1f} min",
+        pct, stack.getSize(), Etot / 1_GeV, mins, etaMin);
   }
 };
 
@@ -1297,6 +1338,7 @@ int main(int argc, char** argv) {
                             : 0.5 * emthinfrac * primaryTotalEnergy / 1_GeV;
     EMThinning thinning{emthinfrac * primaryTotalEnergy, maxW, !multithin};
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
+    ShowerProgress showerProgress(100000, primaryTotalEnergy);
     RockExitRelocator rockRelocator{env, rockNodePtr};
     RockEMAbsorber rockEMAbsorber{rockNodePtr};
     RockInterfaceTripwire rockTripwire{env, rockNodePtr};
@@ -1308,7 +1350,8 @@ int main(int argc, char** argv) {
     // any interaction is sampled for it that step (collapsing the cascade).
     // rockTripwire is a passive per-step invariant check (logical==rock implies
     // contains()); it mutates nothing and only aborts on a sustained violation.
-    auto fullSequence = make_sequence(stackInspect, rockRelocator, rockEMAbsorber,
+    auto fullSequence = make_sequence(stackInspect, showerProgress, rockRelocator,
+                                      rockEMAbsorber,
                                       rockTripwire,
                                       neutrinoPrimaryPythia, hadronSequence,
                                       decaySequence, emCascade, 

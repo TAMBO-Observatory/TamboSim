@@ -4,6 +4,7 @@
 [geometry]
 geometry_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_3000.jld2"
 
+
 [injection]
 strategy = "NeutrinoInjection"
 seed = 925
@@ -18,12 +19,26 @@ phimin = 90    # degrees
 phimax = 290   # degrees
 xs_location = "_TAMBOSIM_PATH_/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
 
+# Fraction of forced-CC events kept by injection-time accept/reject downsampling
+# (default 1.0 = keep all). In general, the forced-CC population dominates
+# the injection but not the physical rate; we can downsample at injection to
+# spendd CORSIKA budget on the rate-dominant upstream-converted taus instead.
+# Weighting compensates automatically.
+
+# Our recommended fractions are energy dependent:
+# 10PeV+        => 0.01
+# 1PeV - 10PeV  => 1e-3
+# 10TeV+        => 1e-4 or smaller
+
+# forced_interaction_accept_fraction = 0.01
+
 [proposal]
 seed = 925
 ecut = -1   # GeV; negative means infinity (ionization-only threshold)
 vcut = 1e-2
 do_continuous = true
 tablespath = "_TAMBOSIM_PATH_/resources/proposal_tables/"
+
 
 [corsika]
 seed = 925

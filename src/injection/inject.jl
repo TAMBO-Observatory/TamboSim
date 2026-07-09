@@ -679,6 +679,18 @@ function inject_neutrinos!(
     detector_triangles = detector_bvh.triangles
     detector_areas  = area.(detector_triangles)
     detector_normals = normal.(detector_triangles)
+
+    # Fraction of forced-CC events to keep at injection (accept/reject
+    # downsampling). In general, the forced-interaction population is the
+    # bulk of the injection but a subdominant slice of the physical rate, so
+    # keeping only a fraction `faccept` of them frees CORSIKA budget for the
+    # rate-dominant upstream-converted taus. Weighting compensates: surviving
+    # forced events carry a `1/faccept` factor (see the `NeutrinoInjectionPS`
+    # forced functor). `faccept`defaults to 1.0 (no downsampling).
+    faccept = Float64(get(config, "forced_interaction_accept_fraction", 1.0))
+    (0.0 <= faccept <= 1.0) || error(
+        "inject_neutrinos!: forced_interaction_accept_fraction must be in [0, 1], got $faccept")
+
     Random.seed!(config["seed"])
 
     @llama_showprogress "Injecting" for frame in q_frames
@@ -696,6 +708,17 @@ function inject_neutrinos!(
         if !isnan(cstate.energy)
             frame["$(prefix)_taurunner_output_state"] = cstate
         end
+
+        # Accept/reject only the forced-CC population; upstream-converted taus
+        # are always kept. A rejected event withholds both `final_state` and 
+        # `phase_space_point`, and is tagged for provenance. 
+        # Guarded by `faccept < 1`, so the default is an exact no-op: 
+        # no RNG draw ⇒ bit-for-bit identical to prior runs.
+        if faccept < 1 && point isa ForcedNeutrinoInteractionPoint && rand() > faccept
+            frame["$(prefix)_status"] = "accept_rejected"
+            continue
+        end
+
         if !isnan(fstate.energy)
             frame["$(prefix)_final_state"] = fstate
         end

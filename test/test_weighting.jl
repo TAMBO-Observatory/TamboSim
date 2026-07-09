@@ -71,6 +71,12 @@ function run_weighting_tests()
         test_zero_nevent_warns_and_returns_zero()
     end
 
+    @testset "Forced-interaction accept/reject" begin
+        test_accept_fraction_constructor_default()
+        test_forced_functor_accept_fraction_scales()
+        test_upstream_functor_accept_fraction_noop()
+    end
+
     @testset "Round-trip oneweights from example_output" begin
         test_round_trip_oneweights_match_inline_formula()
     end
@@ -125,6 +131,48 @@ function test_upstream_neutrino_functor_matches_old_formula()
     expected = _old_surface_density(500.0u"m^2", 1e3u"GeV", 1e6u"GeV", 2.0, 0.0, π/2, 0.0, 2π, 1e4u"GeV")
 
     @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈ ustrip(u"GeV^-1 * m^-2 * sr^-1", expected)
+end
+
+# --- Forced-interaction accept/reject downsampling --------------------------
+
+const _FORCED_PT = ForcedNeutrinoInteractionPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2",
+                                                  100.0u"g/cm^2", 2.65u"g/cm^3",
+                                                  2e-36u"cm^2", 7e-38u"cm^2")
+
+# The 10-arg convenience constructor must default the accept fraction to 1.0,
+# so pre-feature call sites and old configs behave as before.
+function test_accept_fraction_constructor_default()
+    ps = _test_neutrino_ps()
+    @test ps.forced_interaction_accept_fraction == 1.0
+end
+
+# Keeping fraction f of forced-CC events scales the forced generation density by
+# f (⇒ oneweight by 1/f). The functor must be exactly linear in f, and f = 1
+# must reproduce the un-downsampled density.
+function test_forced_functor_accept_fraction_scales()
+    ps_full = NeutrinoInjectionPS(_TEST_GEOM_HASH, 16, 1e3u"GeV", 1e6u"GeV",
+                                  2.0, 0.0, π/2, 0.0, 2π, 1000, 1.0)
+    ps_down = NeutrinoInjectionPS(_TEST_GEOM_HASH, 16, 1e3u"GeV", 1e6u"GeV",
+                                  2.0, 0.0, π/2, 0.0, 2π, 1000, 0.01)
+
+    full = ustrip(u"GeV^-1 * m^-2 * sr^-1", ps_full(_FORCED_PT))
+    down = ustrip(u"GeV^-1 * m^-2 * sr^-1", ps_down(_FORCED_PT))
+
+    @test full ≈ ustrip(u"GeV^-1 * m^-2 * sr^-1", _test_neutrino_ps()(_FORCED_PT))  # default == 1.0
+    @test down ≈ 0.01 * full
+end
+
+# The accept fraction must NOT touch the upstream-converted population — those
+# events are always kept, so their density is independent of f.
+function test_upstream_functor_accept_fraction_noop()
+    pt = UpstreamNeutrinoInteractionPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    ps_full = NeutrinoInjectionPS(_TEST_GEOM_HASH, 16, 1e3u"GeV", 1e6u"GeV",
+                                  2.0, 0.0, π/2, 0.0, 2π, 1000, 1.0)
+    ps_down = NeutrinoInjectionPS(_TEST_GEOM_HASH, 16, 1e3u"GeV", 1e6u"GeV",
+                                  2.0, 0.0, π/2, 0.0, 2π, 1000, 0.01)
+
+    @test ustrip(u"GeV^-1 * m^-2 * sr^-1", ps_full(pt)) ≈
+          ustrip(u"GeV^-1 * m^-2 * sr^-1", ps_down(pt))
 end
 
 function test_cr_functor_matches_old_formula()

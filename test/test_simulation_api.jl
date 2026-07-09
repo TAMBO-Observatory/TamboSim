@@ -46,6 +46,12 @@ function run_simulation_api_tests()
         test_initial_state_at_earth_entry()
     end
 
+    @testset "forced-interaction accept/reject" begin
+        test_inject_accept_fraction_default_noop()
+        test_inject_accept_fraction_rejects_and_tags()
+        test_inject_accept_fraction_reweight_end_to_end()
+    end
+
     @testset "proposal_propagation!" begin
         test_proposal_config_stored()
         test_proposal_output_keys()
@@ -206,6 +212,94 @@ function test_initial_state_at_earth_entry()
         cross_mag = sqrt(sum((d_hat × disp_hat).^2))
         @test cross_mag < 1e-4
     end
+end
+
+# --- forced-interaction accept/reject ---------------------------------------
+
+# A helper: the phase_space_point energies of every Q frame that survived
+# injection (owns a point), in frame order — a deterministic fingerprint of the
+# RNG stream that must be identical between two runs of the same seed.
+_survived_point_energies(frames) =
+    [ustrip(u"GeV", q.data["phase_space_point"].E)
+     for q in frames.q_frames if haskey(q.data, "phase_space_point")]
+
+# faccept = 1.0 (and the absent-key default) must be an exact no-op: no RNG draw
+# is taken, so the event stream is bit-for-bit identical to a pre-feature run
+# and no frame is ever tagged rejected.
+function test_inject_accept_fraction_default_noop()
+    frames_default = load_frames(GEOMETRY_PATH)
+    inject!(frames_default, _injection_config(nevent=25))
+
+    cfg = _injection_config(nevent=25)
+    cfg["forced_interaction_accept_fraction"] = 1.0
+    frames_explicit = load_frames(GEOMETRY_PATH)
+    inject!(frames_explicit, cfg)
+
+    # No rejections either way.
+    @test !any(q -> haskey(q.data, "injection_status"), frames_default.q_frames)
+    @test !any(q -> haskey(q.data, "injection_status"), frames_explicit.q_frames)
+
+    # Identical event stream (same seed, no extra draws).
+    @test _survived_point_energies(frames_default) == _survived_point_energies(frames_explicit)
+end
+
+# faccept < 1 must reject a fraction of the forced-CC population. Every rejected
+# frame is tagged and withholds BOTH the final state (⇒ no CORSIKA job) and the
+# phase_space_point (⇒ zero weight); upstream-converted events are never
+# rejected.
+function test_inject_accept_fraction_rejects_and_tags()
+    cfg = _injection_config(nevent=40)
+    cfg["forced_interaction_accept_fraction"] = 0.5
+    frames = load_frames(GEOMETRY_PATH)
+    inject!(frames, cfg)
+
+    rejected = filter(q -> get(q.data, "injection_status", "") == "accept_rejected",
+                      frames.q_frames)
+    @test length(rejected) > 0
+
+    for q in rejected
+        # Withheld keys: owned by the frame, so check q.data directly.
+        @test !haskey(q.data, "injection_final_state")
+        @test !haskey(q.data, "phase_space_point")
+    end
+
+    # Upstream-converted survivors keep their point and are never tagged.
+    for q in frames.q_frames
+        if haskey(q.data, "phase_space_point") &&
+           q.data["phase_space_point"] isa UpstreamNeutrinoInteractionPoint
+            @test get(q.data, "injection_status", "") != "accept_rejected"
+        end
+    end
+end
+
+# End-to-end: build_phase_space must read faccept from the injected M-frame
+# config, and a surviving forced event's oneweight must scale by 1/faccept
+# relative to the un-downsampled (faccept = 1) weight.
+function test_inject_accept_fraction_reweight_end_to_end()
+    cfg = _injection_config(nevent=40)
+    cfg["forced_interaction_accept_fraction"] = 0.5
+    frames = load_frames(GEOMETRY_PATH)
+    inject!(frames, cfg)
+
+    m = TamboSim._get_last_frame(frames, 'M')
+    ps_down = TamboSim.build_phase_space(m)
+    @test ps_down.forced_interaction_accept_fraction == 0.5
+
+    ps_full = NeutrinoInjectionPS(ps_down.geometry_hash, ps_down.pdg,
+                                  ps_down.emin, ps_down.emax, ps_down.gamma,
+                                  ps_down.thetamin, ps_down.thetamax,
+                                  ps_down.phimin, ps_down.phimax,
+                                  ps_down.nevent, 1.0)
+
+    forced = filter(q -> haskey(q.data, "phase_space_point") &&
+                         q.data["phase_space_point"] isa ForcedNeutrinoInteractionPoint,
+                    frames.q_frames)
+    @test length(forced) > 0
+    q = first(forced)
+
+    ow_down = TamboSim._oneweight_from_ps(q, [ps_down])
+    ow_full = TamboSim._oneweight_from_ps(q, [ps_full])
+    @test ustrip(u"GeV*m^2*sr", ow_down) ≈ 2.0 * ustrip(u"GeV*m^2*sr", ow_full)
 end
 
 # =============================================================================

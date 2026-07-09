@@ -14,7 +14,20 @@ struct NeutrinoInjectionPS <: PhaseSpace
     phimin   :: Float64   # rad
     phimax   :: Float64   # rad
     nevent   :: Int
+    # Fraction of forced-CC events kept by the injection-time accept/reject step
+    # (see `inject_neutrinos!`). Only the forced-interaction population is
+    # downsampled; upstream-converted events are always kept, so this factor
+    # enters the `ForcedNeutrinoInteractionPoint` functor only. Defaults to 1.0
+    # (no downsampling) for backwards compatibility with pre-feature configs.
+    forced_interaction_accept_fraction :: Float64
 end
+
+# Backwards-compatible constructor: pre-feature call sites build with 10 args
+# (no accept fraction) and get the no-downsampling default.
+NeutrinoInjectionPS(geometry_hash, pdg, emin, emax, gamma,
+                    thetamin, thetamax, phimin, phimax, nevent) =
+    NeutrinoInjectionPS(geometry_hash, pdg, emin, emax, gamma,
+                        thetamin, thetamax, phimin, phimax, nevent, 1.0)
 
 struct ForcedNeutrinoInteractionPoint <: PhaseSpacePoint
     E        :: Quantity{Float64, edim, typeof(u"GeV")}
@@ -123,7 +136,14 @@ function (ps::NeutrinoInjectionPS)(pt::ForcedNeutrinoInteractionPoint)
     phys *= pt.rho / pt.cd
     phys *= pt.dsigma
 
-    return uconvert(u"GeV^-1 * m^-2 * sr^-1", mc / phys)
+    # Accept/reject downsampling correction. Injection keeps only a fraction
+    # `f ≤ 1` of forced-CC events (the abundant, low-weight population), so each
+    # surviving event stands in for `1/f` events: its oneweight must scale by
+    # `1/f ≥ 1`. Since `oneweight = 1 / Σ ps(pt)·nevent`, the generation density
+    # `ps(pt)` scales by `f`. f = 1 (the default) is an exact no-op.
+    f = ps.forced_interaction_accept_fraction
+
+    return uconvert(u"GeV^-1 * m^-2 * sr^-1", f * mc / phys)
 end
 
 function (ps::NeutrinoInjectionPS)(pt::UpstreamNeutrinoInteractionPoint)
@@ -246,7 +266,10 @@ function build_phase_space(m::Frame; prefix::String="injection")
     )
     strategy = cfg["strategy"]
     if strategy == "NeutrinoInjection"
-        return NeutrinoInjectionPS(args...)
+        faccept = Float64(get(cfg, "forced_interaction_accept_fraction", 1.0))
+        (0.0 <= faccept <= 1.0) || error(
+            "build_phase_space: forced_interaction_accept_fraction must be in [0, 1], got $faccept")
+        return NeutrinoInjectionPS(args..., faccept)
     elseif strategy == "CosmicRayInjection"
         return CosmicRayInjectionPS(args...)
     else

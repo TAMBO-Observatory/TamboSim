@@ -58,10 +58,7 @@ function AABB(
     min_point = aabb.min.point
     max_point = aabb.max.point
 
-    for i in indices
-        if i==1
-            continue
-        end
+    for i in Iterators.drop(indices, 1)
         aabb = precomputed_aabbs[i]
         min_point = min.(min_point, aabb.min.point)
         max_point = max.(max_point, aabb.max.point)
@@ -270,88 +267,16 @@ function Base.merge(a::AABB{T}, b::AABB{T}) where {T<:Real}
 end
 
 """
-    surface_area_fast(min_vals, max_vals)
+    _aabb_surface_area(mins, maxs) -> Float64
 
-Calculates the surface area of an AABB from its minimum and maximum coordinates.
-
-This is a fast, internal function used in the SAH calculation.
-
-# Arguments
-- `min_vals`: A collection of minimum coordinates (x, y, z).
-- `max_vals`: A collection of maximum coordinates (x, y, z).
-
-# Returns
-- The surface area of the AABB.
+Surface area of an AABB from unitless min/max corner components (metres).
+Internal helper for the SAH sweeps in [`find_best_split`](@ref).
 """
-function surface_area_fast(
-    min_vals, 
-    max_vals, 
-)
-    lx = max_vals[1] - min_vals[1]
-    ly = max_vals[2] - min_vals[2] 
-    lz = max_vals[3] - min_vals[3]
+@inline function _aabb_surface_area(mins, maxs)
+    lx = maxs[1] - mins[1]
+    ly = maxs[2] - mins[2]
+    lz = maxs[3] - mins[3]
     return 2 * (lx * ly + ly * lz + lz * lx)
-end
-
-"""
-    surface_area_fast(
-        min_vals::SVector{3, Quantity{T, ldim, typeof(u"m")}}, 
-        max_vals::SVector{3, Quantity{T, ldim, typeof(u"m")}}, 
-    ) where {T<:Real}
-
-Calculates the surface area of an AABB from `SVector`s with units.
-
-# Arguments
-- `min_vals`: An `SVector` of minimum coordinates.
-- `max_vals`: An `SVector` of maximum coordinates.
-
-# Returns
-- The surface area of the AABB, with units.
-"""
-function surface_area_fast(
-    min_vals::SVector{3, Quantity{T, ldim, typeof(u"m")}}, 
-    max_vals::SVector{3, Quantity{T, ldim, typeof(u"m")}}, 
-) where {T<:Real}
-    lx = max_vals[1] - min_vals[1]
-    ly = max_vals[2] - min_vals[2] 
-    lz = max_vals[3] - min_vals[3]
-    return 2 * (lx * ly + ly * lz + lz * lx)
-end
-
-"""
-    surface_area_fast(aabb::AABB{T}) where {T<:Real}
-
-Calculates the surface area of an `AABB`.
-
-# Arguments
-- `aabb::AABB{T}`: The Axis-Aligned Bounding Box.
-
-# Returns
-- The surface area.
-"""
-function surface_area_fast(
-    aabb::AABB{T}
-) where {T<:Real}
-    return surface_area_fast(aabb.min.point, aabb.max.point)
-end
-
-# AABB surface area (for SAH)
-"""
-    surface_area(bbox::AABB{T}) where {T<:Real}
-
-Calculates the surface area of an `AABB`.
-
-Used for the Surface Area Heuristic (SAH) during BVH construction.
-
-# Arguments
-- `bbox::AABB{T}`: The bounding box.
-
-# Returns
-- The surface area of the bounding box.
-"""
-@inline function surface_area(bbox::AABB{T}) where {T<:Real}
-    lengths = bbox.max - bbox.min
-    return 2 * (lengths[1] * lengths[2] + lengths[2] * lengths[3] + lengths[3] * lengths[1])
 end
 
 # AABB center
@@ -443,23 +368,10 @@ function build_bvh_node(
         return BVHNode(bbox, nothing, nothing, indices, true)
     end
 
-    # Find the best split using surface area heuristic
-    best_axis, best_pos, best_cost = find_best_split(indices, precomputed_aabbs, precomputed_centers)
-
-    # If no good split found, create leaf
-    selected_objects = @views objects[indices]
-    #if best_cost >= length(indices) * surface_area_fast(AABB(selected_objects))
-    #    bbox = AABB(indices, precomputed_aabbs)
-    #    return BVHNode(bbox, nothing, nothing, indices, true)
-    #end
-
-    # Split triangles along the best axis
-    left_indices, right_indices = split_objects(
-        indices,
-        precomputed_centers,
-        best_axis,
-        best_pos
-    )
+    # Find the best split using the surface area heuristic
+    sorted_indices, best_split = find_best_split(indices, precomputed_aabbs, precomputed_centers)
+    left_indices = sorted_indices[1:best_split]
+    right_indices = sorted_indices[best_split+1:end]
 
     # Recursively build children
     left_node = build_bvh_node(objects, left_indices, max_objects_per_leaf, precomputed_aabbs, precomputed_centers)
@@ -473,234 +385,112 @@ end
 
 """
     find_best_split(
-        indices::Vector{Int}, 
+        indices::Vector{Int},
         precomputed_aabbs::Vector{AABB{T}},
         precomputed_centers::Vector{Coordinate{T}},
-        fast=true
-    ) where {T<:Real}
+    ) where {T<:Real} -> (sorted_indices, best_split)
 
-Finds the best axis and position to split a set of objects using the Surface Area Heuristic (SAH).
+Finds the best way to split a set of objects into two groups using the
+Surface Area Heuristic (SAH).
 
-The SAH aims to find a split that minimizes the cost, which is a function of the
-surface areas of the resulting bounding boxes and the number of objects in them.
+For each axis, the object indices are sorted by AABB center and every split
+position is scored with prefix/suffix surface-area sweeps (O(n) per axis
+after the sort). The SAH cost of a candidate split is
+
+    cost = C_trav + (SA_left/SA_parent)*N_left + (SA_right/SA_parent)*N_right
+
+with `C_trav = 1`. When the parent box is degenerate (zero surface area),
+the cost falls back to the plain object counts.
 
 # Arguments
 - `indices`: The indices of the objects to consider for the split.
 - `precomputed_aabbs`: Pre-computed AABBs for all objects.
-- `precomputed_centers`: Pre-computed centers for all AABBs.
-- `fast`: If `true`, uses a faster, approximate SAH by sampling a subset of potential splits.
+- `precomputed_centers`: Pre-computed centers of the AABBs.
 
 # Returns
-- A tuple `(best_axis, best_pos, best_cost)` containing the best splitting axis (1, 2, or 3),
-  the position along that axis, and the calculated cost of that split.
+- `(sorted_indices, best_split)`: object indices sorted along the winning
+  axis, and the split position such that `sorted_indices[1:best_split]` /
+  `sorted_indices[best_split+1:end]` are the left/right children. Both
+  halves are guaranteed non-empty (`1 <= best_split <= length(indices)-1`).
 """
 function find_best_split(
-    indices::Vector{Int}, 
+    indices::Vector{Int},
     precomputed_aabbs::Vector{AABB{T}},
     precomputed_centers::Vector{Coordinate{T}},
-    fast=true
 ) where {T<:Real}
-    best_axis = 1
-    best_pos = 0.0
-    best_cost = Inf * u"m"^2
-
     n = length(indices)
-    skipper = 1
-    if fast
-        skipper = Int(floor(sqrt(n)))
-    end
+    @assert n >= 2 "find_best_split requires at least 2 objects"
+
+    # Parent surface area for SAH normalization
+    parent_mins = MVector{3,Float64}(Inf, Inf, Inf)
+    parent_maxs = MVector{3,Float64}(-Inf, -Inf, -Inf)
+    _extend_extrema!(parent_mins, parent_maxs, precomputed_aabbs, indices)
+    parent_area = _aabb_surface_area(parent_mins, parent_maxs)
+
+    best_cost = Inf
+    best_split = n ÷ 2
+    best_sorted = indices
+
+    left_areas = Vector{Float64}(undef, n)
+    right_areas = Vector{Float64}(undef, n)
+    mins = MVector{3,Float64}(undef)
+    maxs = MVector{3,Float64}(undef)
+
     for axis in 1:3
-        # Use precomputed centers
-        centers = [precomputed_centers[i][axis] for i in indices]
-        sorted_indices = sortperm(centers)
+        sorted = sort(indices; by = i -> ustrip(u"m", precomputed_centers[i].point[axis]))
 
-        for i in 1:skipper:n-1
-            left_indices = Iterators.take(sorted_indices, i)
-            right_indices = Iterators.rest(sorted_indices, i+1)
-            
-            left_min, left_max = static_extrema_per_dim(precomputed_aabbs, left_indices)
-            a1 = surface_area_fast(left_min, left_max)
-            right_min, right_max = static_extrema_per_dim(precomputed_aabbs, right_indices)
-            a2 = surface_area_fast(right_min, right_max)
+        # Prefix sweep: left_areas[k] = surface area of the box over sorted[1:k]
+        mins .= Inf; maxs .= -Inf
+        for k in 1:n
+            _extend_extrema!(mins, maxs, precomputed_aabbs, (sorted[k],))
+            left_areas[k] = _aabb_surface_area(mins, maxs)
+        end
 
-            cost = length(left_indices) * a1 + (n-length(left_indices)) * a2
+        # Suffix sweep: right_areas[k] = surface area of the box over sorted[k:n]
+        mins .= Inf; maxs .= -Inf
+        for k in n:-1:1
+            _extend_extrema!(mins, maxs, precomputed_aabbs, (sorted[k],))
+            right_areas[k] = _aabb_surface_area(mins, maxs)
+        end
 
+        for split in 1:n-1
+            cost = if parent_area > 0
+                1.0 + (left_areas[split] / parent_area) * split +
+                      (right_areas[split+1] / parent_area) * (n - split)
+            else
+                1.0 + n
+            end
             if cost < best_cost
-                split_pos = (centers[sorted_indices[i]] + centers[sorted_indices[i+1]]) / 2.0
                 best_cost = cost
-                best_axis = axis
-                best_pos = split_pos
+                best_split = split
+                best_sorted = sorted
             end
         end
     end
-    return best_axis, best_pos, best_cost
+
+    return best_sorted, best_split
 end
 
 """
-    split_objects(
-        indices,
-        precomputed_centers,
-        axis,
-        split_pos
-    )
+    _extend_extrema!(mins, maxs, aabbs, indices)
 
-Partitions a set of object indices into two groups based on a splitting plane.
-
-The split is performed by comparing the center of each object's AABB along the
-specified `axis` with the `split_pos`.
-
-# Arguments
-- `indices`: The indices of the objects to be split.
-- `precomputed_centers`: Pre-computed centers of the AABBs.
-- `axis`: The axis to split along (1, 2, or 3).
-- `split_pos`: The position on the axis to split at.
-
-# Returns
-- A tuple `(left_indices, right_indices)` containing the partitioned indices.
+Extend the running component-wise extrema `mins`/`maxs` (unitless metres)
+by the AABBs of the given object `indices`. Internal helper for the SAH
+sweeps in [`find_best_split`](@ref).
 """
-function split_objects(
-    indices,
-    precomputed_centers,
-    axis,
-    split_pos
-)
-    left_indices = Int[]
-    right_indices = Int[]
-    sizehint!(left_indices, length(indices) ÷ 2)
-    sizehint!(right_indices, length(indices) ÷ 2)
-
-    @inbounds for i in indices
-        tri_center = precomputed_centers[i][axis]
-        if tri_center < split_pos
-            push!(left_indices, i)
-        else
-            push!(right_indices, i)
-        end
-    end
-
-    if isempty(left_indices) || isempty(right_indices)
-        mid = length(indices) ÷ 2
-        return indices[1:mid], indices[mid+1:end]
-    end
-
-    return left_indices, right_indices
-end
-
-"""
-    static_extrema_per_dim(
-        aabbs::Vector{AABB{T}},
-        indices,
-        mins::MVector{3, Quantity{T, ldim, typeof(u"m")}},
-        maxs::MVector{3, Quantity{T, ldim, typeof(u"m")}},
-    ) where {T<:Real}
-
-Computes the minimum and maximum coordinates over a selection of AABBs.
-
-This is a fast, in-place version that updates pre-allocated `MVector`s.
-
-# Arguments
-- `aabbs`: A vector of all AABBs.
-- `indices`: The indices of the AABBs to consider.
-- `mins`: A mutable vector to store the minimum coordinates.
-- `maxs`: A mutable vector to store the maximum coordinates.
-
-# Returns
-- A tuple `(mins, maxs)` containing the updated mutable vectors.
-"""
-function static_extrema_per_dim(
+@inline function _extend_extrema!(
+    mins::MVector{3,Float64},
+    maxs::MVector{3,Float64},
     aabbs::Vector{AABB{T}},
     indices,
-    mins::MVector{3, Quantity{T, ldim, typeof(u"m")}},
-    maxs::MVector{3, Quantity{T, ldim, typeof(u"m")}},
 ) where {T<:Real}
-    ndims = 3
-    mins .= Inf * u"m"
-    maxs .= -Inf * u"m"
     for idx in indices
         p1 = aabbs[idx].min.point
         p2 = aabbs[idx].max.point
-        @inbounds for i in 1:ndims
-            mins[i] = min(mins[i], p1[i])
-            maxs[i] = max(maxs[i], p2[i])
+        @inbounds for c in 1:3
+            mins[c] = min(mins[c], ustrip(u"m", p1[c]))
+            maxs[c] = max(maxs[c], ustrip(u"m", p2[c]))
         end
     end
-
-    return mins, maxs
-end
-
-"""
-    static_extrema_per_dim(
-        aabbs::Vector{AABB{T}},
-        indices,
-    ) where {T<:Real}
-
-Computes the minimum and maximum coordinates over a selection of AABBs.
-
-This version allocates new `SVector`s for the results.
-
-# Arguments
-- `aabbs`: A vector of all AABBs.
-- `indices`: The indices of the AABBs to consider.
-
-# Returns
-- A tuple `(mins, maxs)` containing new `SVector`s with the min and max coordinates.
-"""
-function static_extrema_per_dim(
-    aabbs::Vector{AABB{T}},
-    indices,
-) where {T<:Real}
-    ndims = 3
-    mins = MVector{3}(fill(T(Inf), 3))
-    maxs = MVector{3}(fill(T(-Inf), 3))
-    for idx in indices
-        p1 = ustrip.(u"m", aabbs[idx].min.point)
-        p2 = ustrip.(u"m", aabbs[idx].max.point)
-        @inbounds for i in 1:ndims
-
-            mins[i] = min(mins[i], p1[i])
-            maxs[i] = max(maxs[i], p2[i])
-        end
-    end
-
-    return SVector{3}(mins)*u"m", SVector{3}(maxs)*u"m"
-end
-
-"""
-    static_extrema_per_dim(aabbs, mins, maxs)
-
-Computes the minimum and maximum coordinates over a collection of Axis-Aligned Bounding Boxes (AABBs).
-
-This is an in-place version that updates pre-allocated mutable vectors for `mins` and `maxs`.
-It iterates through the provided `aabbs` and updates the `mins` and `maxs` vectors
-to encompass the full extent of all AABBs.
-
-# Arguments
-- `aabbs`: An iterable collection of `AABB` objects.
-- `mins`: A mutable vector (e.g., `MVector{3}`) to store the minimum coordinates.
-          It will be initialized to `Inf` and then updated.
-- `maxs`: A mutable vector (e.g., `MVector{3}`) to store the maximum coordinates.
-          It will be initialized to `-Inf` and then updated.
-
-# Returns
-- A tuple containing the updated `mins` and `maxs` mutable vectors.
-"""
-function static_extrema_per_dim(
-    aabbs,
-    mins,
-    maxs
-)
-    ndims = 3
-    mins = MVector{ndims}(fill(Inf*u"m", ndims))
-    maxs = MVector{ndims}(fill(-Inf*u"m", ndims))
-
-    for aabb in aabbs
-        p1 = ustrip.(aabb.min.point)
-        p2 = ustrip.(aabb.max.point)
-        @inbounds for i in 1:ndims
-            mins[i] = min(mins[i], p1[i])
-            maxs[i] = max(maxs[i], p2[i])
-        end
-    end
-
     return mins, maxs
 end

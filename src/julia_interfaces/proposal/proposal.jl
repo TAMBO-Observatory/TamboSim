@@ -18,6 +18,11 @@ const _propagator_cache = Dict{Tuple{Int, String}, Any}()
 # Config file paths (generated at runtime)
 const _config_dir = Ref{String}("")
 
+# Per-process scratch dir for PROPOSAL JSON configs (unique per Julia process,
+# auto-removed at exit). Prevents /tmp filename collisions between concurrent
+# jobs sharing a compute node's /tmp.
+const _tmp_config_dir = Ref{String}("")
+
 """
     init_proposal(config)
 
@@ -82,6 +87,9 @@ function init_proposal(config)
         "photo" => Dict("parametrization" => photo_param, "shadow" => photo_shadow)
     )
 
+    # Unique per-process scratch dir for the JSON configs written below.
+    _tmp_config_dir[] = mktempdir()
+
     for lepton_id in pdg_lepton_ids
         for medium in media
             config_path = generate_config(lepton_id, medium, ecut, vcut, do_continuous; cross_sections=cross_sections)
@@ -138,10 +146,15 @@ function generate_config(lepton_id::Int, medium::String, ecut::Real, vcut::Real,
         config["CrossSections"] = cross_sections
     end
 
-    # Write config to a temp dir (not _config_dir[], which may be read-only)
+    # Write config to a unique per-process temp dir (not _config_dir[], which may
+    # be read-only, and not a shared /tmp path, which races across concurrent jobs
+    # on the same compute node — see _tmp_config_dir).
     particle_name = pdg_to_name(lepton_id)
     config_filename = "proposal_config_$(particle_name)_$(medium).json"
-    config_path = joinpath(tempdir(), config_filename)
+    if isempty(_tmp_config_dir[])
+        _tmp_config_dir[] = mktempdir()
+    end
+    config_path = joinpath(_tmp_config_dir[], config_filename)
 
     open(config_path, "w") do io
         JSON3.write(io, config)

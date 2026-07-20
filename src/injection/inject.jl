@@ -543,14 +543,25 @@ function inject_cosmicray_event(
 end
 
 """
-    _setup_injection(frames, config, prefix, fname) -> (g_frame, m_frame, q_frames)
+    _setup_injection(frames, config, prefix, fname) -> (g_frame, m_frame, q_parents)
 
 Shared frame-setup step for all injection backends. Creates and appends one new
-M frame (with `config` snapshotted under `prefix`) and `config["nevent"]` Q
-frames to `frames`, wiring parent pointers for the latest G, C, and D frames.
+M frame (with `config` snapshotted under `prefix`), wiring parent pointers for
+the latest G, C, and D frames.
+
+Q frames are NOT pre-allocated: injection backends create a Q frame only for
+each event they keep (see `inject_neutrinos!` / `inject_cosmicrays!`), so
+`length(frames.q_frames)` reflects surviving events, not `config["nevent"]`.
+`nevent` (the attempt count) is preserved on the M-frame config snapshot and is
+what weighting reads, so dropping non-kept events never affects normalization.
+
+`q_parents` is the parent-pointer dict every Q frame shares (by reference):
+`'M' => m_frame` plus the latest `'G'/'C'/'D'` context frames. Backends attach
+it to each Q frame they build, giving DFS key-inheritance (e.g. `q["injection"]`
+resolves to the M frame, `q["prem"]` to the G frame).
 
 `fname` is the calling function's name, used only in the "nevent missing" error
-message. Returns `(g_frame, m_frame, q_frames)`.
+message. Returns `(g_frame, m_frame, q_parents)`.
 """
 function _setup_injection(frames::TamboFrames, config::Dict, prefix::String, fname::String)
     haskey(config, "nevent") || error("$fname config must contain \"nevent\"")
@@ -567,14 +578,7 @@ function _setup_injection(frames::TamboFrames, config::Dict, prefix::String, fna
     for s in ('G', 'C', 'D')
         haskey(m_parents, s) && (q_parents[s] = m_parents[s])
     end
-    q_frames = Frame[]
-    for idx in 1:config["nevent"]
-        q_frame = Frame('Q', Dict{String,Any}(), q_parents)
-        q_frame["event_id"] = idx
-        push!(q_frames, q_frame)
-    end
-    append!(frames, q_frames)
-    return g_frame, m_frame, q_frames
+    return g_frame, m_frame, q_parents
 end
 
 """
@@ -654,7 +658,7 @@ function inject_neutrinos!(
     config::Dict;
     prefix::String="injection"
 )
-    g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_neutrinos!")
+    g_frame, m_frame, q_parents = _setup_injection(frames, config, prefix, "inject_neutrinos!")
     d_frame = m_frame.d_frame
 
     prem            = g_frame["prem"]
@@ -693,7 +697,19 @@ function inject_neutrinos!(
 
     Random.seed!(config["seed"])
 
-    @llama_showprogress "Injecting" for frame in q_frames
+    # Materialize a Q frame ONLY for kept events (forced-CC survivors and
+    # upstream-converted taus). Failed / below-threshold / accept-rejected
+    # attempts never become frames — at large `nevent` (as accept/reject
+    # enables) pre-allocating one frame per attempt is a multi-GB cost the
+    # downstream pipeline would only filter away. The `1:nevent` attempt loop
+    # is preserved so every attempt draws RNG in the same order regardless of
+    # what is kept; only the `push!` is conditional. Per-category counts are
+    # tallied and snapshotted onto the M frame (see below) since the failed
+    # frames that used to carry that information no longer exist.
+    q_frames = Frame[]
+    n_geometric_fail = 0; n_below_threshold = 0
+    n_accept_rejected = 0; n_forced_kept = 0; n_upstream = 0
+    @llama_showprogress "Injecting" for idx in 1:config["nevent"]
         tr_seed = rand(UInt32)
         istate, cstate, fstate, point = inject_neutrino_event(
             config["pdg"],
@@ -704,26 +720,46 @@ function inject_neutrinos!(
             detector_bvh=detector_bvh,
             tr_seed=tr_seed,
         )
-        frame["$(prefix)_initial_state"] = istate
-        if !isnan(cstate.energy)
-            frame["$(prefix)_taurunner_output_state"] = cstate
-        end
 
-        # Accept/reject only the forced-CC population; upstream-converted taus
-        # are always kept. A rejected event withholds both `final_state` and 
-        # `phase_space_point`, and is tagged for provenance. 
-        # Guarded by `faccept < 1`, so the default is an exact no-op: 
-        # no RNG draw ⇒ bit-for-bit identical to prior runs.
-        if faccept < 1 && point isa ForcedNeutrinoInteractionPoint && rand() > faccept
-            frame["$(prefix)_status"] = "accept_rejected"
+        # Non-kept outcomes: not materialized, only counted. A below-threshold
+        # miss got through TauRunner (valid taurunner output) but had no
+        # forceable CC vertex; a geometric/runtime failure returns a null
+        # (NaN-energy) taurunner output.
+        if point === nothing
+            isnan(cstate.energy) ? (n_geometric_fail += 1) : (n_below_threshold += 1)
             continue
         end
 
-        if !isnan(fstate.energy)
-            frame["$(prefix)_final_state"] = fstate
+        # Accept/reject downsampling of the forced-CC population only;
+        # upstream-converted taus are always kept. Guarded by `faccept < 1`, so
+        # the default is an exact no-op: no RNG draw ⇒ bit-for-bit identical to
+        # prior runs.
+        if faccept < 1 && point isa ForcedNeutrinoInteractionPoint && rand() > faccept
+            n_accept_rejected += 1
+            continue
         end
-        point === nothing || (frame["phase_space_point"] = point)
+
+        point isa ForcedNeutrinoInteractionPoint ? (n_forced_kept += 1) : (n_upstream += 1)
+
+        q_frame = Frame('Q', Dict{String,Any}(), q_parents)
+        q_frame["event_id"] = idx
+        q_frame["$(prefix)_initial_state"] = istate
+        !isnan(cstate.energy) && (q_frame["$(prefix)_taurunner_output_state"] = cstate)
+        !isnan(fstate.energy) && (q_frame["$(prefix)_final_state"] = fstate)
+        q_frame["phase_space_point"] = point
+        push!(q_frames, q_frame)
     end
+    append!(frames, q_frames)
+
+    # Per-category injection efficiency, preserved on the M frame since failed
+    # events are no longer materialized. Counts sum to `nevent`.
+    m_frame["$(prefix)_stats"] = Dict{String,Any}(
+        "n_geometric_fail"  => n_geometric_fail,
+        "n_below_threshold" => n_below_threshold,
+        "n_accept_rejected" => n_accept_rejected,
+        "n_forced_kept"     => n_forced_kept,
+        "n_upstream"        => n_upstream,
+    )
 end
 
 """
@@ -794,7 +830,7 @@ function inject_cosmicrays!(
     # Canonicalize to an explicit `pdg` so the M-frame snapshot (and thus
     # build_phase_space / oneweight) always sees one, even for A/Z configs.
     config = merge(config, Dict{String,Any}("pdg" => pdg))
-    g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_cosmicrays!")
+    g_frame, m_frame, q_parents = _setup_injection(frames, config, prefix, "inject_cosmicrays!")
     d_frame = m_frame.d_frame
 
     cs              = g_frame["cs"]
@@ -816,14 +852,31 @@ function inject_cosmicrays!(
     detector_props = precompute_detector_properties(topography, detector_region)
     Random.seed!(config["seed"])
 
-    @llama_showprogress "Injecting cosmic rays" for frame in q_frames
+    # As in inject_neutrinos!: materialize a Q frame only for kept events (the
+    # angular sampler hit the detector). Attempts that miss are counted, not
+    # materialized. The `1:nevent` attempt loop preserves RNG draw order.
+    q_frames = Frame[]
+    n_angular_miss = 0; n_kept = 0
+    @llama_showprogress "Injecting cosmic rays" for idx in 1:config["nevent"]
         initial_primary, final_primary, point = inject_cosmicray_event(
             pdg, cs, as, pl, detector_props;
             altitude=altitude,
         )
-        if !isnan(initial_primary.energy)
-            frame["$(prefix)_initial_state"] = final_primary
-            point === nothing || (frame["phase_space_point"] = point)
+        if isnan(initial_primary.energy)
+            n_angular_miss += 1
+            continue
         end
+        n_kept += 1
+        q_frame = Frame('Q', Dict{String,Any}(), q_parents)
+        q_frame["event_id"] = idx
+        q_frame["$(prefix)_initial_state"] = final_primary
+        point === nothing || (q_frame["phase_space_point"] = point)
+        push!(q_frames, q_frame)
     end
+    append!(frames, q_frames)
+
+    m_frame["$(prefix)_stats"] = Dict{String,Any}(
+        "n_angular_miss" => n_angular_miss,
+        "n_kept"         => n_kept,
+    )
 end

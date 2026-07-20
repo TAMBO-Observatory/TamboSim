@@ -48,7 +48,7 @@ function run_simulation_api_tests()
 
     @testset "forced-interaction accept/reject" begin
         test_inject_accept_fraction_default_noop()
-        test_inject_accept_fraction_rejects_and_tags()
+        test_inject_accept_fraction_downsamples()
         test_inject_accept_fraction_reweight_end_to_end()
     end
 
@@ -84,12 +84,24 @@ end
 
 function test_inject_creates_c_and_q_frames()
     frames = load_frames(GEOMETRY_PATH)
-    inject!(frames, _injection_config(nevent=5))
+    nevent = 5
+    inject!(frames, _injection_config(nevent=nevent))
 
     # GCD bundle contributes a blank C frame; inject! adds an M frame with config
     @test count(f -> f.stream == 'C', frames) == 1
     @test count(f -> f.stream == 'M', frames) == 1
-    @test count(f -> f.stream == 'Q', frames) == 5
+
+    # Q frames are materialized only for kept events, so their count is bounded
+    # by nevent (not equal to it). nevent itself is preserved on the M config.
+    nq = count(f -> f.stream == 'Q', frames)
+    @test 0 <= nq <= nevent
+    @test TamboSim._get_last_frame(frames, 'M')["injection"]["nevent"] == nevent
+    # Invariant: every materialized Q frame is a kept event (has a point).
+    @test all(q -> haskey(q.data, "phase_space_point"), frames.q_frames)
+    # Per-category counts are snapshotted and sum to nevent.
+    stats = TamboSim._get_last_frame(frames, 'M')["injection_stats"]
+    @test sum(values(stats)) == nevent
+    @test stats["n_forced_kept"] + stats["n_upstream"] == nq
 end
 
 function test_inject_config_stored_under_prefix()
@@ -168,7 +180,8 @@ function test_inject_dispatches_to_protons()
     inject!(frames, proton_config)
 
     q_frames = filter(f -> f.stream == 'Q', frames)
-    @test length(q_frames) == 5
+    # Only kept events (angular sampler hit the detector) are materialized.
+    @test 0 < length(q_frames) <= 5
     # Cosmic-ray path stamps a `SurfaceCRPoint` at `phase_space_point`; the
     # neutrino path stamps a different point type. This confirms dispatch
     # routed to inject_cosmicrays!.
@@ -224,8 +237,7 @@ _survived_point_energies(frames) =
      for q in frames.q_frames if haskey(q.data, "phase_space_point")]
 
 # faccept = 1.0 (and the absent-key default) must be an exact no-op: no RNG draw
-# is taken, so the event stream is bit-for-bit identical to a pre-feature run
-# and no frame is ever tagged rejected.
+# is taken, so the event stream is bit-for-bit identical to a pre-feature run.
 function test_inject_accept_fraction_default_noop()
     frames_default = load_frames(GEOMETRY_PATH)
     inject!(frames_default, _injection_config(nevent=25))
@@ -235,41 +247,35 @@ function test_inject_accept_fraction_default_noop()
     frames_explicit = load_frames(GEOMETRY_PATH)
     inject!(frames_explicit, cfg)
 
-    # No rejections either way.
-    @test !any(q -> haskey(q.data, "injection_status"), frames_default.q_frames)
-    @test !any(q -> haskey(q.data, "injection_status"), frames_explicit.q_frames)
-
     # Identical event stream (same seed, no extra draws).
     @test _survived_point_energies(frames_default) == _survived_point_energies(frames_explicit)
+    # At faccept = 1.0 nothing is accept-rejected.
+    stats = TamboSim._get_last_frame(frames_explicit, 'M')["injection_stats"]
+    @test stats["n_accept_rejected"] == 0
 end
 
-# faccept < 1 must reject a fraction of the forced-CC population. Every rejected
-# frame is tagged and withholds BOTH the final state (⇒ no CORSIKA job) and the
-# phase_space_point (⇒ zero weight); upstream-converted events are never
-# rejected.
-function test_inject_accept_fraction_rejects_and_tags()
-    cfg = _injection_config(nevent=40)
+# faccept < 1 downsamples the forced-CC population: fewer forced survivors are
+# materialized, and the dropped ones are counted (not turned into empty frames).
+# Every materialized Q frame is a kept event with a point.
+function test_inject_accept_fraction_downsamples()
+    frames_full = load_frames(GEOMETRY_PATH)
+    inject!(frames_full, _injection_config(nevent=120))
+    stats_full = TamboSim._get_last_frame(frames_full, 'M')["injection_stats"]
+
+    cfg = _injection_config(nevent=120)          # same seed
     cfg["forced_interaction_accept_fraction"] = 0.5
-    frames = load_frames(GEOMETRY_PATH)
-    inject!(frames, cfg)
+    frames_half = load_frames(GEOMETRY_PATH)
+    inject!(frames_half, cfg)
+    stats_half = TamboSim._get_last_frame(frames_half, 'M')["injection_stats"]
 
-    rejected = filter(q -> get(q.data, "injection_status", "") == "accept_rejected",
-                      frames.q_frames)
-    @test length(rejected) > 0
-
-    for q in rejected
-        # Withheld keys: owned by the frame, so check q.data directly.
-        @test !haskey(q.data, "injection_final_state")
-        @test !haskey(q.data, "phase_space_point")
-    end
-
-    # Upstream-converted survivors keep their point and are never tagged.
-    for q in frames.q_frames
-        if haskey(q.data, "phase_space_point") &&
-           q.data["phase_space_point"] isa UpstreamNeutrinoInteractionPoint
-            @test get(q.data, "injection_status", "") != "accept_rejected"
-        end
-    end
+    # Invariant: only kept events are materialized — no empty frames, ever.
+    @test all(q -> haskey(q.data, "phase_space_point"), frames_half.q_frames)
+    # Downsampling actually happened, and fewer forced events survived.
+    @test stats_full["n_accept_rejected"] == 0
+    @test stats_half["n_accept_rejected"] > 0
+    @test 0 < stats_half["n_forced_kept"] < stats_full["n_forced_kept"]
+    # Counts remain complete: every attempt is accounted for.
+    @test sum(values(stats_half)) == 120
 end
 
 # End-to-end: build_phase_space must read faccept from the injected M-frame

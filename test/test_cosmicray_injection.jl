@@ -182,14 +182,16 @@ function test_inject_cosmicrays_produces_frames()
     TamboSim.inject_cosmicrays!(frames, injection_config)
 
     q_frames = filter(f -> f.stream == 'Q', frames)
-    @test length(q_frames) == 20
-
-    n_primary = count(f -> haskey(f, "injection_initial_state"), q_frames)
-    @test n_primary > 0
-
-    filter!(f -> haskey(f, "injection_initial_state"), frames)
-    q_frames = filter(f -> f.stream == 'Q', frames)
+    # Only kept events (angular sampler hit the detector) are materialized, so
+    # the count is bounded by nevent, not equal to it.
+    @test 0 < length(q_frames) <= 20
+    # Invariant: every materialized Q frame carries its injected primary.
     @test all(f -> haskey(f, "injection_initial_state"), q_frames)
+
+    # Per-category counts are snapshotted on the M frame and sum to nevent.
+    stats = TamboSim._get_last_frame(frames, 'M')["injection_stats"]
+    @test stats["n_kept"] == length(q_frames)
+    @test stats["n_angular_miss"] + stats["n_kept"] == 20
 end
 
 # ============================================================================

@@ -115,6 +115,16 @@ function taurunner_interface(
         TR.propagate!(tr_particle, track, earth, clp;
                       condition=stopping_condition, rng=rng)
 
+        # Honor TauRunner's absorption verdict. When it marks the propagated
+        # lepton not-survived (survived=false), it determined the lepton stops
+        # before reaching the track end — e.g. a nu_mu that CC-converts deep in
+        # the Earth becomes a muon whose range falls short of the detector. Such
+        # a lepton cannot be a valid injection final state, so return the null
+        # particle and let inject_neutrinos! drop the event via its
+        # isnan(energy) gate. Without this guard the absorbed muon spawns a
+        # zero-yield CORSIKA job.
+        tr_particle.survived || return Particle(T)
+
         # Convert back to TamboSim format.
         # particle.position is the Earth entry point. Advance forward along
         # the neutrino direction by the distance TauRunner traveled.
@@ -210,6 +220,10 @@ function taurunner_interface(
         # Propagate
         TR.propagate!(tr_particle, track, body, clp;
                       condition=stopping_condition, rng=rng)
+
+        # See the spherical branch above: drop leptons TauRunner marked
+        # absorbed/stopped so they don't leak through as finite-energy final states.
+        tr_particle.survived || return Particle(T)
 
         # NOTE: Propagator caching removed. PROPOSAL C++ propagator objects are
         # bound to a specific geometry (slab body). Reusing them across events with

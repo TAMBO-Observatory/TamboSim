@@ -29,6 +29,7 @@ function run_cosmicray_injection_tests()
 
     @testset "inject_cosmicrays!" begin
         test_inject_cosmicrays_produces_frames()
+        test_inject_cosmicrays_altitude_snapshot()
     end
 
     @testset "nucleus_pdg & pdg resolution" begin
@@ -190,6 +191,39 @@ function test_inject_cosmicrays_produces_frames()
     filter!(f -> haskey(f, "injection_initial_state"), frames)
     q_frames = filter(f -> f.stream == 'Q', frames)
     @test all(f -> haskey(f, "injection_initial_state"), q_frames)
+end
+
+function test_inject_cosmicrays_altitude_snapshot()
+    tambosim_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
+    geometry_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley_3000.jld2")
+
+    base_config() = Dict{String,Any}(
+        "strategy" => "CosmicRayInjection",
+        "seed"     => 42,
+        "nevent"   => 5,
+        "pdg"      => 2212,
+        "gamma"    => 2.7,
+        "emin"     => 1e3,
+        "emax"     => 1e7,
+        "thetamin" => 91.0,
+        "thetamax" => 130.0,
+        "phimin"   => 0.0,
+        "phimax"   => 360.0,
+    )
+
+    # Explicit altitude is snapshotted onto the M frame verbatim.
+    cfg_explicit = base_config(); cfg_explicit["altitude"] = 50.0
+    frames = load_frames(geometry_path)
+    TamboSim.inject_cosmicrays!(frames, cfg_explicit)
+    @test frames.m_frames[end]["injection"]["altitude"] == 50.0
+
+    # When `altitude` is omitted, the resolved default (112 km) is still
+    # snapshotted, so downstream flux weighting can always recover it.
+    cfg_default = base_config()
+    @test !haskey(cfg_default, "altitude")
+    frames = load_frames(geometry_path)
+    TamboSim.inject_cosmicrays!(frames, cfg_default)
+    @test frames.m_frames[end]["injection"]["altitude"] == 112.0
 end
 
 # ============================================================================

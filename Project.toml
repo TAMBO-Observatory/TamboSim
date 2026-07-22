@@ -36,7 +36,7 @@ YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [sources]
 PROPOSAL = {url = "https://github.com/jlazar17/PROPOSAL.jl.git"}
-TauRunner = {subdir = "TauRunner.jl", url = "https://github.com/icecube/TauRunner.git"}
+TauRunner = {subdir = "TauRunner.jl", url = "https://github.com/icecube/TauRunner.git", rev = "bugfix/tau-decay-detection"}
 
 [compat]
 Arrow = "2.8.0"

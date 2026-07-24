@@ -15,6 +15,14 @@ const _proposal_initialized = Ref(false)
 # Cached propagators for different particle types and media
 const _propagator_cache = Dict{Tuple{Int, String}, Any}()
 
+# Propagator cache for the deep-Earth charged-lepton leg of neutrino injection,
+# built with coarse energy-scaling cuts (absolute e_cut disabled, v_cut = 1e-3,
+# matching TauRunner). Selected via `_run_proposal_segments(...; deep = true)`.
+const _deep_propagator_cache = Dict{Tuple{Int, String}, Any}()
+const _DEEP_ECUT = -1      # GeV; negative => absolute cut disabled (v_cut governs)
+const _DEEP_VCUT = 1e-3
+const _DEEP_CONT_RAND = true
+
 # Config file paths (generated at runtime)
 const _config_dir = Ref{String}("")
 
@@ -87,6 +95,9 @@ function init_proposal(config)
             config_path = generate_config(lepton_id, medium, ecut, vcut, do_continuous; cross_sections=cross_sections)
             propagator = create_propagator(lepton_id, config_path)
             _propagator_cache[(lepton_id, medium)] = propagator
+
+            deep_config_path = generate_config(lepton_id, medium, _DEEP_ECUT, _DEEP_VCUT, _DEEP_CONT_RAND; cross_sections=cross_sections)
+            _deep_propagator_cache[(lepton_id, medium)] = create_propagator(lepton_id, deep_config_path)
         end
     end
 

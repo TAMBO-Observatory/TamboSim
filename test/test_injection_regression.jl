@@ -85,6 +85,11 @@ function run_injection_regression_tests()
     detector_props = precompute_detector_properties(topography, detector_region)
     as = UniformAngularSampler(deg2rad(0.0), deg2rad(117.0), deg2rad(90.0), deg2rad(290.0))
 
+    # PROPOSAL must be initialized before injection (the through-Earth step uses it
+    # for charged-lepton transport).
+    tables_path = get_tambosim_path() * "/resources/proposal_tables"
+    init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
+
     # ---- Single seeded event: injection + propagation ----
     @testset "Single seeded injection + propagation" begin
         pl = UnitfulPowerLawSampler(1.0, 3e5u"GeV", 1e9u"GeV")
@@ -104,9 +109,7 @@ function run_injection_regression_tests()
         # Energy must decrease through Earth (interaction losses)
         @test fstate.energy <= istate.energy
 
-        # Propagate with fixed PROPOSAL seed
-        tables_path = get_tambosim_path() * "/resources/proposal_tables"
-        init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
+        # Propagate with fixed PROPOSAL seed (PROPOSAL already initialized above)
         proposal_seed = Int32(12345)
         losses, cont_e, secs, prop_final = proposal_propagate(fstate, prem, bvh, proposal_seed)
 

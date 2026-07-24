@@ -27,13 +27,45 @@ function proposal_propagate(
         error("PROPOSAL not available. Call init_proposal(config) first.")
     end
 
-    cs = particle.position.coordinate_system
-    ray = Ray(particle)
-    ixs = intersect_all(prem, bvh, ray)
-
     # Set random seed if provided
     seed = isnothing(seed) ? rand(Int32) : Int32(mod(seed, typemax(Int32)))
     PP.set_random_seed(seed)
+
+    losses, continuous_e, secondaries, final_state, _ =
+        _run_proposal_segments(particle, prem, bvh)
+    return losses, continuous_e, secondaries, final_state
+end
+
+"""
+    _run_proposal_segments(particle, prem, bvh; max_distance=nothing)
+        -> (losses, continuous_e, secondaries, final_state, stop_reason)
+
+Step `particle` forward through the rock/air segments its trajectory crosses,
+propagating each with the cached PROPOSAL propagator for the local medium.
+
+If `max_distance` (a length) is given, propagation stops once the cumulative
+propagated distance reaches it — the trajectory's detector-side box edge.
+`stop_reason` is one of:
+
+- `:decayed`      — PROPOSAL reported a decay; `secondaries` holds the products.
+- `:reached_cap`  — hit `max_distance` without decaying (only when bounded).
+- `:exited`       — traversed every segment to the trajectory exit without
+                    decaying or hitting the cap.
+- `:no_medium`    — the trajectory crossed no medium at all (empty segment list);
+                    `final_state` is a null `Particle`.
+"""
+function _run_proposal_segments(
+    particle::Particle{T},
+    prem,
+    bvh::BVHTree{T};
+    max_distance::Union{Nothing,Quantity}=nothing,
+    deep::Bool=false,
+) where {T<:Real}
+    cache = deep ? _deep_propagator_cache : _propagator_cache
+
+    cs = particle.position.coordinate_system
+    ray = Ray(particle)
+    ixs = intersect_all(prem, bvh, ray)
 
     densities = compute_density(ixs, particle.direction)
     lengths = compute_lengths(ixs)
@@ -49,11 +81,27 @@ function proposal_propagate(
     # Null particle by default. If `ixs` is empty (particle already in air),
     # the loop below never runs and we signal a culled event via NaN energy.
     final_state = Particle(T)
+    stop_reason = :no_medium   # no segments crossed (loop body never runs)
 
     for (l, density) in zip(lengths, densities)
+        # Under a distance cap, the box edge may fall inside this segment.
+        seg_len = l
+        capped_here = false
+        if max_distance !== nothing
+            remaining = max_distance - accrued_d
+            if remaining <= 0.0u"m"
+                stop_reason = :reached_cap
+                break
+            end
+            if remaining <= l
+                seg_len = remaining
+                capped_here = true
+            end
+        end
+
         medium = density > 1u"g/cm^3" ? "StandardRock" : "Air"
 
-        propagator = _propagator_cache[(lepton_id, medium)]
+        propagator = cache[(lepton_id, medium)]
 
         # Create PROPOSAL particle state
         # PROPOSAL uses MeV for energy and cm for distance
@@ -69,8 +117,8 @@ function proposal_propagate(
         )
 
         # Propagate through this segment
-        max_distance = ustrip(l |> u"cm")
-        propped_result = PP.propagate(propagator, state; max_distance=max_distance, min_energy=0.0)
+        max_dist_cm = ustrip(seg_len |> u"cm")
+        propped_result = PP.propagate(propagator, state; max_distance=max_dist_cm, min_energy=0.0)
 
         # Get final state
         pp_final_state = PP.get_final_state(propped_result)
@@ -132,14 +180,22 @@ function proposal_propagate(
                 )
                 push!(secondaries, dp)
             end
+            stop_reason = :decayed
             break
         end
 
-        accrued_d += PP.get_propagated_distance(pp_final_state) * u"cm"
-        accrued_t += T(PP.get_time(pp_final_state)) * u"s"
+        accrued_d = final_dist
+        accrued_t = final_t
+
+        if capped_here
+            stop_reason = :reached_cap
+            break
+        end
+
+        stop_reason = :exited   # a full segment traversed; loop completion => exhaustion
     end
 
-    return losses, continuous_e, secondaries, final_state
+    return losses, continuous_e, secondaries, final_state, stop_reason
 end
 
 """

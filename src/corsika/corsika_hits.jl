@@ -23,11 +23,17 @@ function _traceback_cap(p::Particle)
 end
 
 """
-    _corsika_module_hit(event::CorsikaEvent, det_bvh, topo_bvh) -> NamedTuple | nothing
+    _corsika_module_hit(event::CorsikaEvent, det_bvh, topo_bvh;
+                        efficiency_model=nothing) -> NamedTuple | nothing
 
 Project a single `CorsikaEvent` onto the detector-unit OBB BVH `det_bvh`
 and return a hit record `(particle, module_index, weight)`, or `nothing`
 if the particle's trajectory does not pass through any module.
+
+If an efficiency model has been configured (in the C frame)  and use_efficiency
+is true, then the efficiency model is applied and 'nothing' is returned if the
+hit fails the efficiency check. Otherwise, the hit is always returned if the
+intersection is physically relevant.
 
 Each detector OBB straddles its terrain triangle by ±DETECTOR_HEIGHT, so
 a particle recorded at that triangle lies inside the module's volume.
@@ -45,7 +51,8 @@ by [`rock_traversed`](@ref)). Without this guard the projection happily
 traces a particle kilometres through solid rock onto a module on the far
 side of the mountain.
 """
-function _corsika_module_hit(event::CorsikaEvent, det_bvh, topo_bvh)
+function _corsika_module_hit(event::CorsikaEvent, det_bvh, topo_bvh;
+                             efficiency_model=nothing)
     ray = Ray(event.particle)
     rev = reverse(ray)
     ixs = intersect_all(det_bvh, rev)
@@ -68,10 +75,20 @@ function _corsika_module_hit(event::CorsikaEvent, det_bvh, topo_bvh)
     corrected_time = p.time + sign * ix.distance / p.speed
     corrected_particle = Particle(p.pdg, p.energy, ix.point, p.direction,
                                   corrected_time, p.speed)
+
+    # If it fails the efficiency check, return nothing
+    if !isnothing(efficiency_model)
+        # TODO make sure local coordinates are always set properly
+        efficiency_model(ix.U, ix.V) && return nothing
+    end
+
     return (particle=corrected_particle,
             module_index=ix.index,
             weight=event.weight)
 end
+
+function _corsika_module_hit(event::CorsikaEvent, det_bvh, topo_bvh;
+                             config::Dict=Dict{String,Any}()
 
 """
     read_corsika_hits!(frames::TamboFrames, config::Dict=Dict{String,Any}();
@@ -124,6 +141,7 @@ function read_corsika_hits!(
 )
     m_frame = _get_last_frame(frames, 'M')
     g_frame = m_frame.g_frame
+    c_frame = m_frame.c_frame
     d_frame = m_frame.d_frame
     m_frame[prefix] = config
 
@@ -139,6 +157,11 @@ function read_corsika_hits!(
         "The traceback guard needs it to reject hits traced through rock."
     )
     topo_bvh = g_frame["bvh"]
+
+    efficiency_model = nothing
+    if haskey(c_frame, "efficiency_model")
+        efficiency_model = c_frame["efficiency_model"]
+    end
 
     if isnothing(cs)
         cs = g_frame["cs"]
@@ -162,7 +185,8 @@ function read_corsika_hits!(
                 continue
             end
             for event in events
-                hit = _corsika_module_hit(event, detector_unit_bvh, topo_bvh)
+                hit = _corsika_module_hit(event, detector_unit_bvh, topo_bvh, 
+                                          efficiency_model=efficiency_model)
                 isnothing(hit) || push!(hits, hit)
             end
         end

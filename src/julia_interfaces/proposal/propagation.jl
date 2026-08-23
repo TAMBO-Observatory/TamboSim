@@ -36,8 +36,40 @@ function proposal_propagate(
     return losses, continuous_e, secondaries, final_state
 end
 
+# A segment list and a caller-supplied `max_distance` are usually two independent
+# traces of the same geometry, so the segments can fall a hair short of the cap.
+# Anything under this counts as having reached it rather than as exhaustion.
+const _SEGMENT_CAP_TOL = 1.0u"m"
+
 """
-    _run_proposal_segments(particle, prem, bvh; max_distance=nothing)
+    _prem_segment_densities(particle, ixs, prem) -> Vector{density}
+
+PREM density (g/cm³) for each segment of `ixs` along `particle`'s forward ray,
+taken as the average density of the shell containing the segment's midpoint.
+Uses the shell average rather than the pointwise PREM polynomial so the set of
+distinct densities stays small — one per shell — which keeps the deep propagator
+cache bounded. This matches how TauRunner assigns a density to each shell in
+`generate_sphere_config`.
+"""
+function _prem_segment_densities(particle::Particle{T}, ixs, prem) where {T<:Real}
+    earth = _tr_earth[]
+    center = prem[1].center
+    R_earth_m = TR.radius(earth) / TR.units.meter   # outer radius, meters (numeric)
+    ρ = Vector{Quantity{T, mdim/ldim^3}}(undef, length(ixs))
+    prv = 0.0u"m"
+    for (idx, ix) in enumerate(ixs)
+        mid = 0.5 * (prv + ix.distance)
+        pos = mid * particle.direction + particle.position
+        r_phys_m = ustrip(u"m", norm((pos - center).point))
+        r_norm = clamp(r_phys_m / R_earth_m, 0.0, 1.0)
+        ρ[idx] = (TR.get_average_density(earth, r_norm) / TR.units.DENSITY_CONV) * u"g/cm^3"
+        prv = ix.distance
+    end
+    return ρ
+end
+
+"""
+    _run_proposal_segments(particle, prem, bvh; max_distance=nothing, deep=false)
         -> (losses, continuous_e, secondaries, final_state, stop_reason)
 
 Step `particle` forward through the rock/air segments its trajectory crosses,
@@ -61,8 +93,6 @@ function _run_proposal_segments(
     max_distance::Union{Nothing,Quantity}=nothing,
     deep::Bool=false,
 ) where {T<:Real}
-    cache = deep ? _deep_propagator_cache : _propagator_cache
-
     cs = particle.position.coordinate_system
     ray = Ray(particle)
     ixs = intersect_all(prem, bvh, ray)
@@ -70,6 +100,12 @@ function _run_proposal_segments(
     densities = compute_density(ixs, particle.direction)
     lengths = compute_lengths(ixs)
     lepton_id = Int(particle.pdg)
+
+    # `compute_density` reports only rock-or-air: every PREM shell crossing comes
+    # back as ROCK_DENSITY. That is fine near the detector, where the rock really
+    # is ~2.65 g/cm³, but the deep leg crosses shells from crust to inner core.
+    # For those segments take the density from PREM itself.
+    deep_densities = deep ? _prem_segment_densities(particle, ixs, prem) : nothing
 
     losses = Particle{T}[]
     secondaries = Particle{T}[]
@@ -83,7 +119,7 @@ function _run_proposal_segments(
     final_state = Particle(T)
     stop_reason = :no_medium   # no segments crossed (loop body never runs)
 
-    for (l, density) in zip(lengths, densities)
+    for (idx, (l, density)) in enumerate(zip(lengths, densities))
         # Under a distance cap, the box edge may fall inside this segment.
         seg_len = l
         capped_here = false
@@ -99,9 +135,18 @@ function _run_proposal_segments(
             end
         end
 
-        medium = density > 1u"g/cm^3" ? "StandardRock" : "Air"
+        is_rock = density > 1u"g/cm^3"
+        medium = is_rock ? "StandardRock" : "Air"
 
-        propagator = cache[(lepton_id, medium)]
+        propagator = if deep
+            # Air keeps its nominal density: PREM's outermost shell is rock all
+            # the way to the top of the model, so it cannot describe atmosphere.
+            # Rock takes the PREM shell density.
+            rho = is_rock ? deep_densities[idx] : density
+            deep_propagator(lepton_id, ustrip(u"g/cm^3", rho))
+        else
+            _propagator_cache[(lepton_id, medium)]
+        end
 
         # Create PROPOSAL particle state
         # PROPOSAL uses MeV for energy and cm for distance
@@ -193,6 +238,12 @@ function _run_proposal_segments(
         end
 
         stop_reason = :exited   # a full segment traversed; loop completion => exhaustion
+    end
+
+    # See `_SEGMENT_CAP_TOL`: don't report exhaustion when we effectively arrived.
+    if max_distance !== nothing && stop_reason == :exited &&
+       (max_distance - accrued_d) <= _SEGMENT_CAP_TOL
+        stop_reason = :reached_cap
     end
 
     return losses, continuous_e, secondaries, final_state, stop_reason

@@ -10,13 +10,46 @@ Coordinate spine: geometric distance along the actual backward-traced ray,
 measured from the true END (`first(intersections)`, the detector-side point).
 The neutrino's column depth comes from `compute_density_prem` (PREM density per
 Earth shell); the charged lepton's transport comes from `_run_proposal_segments`
-(rock/air media). END is computed once by the caller and threaded to every
-function so all stopping/vertex logic references the same point.
+(PREM shell density in rock, nominal density in air). END is computed once by the
+caller and threaded to every function so all stopping/vertex logic references the
+same point.
 """
 
 # Needed at load time: `TR.Particle` appears in a method signature below, and
 # this file is included before julia_interfaces/taurunner.jl (which also imports TR).
 import TauRunner as TR
+
+# =============================================================================
+# Anomaly accounting
+#
+# Some chains end in a state we cannot turn into a final particle. Raising there
+# would not be loud: `_inject_neutrino_event_impl` wraps this whole call in a
+# try/catch that drops the event and logs a backtrace, so an exception costs a
+# flooded log and buys nothing an ordinary cull does not. Count them instead, so
+# the rate is inspectable and a rare corner cannot masquerade as a clean run.
+# =============================================================================
+
+const _propagation_anomalies = Dict{Symbol,Int}()
+
+_note_anomaly!(kind::Symbol) =
+    (_propagation_anomalies[kind] = get(_propagation_anomalies, kind, 0) + 1; nothing)
+
+"""
+    propagation_anomalies() -> Dict{Symbol,Int}
+
+Counts of through-Earth chains dropped for a reason other than ordinary
+absorption, by kind, since the last `reset_propagation_anomalies!`. A healthy run
+leaves this empty; a nonzero `:segments_exhausted` points at geometry
+inconsistency between the injection trace and the per-lepton forward trace.
+"""
+propagation_anomalies() = copy(_propagation_anomalies)
+
+"""
+    reset_propagation_anomalies!()
+
+Zero the [`propagation_anomalies`](@ref) counters.
+"""
+reset_propagation_anomalies!() = (empty!(_propagation_anomalies); nothing)
 
 # =============================================================================
 # Endcap box length
@@ -211,9 +244,10 @@ Advance a charged lepton toward the box via bounded PROPOSAL transport. The box
 edge is one endcap length back from END, measured geometrically — a tau's endcap
 is its decay length, a muon's is its rock range converted to a length at rock
 density. Exit if already in the box (the lepton is a final state); else propagate
-to the box edge (`:reached_cap`/`:exited` → the lepton is a final state) or, if it
-decays en route, a tau spawns its regenerated ν_τ while a muon is killed (the
-chain ends with no final state).
+to the box edge (`:reached_cap` → the lepton is a final state) or, if it decays en
+route, a tau spawns its regenerated ν_τ while a muon is killed (the chain ends
+with no final state). `:no_medium` and `:exited` are culls; the latter is counted
+in [`propagation_anomalies`](@ref).
 """
 function _charged_macrostep(p::Particle{T}, end_point, prem, bvh) where {T}
     abspdg = abs(Int(p.pdg))
@@ -235,9 +269,12 @@ function _charged_macrostep(p::Particle{T}, end_point, prem, bvh) where {T}
     if stop_reason == :decayed
         if abspdg == 15
             nu = _regenerated_tau_neutrino(secondaries)
-            nu === nothing &&
-                error("propagate_through_the_earth!: tau decay reported by PROPOSAL but no ν_τ " *
-                      "among its decay products")
+            if nu === nothing
+                # PROPOSAL reported a tau decay with no ν_τ among the products.
+                # Nothing survives to continue the chain, so cull and count.
+                _note_anomaly!(:tau_decay_without_nu)
+                return (final = nothing, pushes = Particle{T}[])
+            end
             return (final = nothing, pushes = Particle{T}[nu])
         else
             # A muon that decays before its box is killed; we do not keep its ν_μ.
@@ -249,9 +286,14 @@ function _charged_macrostep(p::Particle{T}, end_point, prem, bvh) where {T}
     elseif stop_reason == :no_medium
         # The lepton's forward ray crossed no medium (already in air/space): culled.
         return (final = nothing, pushes = Particle{T}[])
-    else  # :exited — box edge always precedes the ray exit, so this signals bad geometry
-        error("propagate_through_the_earth!: $(p.pdg) exhausted its forward-ray segments " *
-              "before reaching the box edge or decaying (geometry inconsistency)")
+    else
+        # :exited — the box edge precedes the ray exit by construction, and
+        # `_run_proposal_segments` already forgives a sub-metre shortfall, so
+        # arriving here means the injection trace and this lepton's forward trace
+        # genuinely disagree about the geometry. Cull and count; see the anomaly
+        # accounting note at the top of this file for why this is not an error.
+        _note_anomaly!(:segments_exhausted)
+        return (final = nothing, pushes = Particle{T}[])
     end
 end
 

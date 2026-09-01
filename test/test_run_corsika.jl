@@ -37,6 +37,7 @@ end
 function _default_corsika_config()
     return Dict{String,Any}(
         "corsika_path" => "/fake/tambo_shower",
+        "site"         => "colca",
         "em_ecut"      => 1e-3,
         "mu_ecut"      => 1e-2,
         "hadron_ecut"  => 1e-1,
@@ -69,6 +70,7 @@ function run_corsika_orchestrator_tests()
     end
     @testset "build_corsika_argv" begin
         test_argv_has_required_flags(cr_frames)
+        test_argv_site(cr_frames)
         test_argv_terrain_mesh_optional(cr_frames)
     end
     # The two tests below mutate `cr_frames` (stamping M and Q frames).
@@ -187,6 +189,28 @@ function test_argv_has_required_flags(frames)
     @test "-f" in argv && job.outdir in argv
     pdg_idx = findfirst(==("--pdg"), argv)
     @test argv[pdg_idx + 1] == string(Int(job.primary.pdg))
+end
+
+function test_argv_site(frames)
+    job, cfg = _one_real_job(frames)
+    isnothing(job) && return
+    mesh_paths = (obs="/tmp/obs.ply", terrain="")
+    ecuts = SVector{3, Float64}(1e-3, 1e-2, 1e-1) * u"GeV"
+
+    argv = build_corsika_argv(job, mesh_paths, ecuts, cfg)
+    site_idx = findfirst(==("--site"), argv)
+    @test !isnothing(site_idx)
+    @test argv[site_idx + 1] == "colca"
+
+    # `site` has no default: a missing or unknown site must fail before the
+    # binary is spawned.
+    missing_cfg = copy(cfg)
+    delete!(missing_cfg, "site")
+    @test_throws ErrorException build_corsika_argv(job, mesh_paths, ecuts, missing_cfg)
+
+    bogus_cfg = copy(cfg)
+    bogus_cfg["site"] = "atlantis"
+    @test_throws ErrorException build_corsika_argv(job, mesh_paths, ecuts, bogus_cfg)
 end
 
 function test_argv_terrain_mesh_optional(frames)

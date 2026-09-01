@@ -85,6 +85,13 @@ check_fail "--pdg with -A/-Z rejected"       "${base[@]}" -A 1 -Z 1
 mapfile -t v < <(argv_with --obs-mesh /nonexistent/no_such_mesh.ply)
 check_fail "nonexistent --obs-mesh rejected" "${v[@]}"
 
+# --site is required and has no default; only registered sites are accepted.
+mapfile -t v < <(argv_without --site)
+check_fail "missing --site rejected"         "${v[@]}"
+
+mapfile -t v < <(argv_with --site atlantis)
+check_fail "unknown --site rejected"         "${v[@]}"
+
 # Out-of-range cut value.
 mapfile -t v < <(argv_with --emcut 1e20)
 check_fail "out-of-range --emcut rejected"   "${v[@]}"

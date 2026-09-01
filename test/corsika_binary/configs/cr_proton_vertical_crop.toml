@@ -28,6 +28,7 @@ altitude = 112.0
 [corsika]
 seed          = 925
 thinning      = 1.0e-6
+site = "colca"
 hadron_model  = "SIBYLL-2.3d"
 em_ecut       = 0.001
 hadron_ecut   = 0.05

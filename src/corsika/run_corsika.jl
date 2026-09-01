@@ -1,5 +1,15 @@
 
 """
+    CORSIKA_SITES
+
+Observation sites accepted by `tambo_shower`'s `--site` flag. Each bundles an
+atmosphere profile with a geomagnetic field. Source of truth is
+`siteRegistry()` in `src/corsika/tambo_shower/src/tambo_shower.cpp`; this list
+mirrors it so a bad `[corsika] site` fails before the binary is spawned.
+"""
+const CORSIKA_SITES = ["colca", "lima"]
+
+"""
     _make_job(particle, event_id, decay_id, base_seed, detector_bvh, base_outdir)
 
 Build a single CORSIKA job record. Returns `nothing` if `particle`'s
@@ -90,6 +100,8 @@ Build the argv vector for one invocation of `tambo_shower`.
   disable the terrain mesh.
 - `ecuts`: 3-tuple `(emcut, mucut, hadcut)` of `Quantity` energies.
 - `config::Dict`: `[corsika]` TOML table. Consults `"corsika_path"`,
+  `"site"` (**required**; one of [`CORSIKA_SITES`](@ref) -- selects the
+  atmosphere and geomagnetic field, and has no default),
   `"hadron_model"` (default `"SIBYLL-2.3d"`), `"thinning"` (default
   `1e-6`), `"nevent"` (default `1`), `"force_overwrite"` (default
   `false`; passes `--force` to the binary), `"time_command"` (default
@@ -110,6 +122,12 @@ function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, conf
     emcut, mucut, hadcut = ustrip.(collect(ecuts) .|> u"GeV")
     taucut = mucut  # no separate tau cut in config; default to muon cut
 
+    site = get(config, "site", nothing)
+    isnothing(site) && error("[corsika] requires a `site` key; valid sites: " *
+                             join(CORSIKA_SITES, ", "))
+    site in CORSIKA_SITES || error("[corsika] unknown site $(site); valid sites: " *
+                                   join(CORSIKA_SITES, ", "))
+
     hadron_model    = get(config, "hadron_model", "SIBYLL-2.3d")
     thinning        = get(config, "thinning", 1e-6)
     nevent          = get(config, "nevent", 1)
@@ -126,6 +144,7 @@ function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, conf
         "--intercept-y", string(interceptY),
         "--intercept-z", string(interceptZ),
         "--obs-mesh",    mesh_paths.obs,
+        "--site",        string(site),
         "--emcut",       string(emcut),
         "--hadcut",      string(hadcut),
         "--mucut",       string(mucut),

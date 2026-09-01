@@ -110,8 +110,17 @@ A proton shower at 10^8 GeV injected from directly above the detector:
   --intercept-z 2345500.0 \
   --obs-mesh    /path/to/obs_surface.ply \
   --terrain-mesh /path/to/terrain.ply \
+  --site        colca \
   -f output_dir
 ```
+
+`--site` is required and has no default: it selects both the atmosphere
+profile and the geomagnetic field, which are physically tied to a location.
+The available sites are defined by `siteRegistry()` in `tambo_shower.cpp`
+(`colca` — the TAMBO site in the Colca Valley; `lima` — the TAMBO-4 Lima
+validation site) and are listed by `./tambo_shower --help`. Adding a site
+means adding a layer table and one registry entry there, plus the matching
+name in `TamboSim.CORSIKA_SITES` (`src/corsika/run_corsika.jl`).
 
 In normal use the injection and intercept coordinates are computed by the Julia
 `corsika_run!` orchestrator (`src/corsika/run_corsika.jl`): `plan_corsika_jobs`
@@ -135,6 +144,7 @@ rm -rf output_dir
 | `--inject-x/y/z` | Injection point in ECEF metres | required |
 | `--intercept-x/y/z` | Shower-core intercept on detection region in ECEF metres | required |
 | `--obs-mesh` | Path to observation-region PLY (ECEF m) | required |
+| `--site` | Observation site: atmosphere profile + geomagnetic field (`colca`, `lima`) | required |
 | `--terrain-mesh` | Path to terrain PLY (ECEF m); omit to disable | (disabled) |
 | `-N` | Number of showers | 1 |
 | `-f` | Output directory name (must not exist) | required |

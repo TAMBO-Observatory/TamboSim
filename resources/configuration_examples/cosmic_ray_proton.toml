@@ -32,6 +32,7 @@ altitude = 112.0 # km — sample primary along the trajectory at this altitude
 [corsika]
 seed = 925
 thinning = 1.0e-6
+site = "colca"
 hadron_model = "SIBYLL-2.3d"
 hadron_ecut = 1.0  # GeV
 em_ecut = 1.0      # GeV

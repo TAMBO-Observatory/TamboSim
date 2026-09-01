@@ -95,12 +95,15 @@
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
 
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
 #include <limits>
+#include <map>
 #include <type_traits>
 #include <string>
+#include <vector>
 
 using namespace corsika;
 using namespace std;
@@ -423,32 +426,59 @@ using MyExtraEnv = media::GladstoneDaleRefractiveIndex<
     media::MediumPropertyModel<media::UniformMagneticField<T>>>;
 
 // ---------------------------------------------------------------------------
-// Custom 5-layer atmosphere for the Colca Valley (TAMBO site).
-// Layer parameters fitted to local radiosonde / reanalysis data.
+// 5-layer atmosphere tables.
+//
+// Field order is positional: AtmosphereLayerParameters is declared
+// { LengthType altitude; GrammageType offset; LengthType scaleHeight; }
+// (CORSIKA7Atmospheres.hpp:66-70).  addExponentialLayer/addLinearLayer take
+// (offset b, scaleHeight, altitude upperBoundary) -- see the
+// params[i].offset/.scaleHeight/.altitude call order in
+// create_5layer_atmosphere_from_params below.
+//
+// The outermost (linear) layer of every table must extend well above the
+// injection altitude: a primary injected outside the topmost layer lands in
+// the universe node and is erased.  Both tables below therefore end at
+// 5000 km rather than the 112.8 km used by the CORSIKA 7 presets.  That layer
+// has density offset/scaleHeight ~ 1e-9 g/cm^3, i.e. effective vacuum, so
+// extending it costs nothing physically.
+// ---------------------------------------------------------------------------
+
+// Colca Valley (TAMBO site).  Layer parameters fitted to local radiosonde /
+// reanalysis data.
+constexpr media::AtmosphereParameters kColcaLayers{{
+    {3.8_km,   1208.0663_g / (1_cm * 1_cm), 1045629.03_cm},
+    {9.7_km,   1148.2458_g / (1_cm * 1_cm),  963788.26_cm},
+    {26.5_km,  1182.7783_g / (1_cm * 1_cm),  770343.77_cm},
+    {100_km,   1510.0311_g / (1_cm * 1_cm),  701471.17_cm},
+    {5000_km,  1_g / (1_cm * 1_cm),          1e9_cm},
+}};
+
+// Lima validation site for TAMBO-4.  Layer parameters fitted to ERA5
+// monthly-mean reanalysis, garua season (May-Nov, years 2000-2014 +
+// 2017-2022 + 2025, strong El Nino years excluded; weak/moderate events
+// retained).  Source: met.igp.gob.pe/elnino
+constexpr media::AtmosphereParameters kLimaLayers{{
+    {10.3136_km, 1144.6055_g / (1_cm * 1_cm), 958794.22_cm},
+    {14.1131_km, 1163.8507_g / (1_cm * 1_cm), 852273.92_cm},
+    {35.4794_km, 1658.1561_g / (1_cm * 1_cm), 596173.39_cm},
+    {100_km,      655.6731_g / (1_cm * 1_cm), 737521.77_cm},
+    {5000_km,       1_g / (1_cm * 1_cm),      1e9_cm},
+}};
+
+// ---------------------------------------------------------------------------
+// Build a 5-layer spherical atmosphere from a layer table (4 exponential
+// layers plus an outer linear one), using the standard air composition.
 // ---------------------------------------------------------------------------
 template <typename TEnvironmentInterface, template <typename> typename TExtraEnv,
           typename TEnvironment, typename... TArgs>
-void create_5layer_colca_atmosphere(TEnvironment& env,
-                                    Point const& center, TArgs... args) {
+void create_5layer_atmosphere_from_params(TEnvironment& env,
+                                          media::AtmosphereParameters const& params,
+                                          Point const& center, TArgs... args) {
   auto builder = media::make_layered_spherical_atmosphere_builder<
       TEnvironmentInterface, TExtraEnv>::create(center, constants::EarthRadius::Mean,
                                                 std::forward<TArgs>(args)...);
 
   builder.setNuclearComposition(media::standardAirComposition);
-
-  using media::AtmosphereLayerParameters;
-  // Field order is positional: AtmosphereLayerParameters is declared
-  // { LengthType altitude; GrammageType offset; LengthType scaleHeight; }
-  // (CORSIKA7Atmospheres.hpp:66-70).  addExponentialLayer/addLinearLayer
-  // take (offset b, scaleHeight, altitude upperBoundary) -- see the
-  // params[i].offset/.scaleHeight/.altitude call order below.
-  constexpr std::array<AtmosphereLayerParameters, 5> params{{
-      {3.8_km,   1208.0663_g / (1_cm * 1_cm), 1045629.03_cm},
-      {9.7_km,   1148.2458_g / (1_cm * 1_cm),  963788.26_cm},
-      {26.5_km,  1182.7783_g / (1_cm * 1_cm),  770343.77_cm},
-      {100_km,   1510.0311_g / (1_cm * 1_cm),  701471.17_cm},
-      {5000_km,  1_g / (1_cm * 1_cm),          1e9_cm},
-  }};
 
   for (int i = 0; i < 4; ++i) {
     builder.addExponentialLayer(params[i].offset, params[i].scaleHeight,
@@ -457,6 +487,48 @@ void create_5layer_colca_atmosphere(TEnvironment& env,
   builder.addLinearLayer(params[4].offset, params[4].scaleHeight, params[4].altitude);
 
   builder.assemble(env);
+}
+
+// ---------------------------------------------------------------------------
+// Observation sites.
+//
+// A site bundles the two location-dependent inputs to the simulation: the
+// atmosphere profile and the geomagnetic field.  Adding one means adding a
+// layer table above plus a single entry to siteRegistry() -- the CLI
+// validator and the --help listing are both generated from that map, so
+// nothing else needs to change.
+//
+// A CORSIKA 7 preset can be used as a layer table via
+//   media::atmosphereParameterList[static_cast<uint8_t>(media::AtmosphereId::X)]
+// but note its outermost layer ends at 112.8 km; raise layers[4].altitude to
+// 5000 km to match the tables above (see the comment on the tables).
+// ---------------------------------------------------------------------------
+struct SiteDefinition {
+  media::AtmosphereParameters layers; //< 5-layer atmosphere at this site
+  double B_E;                         //< geomagnetic field, uT, local ENU east
+  double B_N;                         //< geomagnetic field, uT, local ENU north
+  double B_U;                         //< geomagnetic field, uT, local ENU up
+};
+
+// Function-local static: avoids static-initialisation-order issues and keeps
+// the roster in exactly one place.
+static std::map<std::string, SiteDefinition> const& siteRegistry() {
+  // Fields are WMM values at each site, epoch 2024; see
+  // https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
+  // colca: lat ~ -15.6 deg, lon ~ -72.3 deg, alt ~ 3.5 km.
+  static std::map<std::string, SiteDefinition> const registry{
+      {"colca", {kColcaLayers, -2.5, 22.9, -3.7}},
+      {"lima", {kLimaLayers, -1.525, 24.357, -0.645}},
+  };
+  return registry;
+}
+
+//! Site names, sorted, for CLI::IsMember and the --help listing.
+static std::vector<std::string> siteNames() {
+  std::vector<std::string> names;
+  names.reserve(siteRegistry().size());
+  for (auto const& entry : siteRegistry()) { names.push_back(entry.first); }
+  return names;
 }
 
 // ---------------------------------------------------------------------------
@@ -728,6 +800,12 @@ int main(int argc, char** argv) {
       ->group("Primary");
       
   // ---- Geometry / mesh ----
+  app.add_option("--site",
+                 "Observation site; selects the atmosphere profile and the "
+                 "geomagnetic field")
+      ->required()
+      ->check(CLI::IsMember(siteNames()))
+      ->group("Geometry");
   app.add_option("--obs-mesh",
                  "Path to the observation-region PLY file (ECEF metres)")
       ->required()
@@ -924,26 +1002,27 @@ int main(int argc, char** argv) {
   #pragma endregion
 
   #pragma region Atmosphere
-  /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
-  // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
-  // see https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
-  // NOTE: The calculator's vertical component Z uses positive DOWN; this basis is ENU
-  // with positive UP, so B_U = -Z.  WMM 2024 gives Z = -3.67 uT here.
-  constexpr double B_E =  -2.5;  // uT (eastward component)
-  constexpr double B_N =  22.9;  // uT (northward component)
-  constexpr double B_U =   3.7;  // uT (upward component)
-  double const Bx = B_E * eastHat[0] + B_N * northHat[0] + B_U * upHat[0];
-  double const By = B_E * eastHat[1] + B_N * northHat[1] + B_U * upHat[1];
-  double const Bz = B_E * eastHat[2] + B_N * northHat[2] + B_U * upHat[2];
+  /* === ATMOSPHERE with correct magnetic field at obs mesh centroid ===
+   * Both the layer profile and the field come from the selected site (see
+   * siteRegistry above); the site's ENU field triplet is rotated into ECEF
+   * using the local basis at the intercept.
+   */
+  auto const siteName = app["--site"]->as<std::string>();
+  SiteDefinition const& site = siteRegistry().at(siteName);
+  double const Bx = site.B_E * eastHat[0] + site.B_N * northHat[0] + site.B_U * upHat[0];
+  double const By = site.B_E * eastHat[1] + site.B_N * northHat[1] + site.B_U * upHat[1];
+  double const Bz = site.B_E * eastHat[2] + site.B_N * northHat[2] + site.B_U * upHat[2];
   MagneticFieldVector const obsField{rootCS, Bx * 1_uT, By * 1_uT, Bz * 1_uT};
 
-  CORSIKA_LOG_INFO("Magnetic field (ECEF nT): ({:.1f}, {:.1f}, {:.1f})",
+  CORSIKA_LOG_INFO("Site '{}': magnetic field (ENU uT) = ({:.3f}, {:.3f}, {:.3f}), "
+                   "(ECEF nT) = ({:.1f}, {:.1f}, {:.1f})",
+                   siteName, site.B_E, site.B_N, site.B_U,
                    obsField.getX(rootCS) / 1_nT,
                    obsField.getY(rootCS) / 1_nT,
                    obsField.getZ(rootCS) / 1_nT);
 
-  create_5layer_colca_atmosphere<EnvironmentInterface, MyExtraEnv>(
-      env, earthCenter, 1.000327, earthSurface,
+  create_5layer_atmosphere_from_params<EnvironmentInterface, MyExtraEnv>(
+      env, site.layers, earthCenter, 1.000327, earthSurface,
       media::Medium::AirDry1Atm, obsField);
 
   #pragma endregion

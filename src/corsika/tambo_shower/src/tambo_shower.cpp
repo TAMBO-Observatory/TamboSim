@@ -516,9 +516,11 @@ static std::map<std::string, SiteDefinition> const& siteRegistry() {
   // Fields are WMM values at each site, epoch 2024; see
   // https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
   // colca: lat ~ -15.6 deg, lon ~ -72.3 deg, alt ~ 3.5 km.
+  // NOTE: B_U is positive UP, i.e. the negative of the calculator's Z, which
+  // follows the usual geomagnetic convention of positive DOWN.
   static std::map<std::string, SiteDefinition> const registry{
-      {"colca", {kColcaLayers, -2.5, 22.9, -3.7}},
-      {"lima", {kLimaLayers, -1.525, 24.357, -0.645}},
+      {"colca", {kColcaLayers, -2.5, 22.9, 3.7}},
+      {"lima", {kLimaLayers, -1.525, 24.357, 0.645}},
   };
   return registry;
 }

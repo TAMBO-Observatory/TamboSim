@@ -927,8 +927,8 @@ int main(int argc, char** argv) {
   /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
   // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
   // see https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
-  // NOTE: B_U is positive UP, i.e. the negative of the calculator's Z, which
-  // follows the usual geomagnetic convention of positive DOWN.
+  // NOTE: The calculator's vertical component Z uses positive DOWN; this basis is ENU
+  // with positive UP, so B_U = -Z.  WMM 2024 gives Z = -3.67 uT here.
   constexpr double B_E =  -2.5;  // uT (eastward component)
   constexpr double B_N =  22.9;  // uT (northward component)
   constexpr double B_U =   3.7;  // uT (upward component)

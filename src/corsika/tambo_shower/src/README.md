@@ -110,17 +110,42 @@ A proton shower at 10^8 GeV injected from directly above the detector:
   --intercept-z 2345500.0 \
   --obs-mesh    /path/to/obs_surface.ply \
   --terrain-mesh /path/to/terrain.ply \
-  --site        colca \
+  --site-file   ../../../../resources/sites/colca.toml \
   -f output_dir
 ```
 
-`--site` is required and has no default: it selects both the atmosphere
-profile and the geomagnetic field, which are physically tied to a location.
-The available sites are defined by `siteRegistry()` in `tambo_shower.cpp`
-(`colca` — the TAMBO site in the Colca Valley; `lima` — the TAMBO-4 Lima
-validation site) and are listed by `./tambo_shower --help`. Adding a site
-means adding a layer table and one registry entry there, plus the matching
-name in `TamboSim.CORSIKA_SITES` (`src/corsika/run_corsika.jl`).
+`--site-file` is required and has no default: the file it names supplies both
+the atmosphere layer profile and the geomagnetic field, which are physically
+tied to a location. Nothing about a site is compiled in, so **adding or editing
+a site needs no rebuild** — write a TOML file.
+
+The schema, and the two shipped sites (`colca` — the TAMBO site in the Colca
+Valley; `lima` — the TAMBO-4 Lima validation site), are documented in
+[`resources/sites/README.md`](../../../../resources/sites/README.md). In brief:
+
+```toml
+[geomagnetic_field]
+east_uT = -2.5; north_uT = 22.9; up_uT = 3.7   # local ENU, positive up
+
+[[atmosphere.layer]]                            # innermost first,
+type = "exponential"                            # strictly increasing altitude
+top_altitude_km = 3.8
+offset_g_cm2    = 1208.0663
+scale_height_cm = 1045629.03
+```
+
+Any number of layers is supported, in any mix of `"exponential"` and
+`"linear"` (constant-density) profiles — the familiar "4 exponential + 1
+linear" shape is the CORSIKA 7 preset convention, not a limit. Unknown keys are
+rejected so a typo cannot silently change the atmosphere, and the run is
+refused if the outermost layer does not enclose the injection point.
+
+From the Julia side, `[corsika] site_file` gives the path (absolute, or
+relative to the package root); it is checked by `TamboSim.site_file_path` in
+`src/corsika/run_corsika.jl` before the binary is spawned. For provenance the
+resolved file is copied into the run's output directory as `site.toml`, since
+`config.yaml` records only the argv string and so pins the path rather than the
+contents.
 
 In normal use the injection and intercept coordinates are computed by the Julia
 `corsika_run!` orchestrator (`src/corsika/run_corsika.jl`): `plan_corsika_jobs`
@@ -144,7 +169,7 @@ rm -rf output_dir
 | `--inject-x/y/z` | Injection point in ECEF metres | required |
 | `--intercept-x/y/z` | Shower-core intercept on detection region in ECEF metres | required |
 | `--obs-mesh` | Path to observation-region PLY (ECEF m) | required |
-| `--site` | Observation site: atmosphere profile + geomagnetic field (`colca`, `lima`) | required |
+| `--site-file` | Path to a site TOML: atmosphere layers + geomagnetic field (see `resources/sites/`) | required |
 | `--terrain-mesh` | Path to terrain PLY (ECEF m); omit to disable | (disabled) |
 | `-N` | Number of showers | 1 |
 | `-f` | Output directory name (must not exist) | required |
@@ -183,8 +208,9 @@ Output is written to `<filename>/`, one subdirectory per writer:
 - `primary/` — primary-particle record (`summary.yaml` only; this writer
   emits no parquet)
 
-A top-level `config.yaml` (run configuration) and `summary.yaml` (shower
-count, seed, timing) are written alongside the subdirectories.
+A top-level `config.yaml` (run configuration), `summary.yaml` (shower count,
+seed, timing) and `site.toml` (a copy of the `--site-file` input) are written
+alongside the subdirectories.
 
 ## Notes on the terrain mesh
 

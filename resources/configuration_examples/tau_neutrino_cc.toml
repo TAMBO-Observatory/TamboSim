@@ -28,7 +28,7 @@ tablespath = "_TAMBOSIM_PATH_/resources/proposal_tables/"
 [corsika]
 seed = 925
 thinning = 1.0e-6
-site = "colca"
+site_file = "resources/sites/colca.toml"
 hadron_model = "SIBYLL-2.3d"
 hadron_ecut = 0.05   # GeV
 em_ecut = 0.001      # GeV

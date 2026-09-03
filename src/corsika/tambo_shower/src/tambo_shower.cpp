@@ -95,14 +95,21 @@
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
 
+// Vendored single-header TOML parser (see external/tomlplusplus/README.md).
+// TOML_EXCEPTIONS 0 makes toml::parse_file return a testable parse_result
+// instead of throwing, which suits a CLI that reports errors and exits.
+#define TOML_EXCEPTIONS 0
+#include <toml.hpp>
+
 #include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
 #include <limits>
-#include <map>
-#include <type_traits>
+#include <optional>
+#include <set>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 using namespace corsika;
@@ -426,111 +433,241 @@ using MyExtraEnv = media::GladstoneDaleRefractiveIndex<
     media::MediumPropertyModel<media::UniformMagneticField<T>>>;
 
 // ---------------------------------------------------------------------------
-// 5-layer atmosphere tables.
+// Observation sites.
 //
-// Field order is positional: AtmosphereLayerParameters is declared
+// A site bundles the two location-dependent inputs to the simulation: the
+// atmosphere layer profile and the local geomagnetic field.  Both come from a
+// user-supplied TOML file named by --site-file; nothing about a site is
+// compiled in, so adding one needs no rebuild.  The schema, and the two
+// shipped files (colca, lima), live in resources/sites/ -- see its README.md.
+//
+// One field-order trap remains, confined to parseLayer's aggregate
+// initialiser: media::AtmosphereLayerParameters is declared
 // { LengthType altitude; GrammageType offset; LengthType scaleHeight; }
-// (CORSIKA7Atmospheres.hpp:66-70).  addExponentialLayer/addLinearLayer take
-// (offset b, scaleHeight, altitude upperBoundary) -- see the
-// params[i].offset/.scaleHeight/.altitude call order in
-// create_5layer_atmosphere_from_params below.
+// (CORSIKA7Atmospheres.hpp:66-70), whereas addExponentialLayer/addLinearLayer
+// take (offset b, scaleHeight, altitude upperBoundary).  Everywhere else --
+// the TOML keys and create_atmosphere_from_spec's builder calls -- the fields
+// are named, so the order cannot be mixed up silently.
+// ---------------------------------------------------------------------------
+
+//! One atmosphere layer: CORSIKA's parameter triple plus its density profile.
+struct AtmosphereLayerSpec {
+  media::AtmosphereLayerParameters params; //< altitude (outer boundary), offset, scaleHeight
+  bool linear;                             //< true => constant density, false => exponential
+};
+
+//! A parsed site file.
+struct SiteSpec {
+  std::string name;                        //< [name], or the file stem
+  std::string description;                 //< [description], may be empty
+  std::vector<AtmosphereLayerSpec> layers; //< innermost first, any count
+  double B_E;                              //< geomagnetic field, uT, local ENU east
+  double B_N;                              //< geomagnetic field, uT, local ENU north
+  double B_U;                              //< geomagnetic field, uT, local ENU up
+};
+
+namespace {
+
+  //! Reject keys the schema does not define, so a typo cannot be silently
+  //! ignored and quietly change the atmosphere.  Returns false and logs on the
+  //! first offender.
+  bool rejectUnknownKeys(toml::table const& tbl, std::set<std::string> const& allowed,
+                         std::string const& what, std::string const& path) {
+    for (auto const& [key, _] : tbl) {
+      if (allowed.count(std::string{key.str()}) == 0) {
+        std::string permitted;
+        for (auto const& a : allowed) { permitted += (permitted.empty() ? "" : ", ") + a; }
+        CORSIKA_LOG_ERROR("{}: unknown key '{}' in {}; permitted keys are: {}", path,
+                          key.str(), what, permitted);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  //! Read a required finite double.  Logs and returns nullopt if absent, of the
+  //! wrong type, or not finite.
+  std::optional<double> requireNumber(toml::table const& tbl, std::string_view key,
+                                      std::string const& what, std::string const& path) {
+    auto const node = tbl[key];
+    if (!node) {
+      CORSIKA_LOG_ERROR("{}: {} is missing the required key '{}'", path, what, key);
+      return std::nullopt;
+    }
+    auto const value = node.value<double>();
+    if (!value) {
+      CORSIKA_LOG_ERROR("{}: {} key '{}' must be a number", path, what, key);
+      return std::nullopt;
+    }
+    if (!std::isfinite(*value)) {
+      CORSIKA_LOG_ERROR("{}: {} key '{}' must be finite (got {})", path, what, key, *value);
+      return std::nullopt;
+    }
+    return value;
+  }
+
+  //! Parse one [[atmosphere.layer]] entry.  `index` is 0-based, used in messages.
+  std::optional<AtmosphereLayerSpec> parseLayer(toml::node const& node, size_t const index,
+                                                std::string const& path) {
+    std::string const what = "atmosphere.layer[" + std::to_string(index) + "]";
+    auto const* tbl = node.as_table();
+    if (tbl == nullptr) {
+      CORSIKA_LOG_ERROR("{}: {} must be a table", path, what);
+      return std::nullopt;
+    }
+    if (!rejectUnknownKeys(*tbl, {"type", "top_altitude_km", "offset_g_cm2",
+                                  "scale_height_cm"}, what, path))
+      return std::nullopt;
+
+    auto const type = (*tbl)["type"].value<std::string>();
+    if (!type) {
+      CORSIKA_LOG_ERROR("{}: {} is missing the required key 'type'", path, what);
+      return std::nullopt;
+    }
+    if (*type != "exponential" && *type != "linear") {
+      CORSIKA_LOG_ERROR("{}: {} type must be \"exponential\" or \"linear\" (got \"{}\")",
+                        path, what, *type);
+      return std::nullopt;
+    }
+
+    auto const altitudeKm = requireNumber(*tbl, "top_altitude_km", what, path);
+    auto const offset = requireNumber(*tbl, "offset_g_cm2", what, path);
+    auto const scaleHeight = requireNumber(*tbl, "scale_height_cm", what, path);
+    if (!altitudeKm || !offset || !scaleHeight) return std::nullopt;
+
+    // Both are divided as offset/scaleHeight to get a density, so neither may
+    // be zero or negative.
+    if (*offset <= 0) {
+      CORSIKA_LOG_ERROR("{}: {} offset_g_cm2 must be positive (got {})", path, what, *offset);
+      return std::nullopt;
+    }
+    if (*scaleHeight <= 0) {
+      CORSIKA_LOG_ERROR("{}: {} scale_height_cm must be positive (got {})", path, what,
+                        *scaleHeight);
+      return std::nullopt;
+    }
+
+    return AtmosphereLayerSpec{{*altitudeKm * 1_km,
+                                *offset * 1_g / (1_cm * 1_cm),
+                                *scaleHeight * 1_cm},
+                               *type == "linear"};
+  }
+
+} // namespace
+
+/**
+ * Load and validate a site file.
+ *
+ * Returns nullopt after logging on any problem, so main() can exit with a
+ * readable message rather than letting a bad file surface later as a CORSIKA
+ * exception (LayeredSphericalAtmosphereBuilder throws a bare "radius must be
+ * greater than previous" on non-increasing layer boundaries) or, worse, as a
+ * silently wrong atmosphere.
+ */
+static std::optional<SiteSpec> loadSiteSpec(std::string const& path) {
+  toml::parse_result parsed = toml::parse_file(path);
+  if (!parsed) {
+    auto const& err = parsed.error();
+    CORSIKA_LOG_ERROR("{}: not valid TOML at line {}, column {}: {}", path,
+                      err.source().begin.line, err.source().begin.column,
+                      std::string{err.description()});
+    return std::nullopt;
+  }
+  toml::table const& root = parsed.table();
+
+  if (!rejectUnknownKeys(root, {"name", "description", "geomagnetic_field", "atmosphere"},
+                         "the top level", path))
+    return std::nullopt;
+
+  SiteSpec spec;
+  // boost::filesystem::path::string() returns a reference into the path, so the
+  // default must be a named local: value_or deduces T&& and cannot bind an
+  // rvalue reference to it.
+  std::string const defaultName = boost::filesystem::path(path).stem().string();
+  spec.name = root["name"].value_or(defaultName);
+  spec.description = root["description"].value_or(std::string{});
+
+  // ---- [geomagnetic_field] ----
+  auto const* field = root["geomagnetic_field"].as_table();
+  if (field == nullptr) {
+    CORSIKA_LOG_ERROR("{}: missing the required [geomagnetic_field] table", path);
+    return std::nullopt;
+  }
+  if (!rejectUnknownKeys(*field, {"east_uT", "north_uT", "up_uT"}, "[geomagnetic_field]",
+                         path))
+    return std::nullopt;
+  auto const B_E = requireNumber(*field, "east_uT", "[geomagnetic_field]", path);
+  auto const B_N = requireNumber(*field, "north_uT", "[geomagnetic_field]", path);
+  auto const B_U = requireNumber(*field, "up_uT", "[geomagnetic_field]", path);
+  if (!B_E || !B_N || !B_U) return std::nullopt;
+  spec.B_E = *B_E;
+  spec.B_N = *B_N;
+  spec.B_U = *B_U;
+
+  // ---- [[atmosphere.layer]] ----
+  auto const* atmosphere = root["atmosphere"].as_table();
+  if (atmosphere == nullptr) {
+    CORSIKA_LOG_ERROR("{}: missing the required [atmosphere] table", path);
+    return std::nullopt;
+  }
+  if (!rejectUnknownKeys(*atmosphere, {"layer"}, "[atmosphere]", path)) return std::nullopt;
+  auto const* layers = (*atmosphere)["layer"].as_array();
+  if (layers == nullptr || layers->empty()) {
+    CORSIKA_LOG_ERROR("{}: needs at least one [[atmosphere.layer]] entry", path);
+    return std::nullopt;
+  }
+
+  spec.layers.reserve(layers->size());
+  for (size_t i = 0; i < layers->size(); ++i) {
+    auto const layer = parseLayer(*layers->get(i), i, path);
+    if (!layer) return std::nullopt;
+    // The builder adds concentric spheres outward and throws on a boundary
+    // that does not grow; check here so the message says which layer.
+    if (i > 0 && layer->params.altitude <= spec.layers.back().params.altitude) {
+      CORSIKA_LOG_ERROR(
+          "{}: atmosphere.layer[{}] top_altitude_km ({:.4f}) must be greater than "
+          "layer[{}]'s ({:.4f}); layers are listed innermost first",
+          path, i, layer->params.altitude / 1_km, i - 1,
+          spec.layers.back().params.altitude / 1_km);
+      return std::nullopt;
+    }
+    spec.layers.push_back(*layer);
+  }
+
+  return spec;
+}
+
+// ---------------------------------------------------------------------------
+// Build a spherical layered atmosphere from a site spec, using the standard
+// air composition.
 //
-// The outermost (linear) layer of every table must extend well above the
-// injection altitude: a primary injected outside the topmost layer lands in
-// the universe node and is erased.  Both tables below therefore end at
-// 5000 km rather than the 112.8 km used by the CORSIKA 7 presets.  That layer
-// has density offset/scaleHeight ~ 1e-9 g/cm^3, i.e. effective vacuum, so
-// extending it costs nothing physically.
-// ---------------------------------------------------------------------------
-
-// Colca Valley (TAMBO site).  Layer parameters fitted to local radiosonde /
-// reanalysis data.
-constexpr media::AtmosphereParameters kColcaLayers{{
-    {3.8_km,   1208.0663_g / (1_cm * 1_cm), 1045629.03_cm},
-    {9.7_km,   1148.2458_g / (1_cm * 1_cm),  963788.26_cm},
-    {26.5_km,  1182.7783_g / (1_cm * 1_cm),  770343.77_cm},
-    {100_km,   1510.0311_g / (1_cm * 1_cm),  701471.17_cm},
-    {5000_km,  1_g / (1_cm * 1_cm),          1e9_cm},
-}};
-
-// Lima validation site for TAMBO-4.  Layer parameters fitted to ERA5
-// monthly-mean reanalysis, garua season (May-Nov, years 2000-2014 +
-// 2017-2022 + 2025, strong El Nino years excluded; weak/moderate events
-// retained).  Source: met.igp.gob.pe/elnino
-constexpr media::AtmosphereParameters kLimaLayers{{
-    {10.3136_km, 1144.6055_g / (1_cm * 1_cm), 958794.22_cm},
-    {14.1131_km, 1163.8507_g / (1_cm * 1_cm), 852273.92_cm},
-    {35.4794_km, 1658.1561_g / (1_cm * 1_cm), 596173.39_cm},
-    {100_km,      655.6731_g / (1_cm * 1_cm), 737521.77_cm},
-    {5000_km,       1_g / (1_cm * 1_cm),      1e9_cm},
-}};
-
-// ---------------------------------------------------------------------------
-// Build a 5-layer spherical atmosphere from a layer table (4 exponential
-// layers plus an outer linear one), using the standard air composition.
+// Any number of layers in any mix of profiles is supported: CORSIKA's builder
+// keeps them on a stack and only requires each outer boundary to exceed the
+// previous one (already validated in loadSiteSpec).  The familiar
+// "4 exponential + 1 linear" shape is the CORSIKA 7 preset convention, not a
+// limit.
 // ---------------------------------------------------------------------------
 template <typename TEnvironmentInterface, template <typename> typename TExtraEnv,
           typename TEnvironment, typename... TArgs>
-void create_5layer_atmosphere_from_params(TEnvironment& env,
-                                          media::AtmosphereParameters const& params,
-                                          Point const& center, TArgs... args) {
+void create_atmosphere_from_spec(TEnvironment& env, SiteSpec const& site,
+                                 Point const& center, TArgs... args) {
   auto builder = media::make_layered_spherical_atmosphere_builder<
       TEnvironmentInterface, TExtraEnv>::create(center, constants::EarthRadius::Mean,
                                                 std::forward<TArgs>(args)...);
 
   builder.setNuclearComposition(media::standardAirComposition);
 
-  for (int i = 0; i < 4; ++i) {
-    builder.addExponentialLayer(params[i].offset, params[i].scaleHeight,
-                                params[i].altitude);
+  for (auto const& layer : site.layers) {
+    if (layer.linear) {
+      builder.addLinearLayer(layer.params.offset, layer.params.scaleHeight,
+                             layer.params.altitude);
+    } else {
+      builder.addExponentialLayer(layer.params.offset, layer.params.scaleHeight,
+                                  layer.params.altitude);
+    }
   }
-  builder.addLinearLayer(params[4].offset, params[4].scaleHeight, params[4].altitude);
 
   builder.assemble(env);
-}
-
-// ---------------------------------------------------------------------------
-// Observation sites.
-//
-// A site bundles the two location-dependent inputs to the simulation: the
-// atmosphere profile and the geomagnetic field.  Adding one means adding a
-// layer table above plus a single entry to siteRegistry() -- the CLI
-// validator and the --help listing are both generated from that map, so
-// nothing else needs to change.
-//
-// A CORSIKA 7 preset can be used as a layer table via
-//   media::atmosphereParameterList[static_cast<uint8_t>(media::AtmosphereId::X)]
-// but note its outermost layer ends at 112.8 km; raise layers[4].altitude to
-// 5000 km to match the tables above (see the comment on the tables).
-// ---------------------------------------------------------------------------
-struct SiteDefinition {
-  media::AtmosphereParameters layers; //< 5-layer atmosphere at this site
-  double B_E;                         //< geomagnetic field, uT, local ENU east
-  double B_N;                         //< geomagnetic field, uT, local ENU north
-  double B_U;                         //< geomagnetic field, uT, local ENU up
-};
-
-// Function-local static: avoids static-initialisation-order issues and keeps
-// the roster in exactly one place.
-static std::map<std::string, SiteDefinition> const& siteRegistry() {
-  // Fields are WMM values at each site, epoch 2024; see
-  // https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
-  // colca: lat ~ -15.6 deg, lon ~ -72.3 deg, alt ~ 3.5 km.
-  // NOTE: B_U is positive UP, i.e. the negative of the calculator's Z, which
-  // follows the usual geomagnetic convention of positive DOWN.
-  static std::map<std::string, SiteDefinition> const registry{
-      {"colca", {kColcaLayers, -2.5, 22.9, 3.7}},
-      {"lima", {kLimaLayers, -1.525, 24.357, 0.645}},
-  };
-  return registry;
-}
-
-//! Site names, sorted, for CLI::IsMember and the --help listing.
-static std::vector<std::string> siteNames() {
-  std::vector<std::string> names;
-  names.reserve(siteRegistry().size());
-  for (auto const& entry : siteRegistry()) { names.push_back(entry.first); }
-  return names;
 }
 
 // ---------------------------------------------------------------------------
@@ -802,11 +939,11 @@ int main(int argc, char** argv) {
       ->group("Primary");
       
   // ---- Geometry / mesh ----
-  app.add_option("--site",
-                 "Observation site; selects the atmosphere profile and the "
-                 "geomagnetic field")
+  app.add_option("--site-file",
+                 "Path to a site TOML file supplying the atmosphere layer "
+                 "profile and the geomagnetic field (see resources/sites/)")
       ->required()
-      ->check(CLI::IsMember(siteNames()))
+      ->check(CLI::ExistingFile)
       ->group("Geometry");
   app.add_option("--obs-mesh",
                  "Path to the observation-region PLY file (ECEF metres)")
@@ -979,6 +1116,44 @@ int main(int argc, char** argv) {
 
   #pragma endregion
 
+  #pragma region Site file
+  /* === SITE: ATMOSPHERE PROFILE + GEOMAGNETIC FIELD ===
+   * Loaded here, before the meshes, so a bad site file is rejected before the
+   * seconds of BVH construction.  See loadSiteSpec above and
+   * resources/sites/README.md for the schema.
+   */
+  std::string const siteFile = app["--site-file"]->as<std::string>();
+  auto const siteSpec = loadSiteSpec(siteFile);
+  if (!siteSpec) {
+    CORSIKA_LOG_CRITICAL("Could not load site file: {}", siteFile);
+    return EXIT_FAILURE;
+  }
+  SiteSpec const& site = *siteSpec;
+
+  // The outermost layer must enclose the injection point: a primary injected
+  // outside the topmost layer is resolved into the universe node and erased,
+  // which would silently yield an empty shower.  Refuse to run instead.
+  {
+    double const ix = app["--inject-x"]->as<double>();
+    double const iy = app["--inject-y"]->as<double>();
+    double const iz = app["--inject-z"]->as<double>();
+    LengthType const injectAltitude =
+        std::sqrt(ix * ix + iy * iy + iz * iz) * 1_m - constants::EarthRadius::Mean;
+    LengthType const atmosphereTop = site.layers.back().params.altitude;
+    if (injectAltitude >= atmosphereTop) {
+      CORSIKA_LOG_CRITICAL(
+          "Injection altitude ({:.3f} km) is at or above the top of the "
+          "atmosphere for site '{}' ({:.3f} km): the primary would land outside "
+          "the outermost layer and be erased.  Raise the outermost layer's "
+          "top_altitude_km in {} (it is effectively vacuum, so extending it "
+          "costs nothing), or inject lower.",
+          injectAltitude / 1_km, site.name, atmosphereTop / 1_km, siteFile);
+      return EXIT_FAILURE;
+    }
+  }
+
+  #pragma endregion
+
   #pragma region Load meshes
   /* === LOAD MESHES === */
   LoadedMeshes loadedMeshes = loadMeshes(app["--obs-mesh"]->as<std::string>(),
@@ -1005,26 +1180,31 @@ int main(int argc, char** argv) {
 
   #pragma region Atmosphere
   /* === ATMOSPHERE with correct magnetic field at obs mesh centroid ===
-   * Both the layer profile and the field come from the selected site (see
-   * siteRegistry above); the site's ENU field triplet is rotated into ECEF
-   * using the local basis at the intercept.
+   * Both the layer profile and the field come from `site`, loaded above; the
+   * site's ENU field triplet is rotated into ECEF using the local basis at the
+   * intercept.
    */
-  auto const siteName = app["--site"]->as<std::string>();
-  SiteDefinition const& site = siteRegistry().at(siteName);
   double const Bx = site.B_E * eastHat[0] + site.B_N * northHat[0] + site.B_U * upHat[0];
   double const By = site.B_E * eastHat[1] + site.B_N * northHat[1] + site.B_U * upHat[1];
   double const Bz = site.B_E * eastHat[2] + site.B_N * northHat[2] + site.B_U * upHat[2];
   MagneticFieldVector const obsField{rootCS, Bx * 1_uT, By * 1_uT, Bz * 1_uT};
 
-  CORSIKA_LOG_INFO("Site '{}': magnetic field (ENU uT) = ({:.3f}, {:.3f}, {:.3f}), "
+  CORSIKA_LOG_INFO("Site '{}' ({}): {} atmosphere layers, top at {:.1f} km; "
+                   "magnetic field (ENU uT) = ({:.3f}, {:.3f}, {:.3f}), "
                    "(ECEF nT) = ({:.1f}, {:.1f}, {:.1f})",
-                   siteName, site.B_E, site.B_N, site.B_U,
+                   site.name, siteFile, site.layers.size(),
+                   site.layers.back().params.altitude / 1_km,
+                   site.B_E, site.B_N, site.B_U,
                    obsField.getX(rootCS) / 1_nT,
                    obsField.getY(rootCS) / 1_nT,
                    obsField.getZ(rootCS) / 1_nT);
 
-  create_5layer_atmosphere_from_params<EnvironmentInterface, MyExtraEnv>(
-      env, site.layers, earthCenter, 1.000327, earthSurface,
+  if (!site.description.empty()) {
+    CORSIKA_LOG_INFO("Site '{}': {}", site.name, site.description);
+  }
+
+  create_atmosphere_from_spec<EnvironmentInterface, MyExtraEnv>(
+      env, site, earthCenter, 1.000327, earthSurface,
       media::Medium::AirDry1Atm, obsField);
 
   #pragma endregion
@@ -1116,6 +1296,21 @@ int main(int argc, char** argv) {
     }
   }
   OutputManager output(outFilename, seed, args.str(), compressOutput);
+
+  // Copy the site file in alongside the writers' output.  config.yaml records
+  // only the argv string, which pins the site file's *path* -- and that file
+  // can be edited after the run.  Keeping the bytes makes the atmosphere and
+  // field a permanent part of the run record.
+  {
+    boost::system::error_code ec;
+    boost::filesystem::copy_file(siteFile,
+                                 boost::filesystem::path(outFilename) / "site.toml",
+                                 boost::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+      CORSIKA_LOG_WARN("Could not copy site file into the output directory: {}",
+                       ec.message());
+    }
+  }
 
   EnergyLossWriter dEdX{showerAxis, dX};
   output.add("energyloss", dEdX);

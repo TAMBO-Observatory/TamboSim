@@ -164,7 +164,8 @@ end
 #     --inject-x/y/z <ECEF metres>
 #     --intercept-x/y/z <ECEF metres>
 #     --obs-mesh <path>
-#     --site <site>            # atmosphere + geomagnetic field
+#     --site-file <path.toml>  # atmosphere layers + geomagnetic field, from
+#                              # [corsika] site_file.  See resources/sites/.
 #     --emcut/hadcut/mucut/taucut <GeV>
 #     -M <hadron_model> -N <nevent> --seed <seed> --emthin <thinning>
 #     -f <outdir>

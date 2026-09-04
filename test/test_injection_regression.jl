@@ -208,9 +208,16 @@ function run_injection_regression_tests()
     init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
 
     @testset "Post-propagation in-air fraction" begin
+        # Baselined against TauRunner main (>= icecube/TauRunner#72, 2026-07-22),
+        # which detects tau decay-in-flight via PROPOSAL's has_decay rather than a
+        # rest-mass test. TauRunner now hands back a nu_tau where it used to return a
+        # surviving tau, so injection falls through to force_interaction_vertex and
+        # PROPOSAL starts from a sampled vertex -- which raised these fractions.
+        # TauRunner is an unpinned git dep: if these drift again, check upstream
+        # before assuming a TamboSim regression.
         for (gamma, fstates, expected_frac) in [
-            (1.0, fstates_g1, 0.200),
-            (2.0, fstates_g2, 0.197)
+            (1.0, fstates_g1, 0.240),  # was 0.200; measured 95/395
+            (2.0, fstates_g2, 0.205)   # was 0.197; measured 79/386
         ]
             n_prop_air = 0
             for (j, fs) in enumerate(fstates)

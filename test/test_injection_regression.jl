@@ -220,6 +220,7 @@ function run_injection_regression_tests()
                 end
             end
             frac_prop_air = n_prop_air / length(fstates)
+            @info "Post-propagation in-air fraction" gamma frac_prop_air n_prop_air n=length(fstates)
             @test isapprox(frac_prop_air, expected_frac, atol=0.02)
         end
     end

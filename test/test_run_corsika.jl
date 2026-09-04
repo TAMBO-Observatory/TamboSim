@@ -19,6 +19,8 @@ const _GEOMETRY_PATH = joinpath(_TAMBOSIM_PATH, "resources", "geometry",
                                 "colca_valley_3000.jld2")
 const _NEUTRINO_OUTPUT_PATH = joinpath(_TAMBOSIM_PATH, "examples",
                                         "resources", "example_output.jld2")
+const _NUMU_OUTPUT_PATH = joinpath(_TAMBOSIM_PATH, "examples",
+                                    "resources", "example_numu_output.jld2")
 
 function _cr_injection_config(; nevent::Int=5, seed::Int=42)
     return Dict{String,Any}(
@@ -58,7 +60,8 @@ function run_corsika_orchestrator_tests()
 
     # Combined load: load_frames stitches the M frame's parents to the
     # geometry's G/C/D so plan_corsika_jobs can walk to D for the BVH.
-    nu_combined = load_frames([_GEOMETRY_PATH, _NEUTRINO_OUTPUT_PATH])
+    nu_combined   = load_frames([_GEOMETRY_PATH, _NEUTRINO_OUTPUT_PATH])
+    numu_combined = load_frames([_GEOMETRY_PATH, _NUMU_OUTPUT_PATH])
 
     @testset "plan_corsika_jobs — cosmic rays" begin
         test_plan_cosmic_rays(cr_frames)
@@ -66,6 +69,9 @@ function run_corsika_orchestrator_tests()
     end
     @testset "plan_corsika_jobs — neutrinos" begin
         test_plan_neutrino_pdg_skip(nu_combined)
+    end
+    @testset "plan_corsika_jobs — MuonNeutrinoInjection" begin
+        test_plan_munu_uses_final_state(numu_combined)
     end
     @testset "build_corsika_argv" begin
         test_argv_has_required_flags(cr_frames)
@@ -153,6 +159,28 @@ function test_plan_neutrino_pdg_skip(nu_combined)
     @test !isempty(jobs)
     @test all(j -> !(abs(Int(j.primary.pdg)) in (12, 14, 16)), jobs)
     @test length(jobs) <= n_charged
+end
+
+
+# ============================================================================
+# plan_corsika_jobs — MuonNeutrinoInjection
+# ============================================================================
+
+function test_plan_munu_uses_final_state(numu_combined)
+    frames = deepcopy(numu_combined)
+
+    m = _get_last_frame(frames, 'M')
+    @test m["injection"]["strategy"] == "MuonNeutrinoInjection"
+
+    cfg = _default_corsika_config()
+    base_outdir = mktempdir()
+    jobs = plan_corsika_jobs(frames, cfg, base_outdir)
+
+    @test !isempty(jobs)
+    @test all(j -> j.decay_id == 1, jobs)
+    @test all(j -> abs(Int(j.primary.pdg)) == 13, jobs)
+    @test all(j -> startswith(j.outdir, base_outdir), jobs)
+    @test length(jobs) <= length(frames.q_frames)
 end
 
 # ============================================================================

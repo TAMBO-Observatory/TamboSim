@@ -1,7 +1,7 @@
 name = "TamboSim"
 uuid = "d9a96183-4919-46da-8188-64ea4e10e0ed"
-authors = ["Carlos A. Arguelles <carguelles@fas.harvard.edu>", "Jeffrey Lazar <jeffreylazar@fas.harvard.edu>"]
 version = "1.0.0"
+authors = ["Carlos A. Arguelles <carguelles@fas.harvard.edu>", "Jeffrey Lazar <jeffreylazar@fas.harvard.edu>"]
 
 [deps]
 Arrow = "69666777-d1a9-59fb-9406-91d4454c9d45"
@@ -35,8 +35,8 @@ Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [sources]
-PROPOSAL = {url = "https://github.com/jlazar17/PROPOSAL.jl.git"}
-TauRunner = {subdir = "TauRunner.jl", url = "https://github.com/icecube/TauRunner.git"}
+PROPOSAL = {rev = "master", url = "https://github.com/jlazar17/PROPOSAL.jl.git"}
+TauRunner = {rev = "master", subdir = "TauRunner.jl", url = "https://github.com/icecube/TauRunner.git"}
 
 [compat]
 Arrow = "2.8.0"

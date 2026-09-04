@@ -208,9 +208,11 @@ function run_injection_regression_tests()
     init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
 
     @testset "Post-propagation in-air fraction" begin
+        # Baselined 2026-09-03 against TauRunner main (>= icecube/TauRunner#72, 2026-07-22),
+        # which fixed a bug in TR's detection of tau decays.
         for (gamma, fstates, expected_frac) in [
-            (1.0, fstates_g1, 0.200),
-            (2.0, fstates_g2, 0.197)
+            (1.0, fstates_g1, 0.240),  
+            (2.0, fstates_g2, 0.205)   
         ]
             n_prop_air = 0
             for (j, fs) in enumerate(fstates)
@@ -220,6 +222,7 @@ function run_injection_regression_tests()
                 end
             end
             frac_prop_air = n_prop_air / length(fstates)
+            @info "Post-propagation in-air fraction" gamma frac_prop_air n_prop_air n=length(fstates)
             @test isapprox(frac_prop_air, expected_frac, atol=0.02)
         end
     end

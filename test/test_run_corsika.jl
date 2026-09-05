@@ -13,8 +13,9 @@ records `corsika_run!` produces.
 import TamboSim: _get_last_frame, inject_cosmicrays!
 
 using JSON3
+using TOML
 
-const _TAMBOSIM_PATH = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
+const _TAMBOSIM_PATH = get_tambosim_path()
 const _GEOMETRY_PATH = joinpath(_TAMBOSIM_PATH, "resources", "geometry",
                                 "colca_valley_3000.jld2")
 const _NEUTRINO_OUTPUT_PATH = joinpath(_TAMBOSIM_PATH, "examples",
@@ -37,6 +38,7 @@ end
 function _default_corsika_config()
     return Dict{String,Any}(
         "corsika_path" => "/fake/tambo_shower",
+        "site_file"    => joinpath(_TAMBOSIM_PATH, "resources", "sites", "colca.toml"),
         "em_ecut"      => 1e-3,
         "mu_ecut"      => 1e-2,
         "hadron_ecut"  => 1e-1,
@@ -69,7 +71,11 @@ function run_corsika_orchestrator_tests()
     end
     @testset "build_corsika_argv" begin
         test_argv_has_required_flags(cr_frames)
+        test_argv_site(cr_frames)
         test_argv_terrain_mesh_optional(cr_frames)
+    end
+    @testset "shipped site files" begin
+        test_shipped_site_files()
     end
     # The two tests below mutate `cr_frames` (stamping M and Q frames).
     # They MUST run after the read-only tests above.
@@ -187,6 +193,71 @@ function test_argv_has_required_flags(frames)
     @test "-f" in argv && job.outdir in argv
     pdg_idx = findfirst(==("--pdg"), argv)
     @test argv[pdg_idx + 1] == string(Int(job.primary.pdg))
+end
+
+function test_argv_site(frames)
+    job, cfg = _one_real_job(frames)
+    isnothing(job) && return
+    mesh_paths = (obs="/tmp/obs.ply", terrain="")
+    ecuts = SVector{3, Float64}(1e-3, 1e-2, 1e-1) * u"GeV"
+
+    # `site_file` is a path, and it is what reaches the binary.
+    argv = build_corsika_argv(job, mesh_paths, ecuts, cfg)
+    site_idx = findfirst(==("--site-file"), argv)
+    @test !isnothing(site_idx)
+    @test !("--site" in argv)
+    @test argv[site_idx + 1] == cfg["site_file"]
+    @test isfile(argv[site_idx + 1])
+
+    # A package-relative path resolves without relativize! having run --
+    # 1_plan.jl loads its configs with a bare TOML.parsefile.
+    rel_cfg = copy(cfg)
+    rel_cfg["site_file"] = joinpath("resources", "sites", "lima.toml")
+    argv = build_corsika_argv(job, mesh_paths, ecuts, rel_cfg)
+    site_idx = findfirst(==("--site-file"), argv)
+    @test argv[site_idx + 1] ==
+          joinpath(_TAMBOSIM_PATH, "resources", "sites", "lima.toml")
+
+    # `site_file` has no default: a missing key or a nonexistent path must fail
+    # before the binary is spawned.
+    missing_cfg = copy(cfg)
+    delete!(missing_cfg, "site_file")
+    @test_throws ErrorException build_corsika_argv(job, mesh_paths, ecuts, missing_cfg)
+
+    # relativize! makes it absolute; resolving again must be a no-op.
+    abs_cfg = copy(cfg)
+    abs_cfg["site_file"] = joinpath("resources", "sites", "lima.toml")
+    TamboSim.relativize!(abs_cfg)
+    argv = build_corsika_argv(job, mesh_paths, ecuts, abs_cfg)
+    site_idx = findfirst(==("--site-file"), argv)
+    @test argv[site_idx + 1] ==
+          joinpath(_TAMBOSIM_PATH, "resources", "sites", "lima.toml")
+
+    bogus_cfg = copy(cfg)
+    bogus_cfg["site_file"] = "/nonexistent/no_such_site.toml"
+    @test_throws ErrorException build_corsika_argv(job, mesh_paths, ecuts, bogus_cfg)
+end
+
+"""
+Guard the committed site files in `resources/sites/`.
+
+`tambo_shower` is the real parser (`loadSiteSpec`), and this deliberately does
+not restate its schema -- that would just be the mirror the site-file design
+removed. It checks the two things a typo in a committed file would break and
+that are cheap to see from Julia: the file is valid TOML, and it has the
+top-level tables the loader requires.
+"""
+function test_shipped_site_files()
+    dir = joinpath(_TAMBOSIM_PATH, "resources", "sites")
+    files = filter(f -> endswith(f, ".toml"), readdir(dir))
+    @test !isempty(files)
+    for f in files
+        parsed = TOML.parsefile(joinpath(dir, f))
+        @test haskey(parsed, "geomagnetic_field")
+        @test haskey(parsed, "atmosphere")
+        @test haskey(parsed["atmosphere"], "layer")
+        @test !isempty(parsed["atmosphere"]["layer"])
+    end
 end
 
 function test_argv_terrain_mesh_optional(frames)

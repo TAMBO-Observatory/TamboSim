@@ -1,0 +1,67 @@
+# TAMBO site: Colca Valley, Peru.
+#
+# A site file supplies the two location-dependent inputs to a CORSIKA 8 run:
+# the atmosphere layer profile and the local geomagnetic field.  Pass it to
+# tambo_shower with `--site-file`, or point a TamboSim config at it with
+# `[corsika] site_file = "resources/sites/colca.toml"`.
+#
+# See resources/sites/README.md for the full schema.
+
+name = "colca"
+description = """
+TAMBO site, Colca Valley, Peru (lat ~ -15.6 deg, lon ~ -72.3 deg, alt ~ 3.5 km).
+Layer parameters fitted to local radiosonde / reanalysis data.
+"""
+
+[geomagnetic_field]
+# WMM epoch 2024, evaluated at the site; see
+# https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
+# NOTE: up_uT is positive UP, i.e. the negative of the calculator's Z, which
+# follows the usual geomagnetic convention of positive DOWN.
+east_uT  = -2.5
+north_uT = 22.9
+up_uT    = 3.7
+
+# Atmosphere layers, innermost first; top_altitude_km must strictly increase.
+#
+#   exponential:  rho(h) = offset_g_cm2 / scale_height_cm
+#                            * exp(-(h - top_altitude) / scale_height)
+#   linear:       rho(h) = offset_g_cm2 / scale_height_cm   (constant density)
+#
+# Any number of layers is allowed, in any mix of the two types.
+
+[[atmosphere.layer]]
+type            = "exponential"
+top_altitude_km = 3.8
+offset_g_cm2    = 1208.0663
+scale_height_cm = 1045629.03
+
+[[atmosphere.layer]]
+type            = "exponential"
+top_altitude_km = 9.7
+offset_g_cm2    = 1148.2458
+scale_height_cm = 963788.26
+
+[[atmosphere.layer]]
+type            = "exponential"
+top_altitude_km = 26.5
+offset_g_cm2    = 1182.7783
+scale_height_cm = 770343.77
+
+[[atmosphere.layer]]
+type            = "exponential"
+top_altitude_km = 100.0
+offset_g_cm2    = 1510.0311
+scale_height_cm = 701471.17
+
+# The outermost layer must extend well above the injection altitude: a primary
+# injected outside the topmost layer lands in the universe node and is erased
+# (tambo_shower rejects such a run rather than silently losing the shower).
+# This layer's density is offset/scaleHeight ~ 1e-9 g/cm^3, i.e. effective
+# vacuum, so extending it to 5000 km rather than the 112.8 km used by the
+# CORSIKA 7 presets costs nothing physically.
+[[atmosphere.layer]]
+type            = "linear"
+top_altitude_km = 5000.0
+offset_g_cm2    = 1.0
+scale_height_cm = 1.0e9

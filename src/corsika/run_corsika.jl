@@ -1,5 +1,37 @@
 
 """
+    site_file_path(config::Dict) -> String
+
+Path to the site file named by `[corsika] site_file`, checked for existence.
+
+A site file bundles the atmosphere layer profile with the geomagnetic field and
+is passed to `tambo_shower` as `--site-file`; the schema, and the files shipped
+in `resources/sites/`, are documented in `resources/sites/README.md`.
+
+The value is a path. A relative path is resolved against the package root, so
+`"resources/sites/colca.toml"` works; an absolute path is used as given.
+
+The relative-path handling is deliberately done here rather than relying on
+[`relativize!`](@ref): not every consumer runs it (`test/corsika_binary/1_plan.jl`
+reads its configs with a bare `TOML.parsefile`), and a path the binary must open
+should not depend on which loader the caller happened to use. Resolving an
+already-absolute path is a no-op, so this composes with `relativize!` rather
+than fighting it.
+"""
+function site_file_path(config::Dict)
+    path = get(config, "site_file", nothing)
+    isnothing(path) && error(
+        "[corsika] requires a `site_file` key: the path to a site TOML supplying " *
+        "the atmosphere layer profile and the geomagnetic field. TamboSim ships " *
+        "resources/sites/colca.toml and resources/sites/lima.toml; see " *
+        "resources/sites/README.md for the schema.")
+    resolved = isabspath(path) ? String(path) :
+               joinpath(get_tambosim_path(), path)
+    isfile(resolved) || error("[corsika] site_file not found: $(resolved)")
+    return resolved
+end
+
+"""
     _make_job(particle, event_id, decay_id, base_seed, detector_bvh, base_outdir)
 
 Build a single CORSIKA job record. Returns `nothing` if `particle`'s
@@ -90,6 +122,9 @@ Build the argv vector for one invocation of `tambo_shower`.
   disable the terrain mesh.
 - `ecuts`: 3-tuple `(emcut, mucut, hadcut)` of `Quantity` energies.
 - `config::Dict`: `[corsika]` TOML table. Consults `"corsika_path"`,
+  `"site_file"` (**required**, no default; path to a site TOML -- see
+  [`site_file_path`](@ref) -- which supplies the atmosphere layer profile
+  and the geomagnetic field),
   `"hadron_model"` (default `"SIBYLL-2.3d"`), `"thinning"` (default
   `1e-6`), `"nevent"` (default `1`), `"force_overwrite"` (default
   `false`; passes `--force` to the binary), `"time_command"` (default
@@ -110,6 +145,8 @@ function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, conf
     emcut, mucut, hadcut = ustrip.(collect(ecuts) .|> u"GeV")
     taucut = mucut  # no separate tau cut in config; default to muon cut
 
+    site_file = site_file_path(config)
+
     hadron_model    = get(config, "hadron_model", "SIBYLL-2.3d")
     thinning        = get(config, "thinning", 1e-6)
     nevent          = get(config, "nevent", 1)
@@ -126,6 +163,7 @@ function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, conf
         "--intercept-y", string(interceptY),
         "--intercept-z", string(interceptZ),
         "--obs-mesh",    mesh_paths.obs,
+        "--site-file",   site_file,
         "--emcut",       string(emcut),
         "--hadcut",      string(hadcut),
         "--mucut",       string(mucut),

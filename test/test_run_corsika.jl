@@ -15,7 +15,7 @@ import TamboSim: _get_last_frame, inject_cosmicrays!
 using JSON3
 using TOML
 
-const _TAMBOSIM_PATH = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
+const _TAMBOSIM_PATH = get_tambosim_path()
 const _GEOMETRY_PATH = joinpath(_TAMBOSIM_PATH, "resources", "geometry",
                                 "colca_valley_3000.jld2")
 const _NEUTRINO_OUTPUT_PATH = joinpath(_TAMBOSIM_PATH, "examples",

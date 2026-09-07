@@ -45,6 +45,10 @@ function run_propagation_decay_fraction_tests()
     detector_props = precompute_detector_properties(topography, detector_region)
     as = UniformAngularSampler(deg2rad(0.0), deg2rad(117.0), deg2rad(90.0), deg2rad(290.0))
 
+    # PROPOSAL must be initialized before injection (the through-Earth step uses it
+    # for charged-lepton transport).
+    init_proposal(Dict("tablespath" => get_tambosim_path() * "/resources/proposal_tables", "vcut" => 0.5))
+
     # Phase 1: inject events and collect successful final states
     n_events = 1000
     seed = 7891

@@ -245,14 +245,14 @@ function build_phase_space(m::Frame; prefix::String="injection")
         "for the current schema."
     )
     strategy = cfg["strategy"]
-    if strategy == "NeutrinoInjection"
+    if strategy == "NeutrinoInjection" || strategy == "MuonNeutrinoInjection"
         return NeutrinoInjectionPS(args...)
     elseif strategy == "CosmicRayInjection"
         return CosmicRayInjectionPS(args...)
     else
         error(
             "build_phase_space: unknown strategy \"$strategy\". " *
-            "Known strategies: \"NeutrinoInjection\", \"CosmicRayInjection\"."
+            "Known strategies: \"NeutrinoInjection\", \"MuonNeutrinoInjection\", \"CosmicRayInjection\"."
         )
     end
 end

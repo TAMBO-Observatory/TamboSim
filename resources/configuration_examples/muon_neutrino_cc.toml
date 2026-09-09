@@ -1,0 +1,35 @@
+# Standard muon-neutrino charged-current configuration for the Colca Valley site.
+# The injected muon is passed directly to CORSIKA (no PROPOSAL decay step).
+
+[geometry]
+geometry_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_3000.jld2"
+
+[injection]
+strategy = "MuonNeutrinoInjection"
+seed = 925
+nevent = 500000
+pdg = 14
+gamma = 1.5
+emin = 3.0e5 # GeV
+emax = 1.0e9 # GeV
+thetamin = 0   # degrees
+thetamax = 117 # degrees
+phimin = 90    # degrees
+phimax = 290   # degrees
+xs_location = "_TAMBOSIM_PATH_/resources/cross_section_tables/cross_sections.h5:CSMS_nutau"
+
+[proposal]
+seed = 925
+ecut = -1
+vcut = 1e-2
+do_continuous = true
+tablespath = "_TAMBOSIM_PATH_/resources/proposal_tables/"
+
+[corsika]
+seed = 925
+thinning = 1.0e-6
+hadron_model = "SIBYLL-2.3d"
+hadron_ecut = 0.05   # GeV
+em_ecut = 0.001      # GeV
+mu_ecut = 0.05       # GeV
+corsika_path = "_TAMBOSIM_PATH_/src/corsika/tambo_shower/build/tambo_shower"

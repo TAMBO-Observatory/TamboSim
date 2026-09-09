@@ -35,6 +35,7 @@
 #include <corsika/framework/process/ContinuousProcess.hpp>
 #include <corsika/framework/process/DynamicInteractionProcess.hpp>
 #include <corsika/framework/process/SecondariesProcess.hpp>
+#include <stdexcept>  // std::runtime_error, for FirstInteractionStop sentinel
 #include <corsika/framework/process/ProcessSequence.hpp>
 #include <corsika/framework/process/SwitchProcessSequence.hpp>
 #include <corsika/framework/random/RNGManager.hpp>
@@ -95,6 +96,8 @@
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
 
+#include <fstream>
+#include <sstream>
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
@@ -241,7 +244,21 @@ struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
 struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
                         public ContinuousProcess<RockEMAbsorber> {
   void const* rockNode_; // stable address of the terrain-rock node, or nullptr
-  explicit RockEMAbsorber(void const* rockNode) : rockNode_(rockNode) {}
+  // Energy erased from the FIRST secondaries view only.  The absorber runs before
+  // the InteractionWriter in the sequence, so without this tally the recorded
+  // first-interaction secondaries appear to violate energy conservation for
+  // showers whose vertex sits in/near rock (tau decays at the mountain).  The
+  // sub-shower driver needs E_secondaries + E_absorbed to reconcile with the
+  // primary; serial deletes the same particles, so the survivors are exactly
+  // what a split should launch.
+  std::shared_ptr<HEPEnergyType> absorbedFirstView_;
+  std::shared_ptr<int> viewCounter_;
+  explicit RockEMAbsorber(void const* rockNode)
+      : rockNode_(rockNode)
+      , absorbedFirstView_(std::make_shared<HEPEnergyType>(0_GeV))
+      , viewCounter_(std::make_shared<int>(0)) {}
+
+  HEPEnergyType getAbsorbedFirstView() const { return *absorbedFirstView_; }
 
   static bool isEM(Code pid) {
     return pid == Code::Electron || pid == Code::Positron || pid == Code::Photon;
@@ -250,10 +267,15 @@ struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
   template <typename TStackView>
   void doSecondaries(TStackView& vS) {
     if (rockNode_ == nullptr) return;
+    bool const firstView = (++(*viewCounter_) == 1);
     auto p = vS.begin();
     while (p != vS.end()) {
       if (isEM(p.getPID()) &&
           static_cast<void const*>(p.getNode()) == rockNode_) {
+        if (firstView) {
+          *absorbedFirstView_ +=
+              p.getKineticEnergy() + get_mass(p.getPID());
+        }
         p.erase();
       }
       ++p; // erase()+(++) is the SecondaryView idiom (cf. ParticleCut)
@@ -272,6 +294,58 @@ struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
   template <typename TParticle, typename TTrajectory>
   LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
     return std::numeric_limits<double>::infinity() * 1_m; // never limit steps
+  }
+};
+
+// Sub-shower parallelism: stop the cascade right after the first interaction.
+// A SecondariesProcess fires on every interaction that produces secondaries;
+// on the first one (when enabled) we throw a sentinel that main() catches, after
+// the InteractionWriter earlier in the sequence has already recorded the
+// secondaries.  This lets an external orchestrator read those secondaries and
+// launch each as an independent sub-shower.  Mirrors CorsikaParallelism.jl.
+template <typename TStack>
+class FirstInteractionStopper
+    : public SecondariesProcess<FirstInteractionStopper<TStack>> {
+  mutable int interaction_count_ = 0;
+  bool enabled_;
+
+public:
+  explicit FirstInteractionStopper(bool enabled) : enabled_(enabled) {}
+
+  template <typename TStackView>
+  void doSecondaries(TStackView&) const {
+    if (!enabled_) return;
+    if (++interaction_count_ >= 1) {
+      throw std::runtime_error("FirstInteractionStop");
+    }
+  }
+};
+
+// Validation aid for sub-shower parallelism: re-seed the RNG streams *at* the
+// first interaction.  Two runs with the same --seed therefore share their first
+// interaction bit-for-bit and diverge only afterwards, which is the matched null
+// distribution needed to judge split-vs-serial agreement (a plain --seed change
+// perturbs the first interaction too, inflating the reference spread).
+// Disabled unless --reseed-after-first-interaction is given; when the value
+// equals the primary seed the stream state is restored identically, so a run
+// must reproduce the un-reseeded output bit-for-bit (that is the self-test).
+class PostFirstInteractionReseeder
+    : public SecondariesProcess<PostFirstInteractionReseeder> {
+  mutable int interaction_count_ = 0;
+  bool enabled_;
+  long seed_;
+
+public:
+  PostFirstInteractionReseeder(bool enabled, long seed)
+      : enabled_(enabled), seed_(seed) {}
+
+  template <typename TStackView>
+  void doSecondaries(TStackView&) const {
+    if (!enabled_) return;
+    if (++interaction_count_ != 1) return; // only at the first interaction
+    CORSIKA_LOG_INFO("Re-seeding RNG streams after first interaction with {}",
+                     seed_);
+    RNGManager<>::getInstance().setSeed(seed_);
   }
 };
 
@@ -340,6 +414,30 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
 // ---------------------------------------------------------------------------
 // Random stream registration
 // ---------------------------------------------------------------------------
+// One primary of a --job-list run.
+struct JobEntry {
+  int pdg;
+  double e_gev, ix, iy, iz, cx, cy, cz;
+  long seed;
+};
+
+static std::vector<JobEntry> readJobList(std::string const& path) {
+  std::vector<JobEntry> out;
+  std::ifstream f(path);
+  if (!f) { CORSIKA_LOG_CRITICAL("Cannot open --job-list {}", path); return out; }
+  std::string line;
+  while (std::getline(f, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    JobEntry j;
+    std::istringstream ss(line);
+    if (ss >> j.pdg >> j.e_gev >> j.ix >> j.iy >> j.iz >> j.cx >> j.cy >> j.cz >> j.seed)
+      out.push_back(j);
+    else
+      CORSIKA_LOG_WARN("Skipping malformed job-list line: {}", line);
+  }
+  return out;
+}
+
 long registerRandomStreams(long seed) {
   RNGManager<>::getInstance().registerRandomStream("cascade");
   RNGManager<>::getInstance().registerRandomStream("qgsjet");
@@ -675,6 +773,11 @@ int main(int argc, char** argv) {
       ->group("Primary");
       
   // ---- Geometry / mesh ----
+  app.add_option("--job-list",
+                 "file with one primary per line: pdg E_gev ix iy iz cx cy cz seed; "
+                 "runs all in one process (terrain/BVH/tables loaded once); "
+                 "overrides --pdg/--energy/--inject-*/--intercept-*/-N")
+      ->default_val("");
   app.add_option("--obs-mesh",
                  "Path to the observation-region PLY file (ECEF metres)")
       ->required()
@@ -756,6 +859,11 @@ int main(int argc, char** argv) {
       ->default_val(1e-6)
       ->check(CLI::Range(0., 1.))
       ->group("Thinning");
+  app.add_option("--thin-onset-gev",
+                 "absolute EM-thinning onset energy in GeV (0 = auto: emthin * primary "
+                 "energy). Sub-shower drivers set this to the ORIGINAL primary's scale "
+                 "so split cascades thin exactly like the serial run")
+      ->default_val(0.);
   app.add_option("--max-weight",
                  "Maximum weight for EM thinning (0 = Kobal optimum * 0.5)")
       ->default_val(0)
@@ -786,12 +894,31 @@ int main(int argc, char** argv) {
       ->default_val(0)
       ->check(CLI::NonNegativeNumber)
       ->group("Misc");
+
+  // Validation-only: re-seed all RNG streams at the first interaction so that
+  // two runs sharing --seed share their first interaction but diverge after it.
+  app.add_option("--reseed-after-first-interaction",
+                 "Re-seed RNG streams at the first interaction with this seed "
+                 "(0 = disabled). Validation aid; not for production runs.")
+      ->default_val(0)
+      ->check(CLI::NonNegativeNumber)
+      ->group("Misc");
   bool force_interaction = false;
   app.add_flag("--force-interaction", force_interaction,
                "Force the first interaction at the injection point")
       ->group("Misc");
   bool force_decay = false;
   app.add_flag("--force-decay", force_decay, "Force the primary to immediately decay")
+      ->group("Misc");
+  // ---- Sub-shower parallelism (see CorsikaParallelism.jl orchestrator) ----
+  bool stop_after_first_interaction = false;
+  app.add_flag("--stop-after-first-interaction", stop_after_first_interaction,
+               "Stop the cascade after the first interaction (dump secondaries and exit)")
+      ->group("Misc");
+  int generation = 0;
+  app.add_option("--generation", generation,
+                 "Cascade generation (0 = primary split run, 1+ = sub-shower)")
+      ->default_val(0)
       ->group("Misc");
   app.add_option("-v,--verbosity", "Verbosity level: warn, info, debug, trace")
       ->default_val("info")
@@ -948,9 +1075,9 @@ int main(int argc, char** argv) {
   }
   double const pnx = dx / dnorm, pny = dy / dnorm, pnz = dz / dnorm;
 
-  DirectionVector const propDir{rootCS, {pnx, pny, pnz}};
+  DirectionVector propDir{rootCS, {pnx, pny, pnz}};
   Point const showerCore{rootCS, cx * 1_m, cy * 1_m, cz * 1_m};
-  Point const injectionPos{rootCS, injectX * 1_m, injectY * 1_m, injectZ * 1_m};
+  Point injectionPos{rootCS, injectX * 1_m, injectY * 1_m, injectZ * 1_m};
 
   // Shower axis: from injection through core and 20% beyond
   media::ShowerAxis const showerAxis{injectionPos, (showerCore - injectionPos) * 1.2,
@@ -1122,6 +1249,7 @@ int main(int argc, char** argv) {
   // Per-shower quantities extracted from CLI to avoid repeated parsing
   double const emthinfrac = app["--emthin"]->as<double>();
   double const maxWeightArg = app["--max-weight"]->as<double>();
+  double const thinOnsetGeV = app["--thin-onset-gev"]->as<double>();
   double const eSlope = app["--eslope"]->as<double>();
   double const maxDefl = app["--max-deflection-angle"]->as<double>();
   int const nev = app["--nevent"]->as<int>();
@@ -1136,11 +1264,17 @@ int main(int argc, char** argv) {
     double const maxW = (maxWeightArg > 0)
                             ? maxWeightArg
                             : 0.5 * emthinfrac * primaryTotalEnergy / 1_GeV;
-    EMThinning thinning{emthinfrac * primaryTotalEnergy, maxW, !multithin};
+    HEPEnergyType const thinOnset =
+        (thinOnsetGeV > 0) ? thinOnsetGeV * 1_GeV : emthinfrac * primaryTotalEnergy;
+    EMThinning thinning{thinOnset, maxW, !multithin};
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
     RockExitRelocator rockRelocator{env, rockNodePtr};
     RockEMAbsorber rockEMAbsorber{rockNodePtr};
     RockInterfaceTripwire rockTripwire{rockNodePtr};
+    FirstInteractionStopper<StackType> firstIntStopper(stop_after_first_interaction);
+    long const reseed_after_first = app["--reseed-after-first-interaction"]->as<long>();
+    PostFirstInteractionReseeder postFirstReseeder(reseed_after_first != 0,
+                                                   reseed_after_first);
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut.
     // rockRelocator runs early so any later boundary-aware process in the same
@@ -1157,7 +1291,11 @@ int main(int argc, char** argv) {
                                       emContinuous,
                                       longprof, sequence,
                                       // trackWriter,  
-                                      inter_writer, 
+                                      inter_writer,
+                                      // firstIntStopper AFTER inter_writer: the writer
+                                      // records the secondaries, then the stopper throws.
+                                      postFirstReseeder,
+                                      firstIntStopper,
                                       thinning, cut);
 
     TrackingType tracking(maxDefl);
@@ -1166,6 +1304,8 @@ int main(int argc, char** argv) {
     stack.clear();
 
     CORSIKA_LOG_INFO("Primary: {}  E_kin = {} GeV", beamCode, eKin / 1_GeV);
+    // Reported for the sub-shower driver's energy ledger (see RockEMAbsorber).
+    // Printed after the shower below as well, once the value is final.
     CORSIKA_LOG_INFO("Shower {} of {}", i_shower, nev);
 
     auto const primaryProperties =
@@ -1182,10 +1322,59 @@ int main(int argc, char** argv) {
     }
 
     primaryWriter.recordPrimary(primaryProperties);
-    EAS.run();
+    // Run the cascade.  When --stop-after-first-interaction is set, the
+    // FirstInteractionStopper throws "FirstInteractionStop" after the first
+    // interaction; catch it and flush this shower's output (Cascade::run would
+    // normally call endOfShower internally, but the throw unwinds before that).
+    try {
+      EAS.run();
+    } catch (std::runtime_error const& e) {
+      if (stop_after_first_interaction &&
+          std::string(e.what()) == "FirstInteractionStop") {
+        output.endOfShower();
+        CORSIKA_LOG_INFO("Cascade stopped after first interaction (generation {})",
+                         generation);
+        CORSIKA_LOG_INFO("RockEMAbsorber removed {} GeV of EM secondaries from the "
+                         "first interaction view",
+                         rockEMAbsorber.getAbsorbedFirstView() / 1_GeV);
+      } else {
+        throw;
+      }
+    }
   };
 
+  std::string const jobListPath = app["--job-list"]->as<std::string>();
   output.startOfLibrary();
+  if (!jobListPath.empty()) {
+    // Multi-primary mode: one process, setup amortised over all entries.
+    auto const jobs = readJobList(jobListPath);
+    if (jobs.empty()) {
+      CORSIKA_LOG_CRITICAL("--job-list {} contains no usable entries", jobListPath);
+      return EXIT_FAILURE;
+    }
+    CORSIKA_LOG_INFO("Job list: {} primaries in one process", jobs.size());
+    int i = 0;
+    for (auto const& j : jobs) {
+      ++i;
+      // Per-entry primary state. These shadow-update the variables runOneShower
+      // captures by reference.
+      RNGManager<>::getInstance().setSeed(j.seed); // same mechanism as the
+                                                   // post-first-interaction reseeder
+      beamCode = convert_from_PDG(PDGCode(j.pdg));
+      double const jdx = j.cx - j.ix, jdy = j.cy - j.iy, jdz = j.cz - j.iz;
+      double const jn = std::sqrt(jdx * jdx + jdy * jdy + jdz * jdz);
+      if (jn == 0.0) {
+        CORSIKA_LOG_WARN("job {} : inject == intercept, skipping", i);
+        continue;
+      }
+      propDir = DirectionVector{rootCS, {jdx / jn, jdy / jn, jdz / jn}};
+      injectionPos = Point{rootCS, j.ix * 1_m, j.iy * 1_m, j.iz * 1_m};
+      CORSIKA_LOG_INFO("job {} / {} : pdg {} E {} GeV seed {}", i, jobs.size(),
+                       j.pdg, j.e_gev, j.seed);
+      auto obsMeshSequence = make_sequence(observationLevel);
+      runOneShower(obsMeshSequence, i, (j.e_gev + get_mass(beamCode) / 1_GeV) * 1_GeV);
+    }
+  } else {
   for (int i = 1; i <= nev; ++i) {
     PowerLawDistribution<HEPEnergyType> plRng(eSlope, eMin, eMax);
     HEPEnergyType const E = (eMax == eMin)
@@ -1193,6 +1382,7 @@ int main(int argc, char** argv) {
         : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
     auto obsMeshSequence = make_sequence(observationLevel);
     runOneShower(obsMeshSequence, i, E);
+  }
   }
 
   output.endOfLibrary();

@@ -189,19 +189,83 @@ function run_sbatch(prefix::String)
 end
 
 """
-    dump_to_file(io::IO) -> executor
+    _particle_family(pdg) -> Symbol
 
-Return a [`corsika_run!`](@ref) executor that writes one JSONL record per
-job to `io`. Each line is a JSON object with keys `event_id`, `decay_id`,
-`outdir`, and `argv` (the full argv vector). Does not create directories
-or run anything; consumable by Snakemake / OSG / `jq` / bash.
+Coarse particle family for per-type parallelization thresholds:
+`:tau` (|pdg|==16), `:muon` (|pdg|==14), `:neutrino` (|pdg|==12),
+`:cosmic` (proton 2212 or a nucleus, |pdg| >= 1_000_000_000), else `:other`.
 """
-function dump_to_file(io::IO)
+function _particle_family(pdg::Integer)
+    a = abs(Int(pdg))
+    # The CORSIKA shower primary is the charged lepton / hadron produced at the
+    # interaction/decay vertex — NOT the parent neutrino. So key on the shower
+    # primary's PDG: tau=15, mu=13, proton/nuclei=cosmic. (Neutrinos 12/14/16 are
+    # never CORSIKA primaries — they're skipped upstream — but map them too so a
+    # neutrino-tagged config key still resolves sensibly.)
+    (a == 15 || a == 16) && return :tau     # tau lepton (or nu_tau)
+    (a == 13 || a == 14) && return :muon    # muon (or nu_mu)
+    a == 12 && return :neutrino
+    (a == 2212 || a >= 1_000_000_000) && return :cosmic
+    return :other
+end
+
+"""
+    _parallelize_decision(pcfg, pdg, energy_gev) -> (do_split::Bool, nworkers, threshold)
+
+Decide from a `[corsika.parallelize]` config table `pcfg` whether one shower is
+split: true iff `pcfg["enabled"]` and `energy_gev >= threshold_gev[family]`.
+A missing family threshold defaults to `Inf` (never) except `:cosmic` (1 PeV).
+A threshold given as the string "inf" also means never.
+"""
+function _parallelize_decision(pcfg, pdg::Integer, energy_gev::Real)
+    (pcfg === nothing || !get(pcfg, "enabled", false)) && return (false, 8, Inf)
+    fam = String(_particle_family(pdg))
+    thr_tbl = get(pcfg, "threshold_gev", Dict{String,Any}())
+    default_thr = fam == "cosmic" ? 1.0e6 : Inf
+    raw = get(thr_tbl, fam, default_thr)
+    thr = (raw isa AbstractString && lowercase(String(raw)) == "inf") ? Inf : Float64(raw)
+    nworkers = Int(get(pcfg, "nworkers", 8))
+    return (energy_gev >= thr, nworkers, thr)
+end
+
+"""
+    dump_to_file(io::IO, parallelize_cfg=nothing) -> executor
+
+Return a [`corsika_run!`](@ref) executor that writes one JSONL record per job to
+`io`. Each line is a JSON object with `event_id`, `decay_id`, `outdir`, `argv`.
+When `parallelize_cfg` (the `[corsika.parallelize]` table) is given, each record
+also carries `parallelize`, `nworkers`, `split_threshold_gev`, `scheduler`, and
+`keep_intermediates` so `3_take_shower.sh` can dispatch splittable showers to the
+sub-shower driver. Does not create directories or run anything.
+"""
+function dump_to_file(io::IO, parallelize_cfg=nothing)
     return function (argv, job)
-        record = (event_id=job.event_id,
-                  decay_id=job.decay_id,
-                  outdir=job.outdir,
-                  argv=argv)
+        base = (event_id=job.event_id,
+                decay_id=job.decay_id,
+                outdir=job.outdir,
+                argv=argv)
+        record = if parallelize_cfg === nothing
+            base
+        else
+            e_gev = ustrip(job.primary.energy |> u"GeV")
+            do_par, nworkers, thr = _parallelize_decision(parallelize_cfg,
+                                                          Int(job.primary.pdg), e_gev)
+            # JSON has no Inf; emit an infinite threshold as the string "inf"
+            # (the driver's cost gate parses that back to a never-split sentinel).
+            thr_json = isfinite(thr) ? thr : "inf"
+            merge(base, (parallelize=do_par,
+                         nworkers=nworkers,
+                         split_threshold_gev=thr_json,
+                         scheduler=get(parallelize_cfg, "scheduler", "workstealing"),
+                         keep_intermediates=get(parallelize_cfg, "keep_intermediates", false),
+                         # recursion mode: "single" (1-gen, default+proven) or
+                         # "energy_dependent" (re-split fat sub-showers). The extra
+                         # knobs only take effect for the energy_dependent driver.
+                         recursion=get(parallelize_cfg, "recursion", "single"),
+                         split_frac_of_primary=get(parallelize_cfg, "split_frac_of_primary", 0.10),
+                         split_max_parent_frac=get(parallelize_cfg, "split_max_parent_frac", 0.99),
+                         max_generations=get(parallelize_cfg, "max_generations", 8)))
+        end
         JSON3.write(io, record)
         write(io, '\n')
     end

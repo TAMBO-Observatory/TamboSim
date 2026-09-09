@@ -688,6 +688,120 @@ static TerrainRockResult registerTerrainRock(EnvType& env,
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
+// =====================================================================
+// Resumable checkpoints.
+//
+// A long shower killed at the wall today loses ALL its work and is retried
+// from scratch (sometimes >3 times). With --checkpoint-file set, SIGTERM /
+// SIGUSR1 (e.g. sbatch --signal=USR1@600) or the --checkpoint-after-s soft
+// deadline makes the CheckpointTripwire dump every pending stack particle to
+// a text file and stop the run with exit code 3; ground particles produced so
+// far are kept (writers are finalized through the normal endOfShower path).
+// A retry with --resume-from re-injects the dumped particles and finishes
+// only the remaining work; its output is merged with the partial output
+// downstream. Safe-dump argument: the cascade only updates a particle's stack
+// entry AFTER doContinuous returns (Cascade.inl), so throwing from the FIRST
+// continuous process observes a consistent stack. Propagation is Markovian in
+// (pid, E, x, p, t, weight), so no other state is needed; RNG streams are NOT
+// restored (a resumed run uses a fresh seed, statistically equivalent but not
+// bit-identical to the uninterrupted run).
+// =====================================================================
+#include <chrono>
+#include <csignal>
+#include <cstdio>
+#include <iomanip>
+
+namespace ckpt {
+  volatile std::sig_atomic_t requested = 0; // async-signal-safe request flag
+  inline void onSignal(int) { requested = 1; }
+  inline std::chrono::steady_clock::time_point t_start =
+      std::chrono::steady_clock::now(); // process start, for the soft deadline
+} // namespace ckpt
+
+struct ResumeEntry {
+  int pdg;
+  double e_gev, x, y, z, dx, dy, dz, t_ns, w;
+};
+
+static std::vector<ResumeEntry> readResumeFile(std::string const& path) {
+  std::vector<ResumeEntry> out;
+  std::ifstream f(path);
+  if (!f) {
+    CORSIKA_LOG_CRITICAL("Cannot open --resume-from {}", path);
+    return out;
+  }
+  std::string line;
+  while (std::getline(f, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    ResumeEntry r;
+    std::istringstream ss(line);
+    if (ss >> r.pdg >> r.e_gev >> r.x >> r.y >> r.z >> r.dx >> r.dy >> r.dz >>
+        r.t_ns >> r.w)
+      out.push_back(r);
+    else
+      CORSIKA_LOG_WARN("Skipping malformed resume line: {}", line);
+  }
+  return out;
+}
+
+template <typename TStack>
+class CheckpointTripwire : public ContinuousProcess<CheckpointTripwire<TStack>> {
+  TStack* stack_ = nullptr;
+  std::string path_;
+  double deadline_s_;
+
+public:
+  CheckpointTripwire(std::string path, double deadline_s)
+      : path_(std::move(path)), deadline_s_(deadline_s) {}
+
+  // The stack is created after the process sequence, so it is attached late.
+  void attach(TStack& s) { stack_ = &s; }
+
+  template <typename TParticle>
+  ProcessReturn doContinuous(Step<TParticle>&, bool const) {
+    if (path_.empty() || stack_ == nullptr) return ProcessReturn::Ok;
+    bool fire = (ckpt::requested != 0);
+    if (!fire && deadline_s_ > 0)
+      fire = std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                           ckpt::t_start)
+                 .count() >= deadline_s_;
+    if (!fire) return ProcessReturn::Ok;
+    dumpStack();
+    throw std::runtime_error("CheckpointStop");
+  }
+
+  template <typename TParticle, typename TTrajectory>
+  LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
+    return std::numeric_limits<double>::infinity() * 1_m; // never limit steps
+  }
+
+private:
+  void dumpStack() const {
+    auto const& cs = get_root_CoordinateSystem();
+    std::string const tmp = path_ + ".partial"; // write-then-rename: atomic
+    std::ofstream f(tmp);
+    f << std::setprecision(17);
+    f << "# tambo_shower checkpoint: pdg e_kin_gev x_m y_m z_m dx dy dz t_ns weight\n";
+    std::size_t n = 0;
+    for (auto it = stack_->begin(); it != stack_->end(); ++it) {
+      if (stack_->isErased(it)) continue;
+      auto&& p = *it;
+      auto const pos = p.getPosition().getCoordinates(cs);
+      // raw doubles: the dimensionless quantity's operator<< appends '[]'
+      auto const& dir = p.getDirection().getComponents(cs).getEigenVector();
+      f << static_cast<int>(get_PDG(p.getPID())) << ' '
+        << p.getKineticEnergy() / 1_GeV << ' ' << pos.getX() / 1_m << ' '
+        << pos.getY() / 1_m << ' ' << pos.getZ() / 1_m << ' ' << dir[0]
+        << ' ' << dir[1] << ' ' << dir[2] << ' ' << p.getTime() / 1_ns
+        << ' ' << p.getWeight() << '\n';
+      ++n;
+    }
+    f.close();
+    std::rename(tmp.c_str(), path_.c_str());
+    CORSIKA_LOG_WARN("Checkpoint: {} pending particles written to {}", n, path_);
+  }
+};
+
 int main(int argc, char** argv) {
 
   CLI::App app{"Simulate air showers at the TAMBO site using CORSIKA 8."};
@@ -855,6 +969,24 @@ int main(int argc, char** argv) {
       ->default_val("both")
       ->check(CLI::IsMember({"neutral", "NC", "charged", "CC", "both"}))
       ->group("Misc");
+
+  // ---- Resumable checkpoints ----
+  app.add_option("--checkpoint-file",
+                 "Arm checkpointing: on SIGTERM/SIGUSR1 or --checkpoint-after-s "
+                 "the pending stack is dumped here and the run exits with code 3")
+      ->default_val("")
+      ->group("Checkpoint");
+  app.add_option("--checkpoint-after-s",
+                 "Soft wall-clock deadline (s) for self-checkpointing "
+                 "(0 = only on signal)")
+      ->default_val(0)
+      ->check(CLI::NonNegativeNumber)
+      ->group("Checkpoint");
+  app.add_option("--resume-from",
+                 "Resume a checkpointed run: inject the dumped particles instead "
+                 "of a primary (pass the ORIGINAL --energy and --max-weight)")
+      ->default_val("")
+      ->group("Checkpoint");
 
   #pragma endregion
 
@@ -1179,7 +1311,31 @@ int main(int argc, char** argv) {
   double const maxWeightArg = app["--max-weight"]->as<double>();
   double const eSlope = app["--eslope"]->as<double>();
   double const maxDefl = app["--max-deflection-angle"]->as<double>();
-  int const nev = app["--nevent"]->as<int>();
+  int nev = app["--nevent"]->as<int>();
+
+  // ---- Resumable checkpoint state ----
+  std::string const checkpointPath = app["--checkpoint-file"]->as<std::string>();
+  double const checkpointAfterS = app["--checkpoint-after-s"]->as<double>();
+  std::string const resumeFrom = app["--resume-from"]->as<std::string>();
+  std::vector<ResumeEntry> resumeEntries;
+  if (!resumeFrom.empty()) {
+    resumeEntries = readResumeFile(resumeFrom);
+    if (resumeEntries.empty()) {
+      CORSIKA_LOG_CRITICAL("--resume-from {} has no usable entries", resumeFrom);
+      return EXIT_FAILURE;
+    }
+    if (nev != 1) {
+      CORSIKA_LOG_WARN("--resume-from implies -N 1 (was {})", nev);
+      nev = 1;
+    }
+  }
+  if (!checkpointPath.empty()) {
+    std::signal(SIGTERM, ckpt::onSignal);
+    std::signal(SIGUSR1, ckpt::onSignal);
+    CORSIKA_LOG_INFO("Checkpoint armed: file {}, soft deadline {} s (0 = signal only)",
+                     checkpointPath, checkpointAfterS);
+  }
+  bool checkpointFired = false;
 
   // Lambda that runs one shower given a pre-assembled process sequence.
   // EMThinning and StackInspector are added here because they depend on the
@@ -1196,6 +1352,7 @@ int main(int argc, char** argv) {
     RockExitRelocator rockRelocator{env, rockNodePtr};
     RockEMAbsorber rockEMAbsorber{rockNodePtr};
     RockInterfaceTripwire rockTripwire{env, rockNodePtr};
+    CheckpointTripwire<StackType> ckptTrip{checkpointPath, checkpointAfterS};
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut.
     // rockRelocator runs early so any later boundary-aware process in the same
@@ -1204,7 +1361,9 @@ int main(int argc, char** argv) {
     // any interaction is sampled for it that step (collapsing the cascade).
     // rockTripwire is a passive per-step invariant check (logical==rock implies
     // contains()); it mutates nothing and only aborts on a sustained violation.
-    auto fullSequence = make_sequence(stackInspect, rockRelocator, rockEMAbsorber,
+    // ckptTrip MUST be first: it throws before any other process acts on the
+    // step, so the stack dump is consistent (see machinery comment above).
+    auto fullSequence = make_sequence(ckptTrip, stackInspect, rockRelocator, rockEMAbsorber,
                                       rockTripwire,
                                       neutrinoPrimaryPythia, hadronSequence,
                                       decaySequence, emCascade, 
@@ -1218,26 +1377,52 @@ int main(int argc, char** argv) {
     TrackingType tracking(maxDefl);
     StackType stack;
     Cascade EAS(env, tracking, fullSequence, output, stack);
+    ckptTrip.attach(stack);
     stack.clear();
 
     CORSIKA_LOG_INFO("Primary: {}  E_kin = {} GeV", beamCode, eKin / 1_GeV);
     CORSIKA_LOG_INFO("Shower {} of {}", i_shower, nev);
 
-    auto const primaryProperties =
-        std::make_tuple(beamCode, eKin, propDir.normalized(), injectionPos, 0_ns);
-    stack.addParticle(primaryProperties);
+    if (!resumeEntries.empty()) {
+      // Resume mode: refill the stack from the checkpoint dump. No
+      // recordPrimary / forced interaction here: the original run already
+      // recorded the primary and consumed any forced first interaction.
+      CORSIKA_LOG_INFO("Resume: injecting {} checkpointed particles",
+                       resumeEntries.size());
+      for (auto const& r : resumeEntries) {
+        auto const code = convert_from_PDG(PDGCode(r.pdg));
+        DirectionVector const dir{rootCS, {r.dx, r.dy, r.dz}};
+        Point const rpos{rootCS, r.x * 1_m, r.y * 1_m, r.z * 1_m};
+        auto rp = stack.addParticle(
+            std::make_tuple(code, r.e_gev * 1_GeV, dir, rpos, r.t_ns * 1_ns));
+        rp.setWeight(r.w);
+      }
+    } else {
+      auto const primaryProperties =
+          std::make_tuple(beamCode, eKin, propDir.normalized(), injectionPos, 0_ns);
+      stack.addParticle(primaryProperties);
 
-    if (force_interaction) {
-      CORSIKA_LOG_INFO("Forcing first interaction at injection point.");
-      EAS.forceInteraction();
-    }
-    if (force_decay) {
-      CORSIKA_LOG_INFO("Forcing primary decay.");
-      EAS.forceDecay();
-    }
+      if (force_interaction) {
+        CORSIKA_LOG_INFO("Forcing first interaction at injection point.");
+        EAS.forceInteraction();
+      }
+      if (force_decay) {
+        CORSIKA_LOG_INFO("Forcing primary decay.");
+        EAS.forceDecay();
+      }
 
-    primaryWriter.recordPrimary(primaryProperties);
-    EAS.run();
+      primaryWriter.recordPrimary(primaryProperties);
+    }
+    try {
+      EAS.run();
+    } catch (std::runtime_error const& e) {
+      if (!checkpointPath.empty() && std::string(e.what()) == "CheckpointStop") {
+        output.endOfShower(); // keep the partial ground output
+        checkpointFired = true;
+      } else {
+        throw;
+      }
+    }
   };
 
   output.startOfLibrary();
@@ -1248,9 +1433,15 @@ int main(int argc, char** argv) {
         : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
     auto obsMeshSequence = make_sequence(observationLevel);
     runOneShower(obsMeshSequence, i, E);
+    if (checkpointFired) break;
   }
 
   output.endOfLibrary();
   #pragma endregion
+  if (checkpointFired) {
+    CORSIKA_LOG_WARN("Run CHECKPOINTED (incomplete); retry with --resume-from {}",
+                     checkpointPath);
+    return 3; // resumable, distinct from success (0) and crash
+  }
   return EXIT_SUCCESS;
 }

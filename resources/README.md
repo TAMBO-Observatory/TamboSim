@@ -12,6 +12,7 @@ gitignored.
 resources/
 ├── configuration_examples/     example TOML configs
 ├── geometry/                   site geometries (HDF5 + JLD2)
+├── sites/                      atmosphere + geomagnetic field per site (TOML)
 ├── cross_section_tables/       neutrino-nucleon xsec tables
 └── proposal_tables/            PROPOSAL energy-loss tables (gitignored)
 ```
@@ -67,6 +68,22 @@ The currently-shipped site is **Colca Valley**:
   every template script.
 
 To generate a new site, see [`examples/templates/1_create_geometry.jl`](../examples/templates/1_create_geometry.jl).
+
+## `sites/`
+
+One TOML file per observation site, giving the atmosphere layer profile and
+the local geomagnetic field — the two location-dependent inputs to CORSIKA.
+`[corsika] site_file` gives the path to one of these, or to a file of your own;
+`tambo_shower` reads it via `--site-file`, so **adding or editing a site needs
+no rebuild**. Any number of layers is supported.
+
+| File | Purpose |
+|---|---|
+| `colca.toml` | TAMBO site, Colca Valley. Local radiosonde / reanalysis fit. |
+| `lima.toml` | TAMBO-4 Lima validation site. ERA5 garua-season fit. |
+
+The schema, unit conventions and the "how to add a site" notes are in
+[`sites/README.md`](sites/README.md).
 
 ## `cross_section_tables/`
 

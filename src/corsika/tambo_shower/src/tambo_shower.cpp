@@ -433,21 +433,18 @@ using MyExtraEnv = media::GladstoneDaleRefractiveIndex<
     media::MediumPropertyModel<media::UniformMagneticField<T>>>;
 
 // ---------------------------------------------------------------------------
-// Observation sites.
+// Atmosphere profile and geomagnetic field.
 //
-// A site bundles the two location-dependent inputs to the simulation: the
-// atmosphere layer profile and the local geomagnetic field.  Both come from a
-// user-supplied TOML file named by --site-file; nothing about a site is
-// compiled in, so adding one needs no rebuild.  The schema, and the two
-// shipped files (colca, lima), live in resources/sites/ -- see its README.md.
+// Together these are the "site" parameters: the environment a shower develops
+// in.  Both are read at runtime from the TOML named by --site-file, and
+// neither is compiled in.  The schema and the shipped files (colca, lima) are
+// in resources/sites/ -- see its README.md.  The ground is not part of this:
+// terrain and observation surfaces arrive separately, as meshes via
+// --terrain-mesh and --obs-mesh.
 //
-// One field-order trap remains, confined to parseLayer's aggregate
-// initialiser: media::AtmosphereLayerParameters is declared
-// { LengthType altitude; GrammageType offset; LengthType scaleHeight; }
-// (CORSIKA7Atmospheres.hpp:66-70), whereas addExponentialLayer/addLinearLayer
-// take (offset b, scaleHeight, altitude upperBoundary).  Everywhere else --
-// the TOML keys and create_atmosphere_from_spec's builder calls -- the fields
-// are named, so the order cannot be mixed up silently.
+// NOTE: media::AtmosphereLayerParameters is { altitude, offset, scaleHeight },
+// and altitude and scaleHeight are both LengthType, so transposing them in
+// parseLayer's aggregate initialiser below would compile silently.
 // ---------------------------------------------------------------------------
 
 //! One atmosphere layer: CORSIKA's parameter triple plus its density profile.

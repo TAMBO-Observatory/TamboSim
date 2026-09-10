@@ -1,6 +1,6 @@
 name = "TamboSim"
 uuid = "d9a96183-4919-46da-8188-64ea4e10e0ed"
-version = "1.0.0"
+version = "1.1.0"
 authors = ["Carlos A. Arguelles <carguelles@fas.harvard.edu>", "Jeffrey Lazar <jeffreylazar@fas.harvard.edu>"]
 
 [deps]

@@ -241,18 +241,19 @@ function build_phase_space(m::Frame; prefix::String="injection")
     haskey(cfg, "strategy") || error(
         "build_phase_space: M frame config (prefix=\"$prefix\") is missing " *
         "required `strategy` field. Set it to one of \"NeutrinoInjection\", " *
-        "\"CosmicRayInjection\", or \"MuonInjection\". See resources/configuration_examples/ " *
-        "for the current schema."
+        "\"MuonNeutrinoInjection\", \"CosmicRayInjection\", or \"MuonInjection\". " *
+        "See resources/configuration_examples/ for the current schema."
     )
     strategy = cfg["strategy"]
-    if strategy == "NeutrinoInjection"
+    if strategy == "NeutrinoInjection" || strategy == "MuonNeutrinoInjection"
         return NeutrinoInjectionPS(args...)
     elseif strategy == "CosmicRayInjection" || strategy == "MuonInjection"
         return CosmicRayInjectionPS(args...)
     else
         error(
             "build_phase_space: unknown strategy \"$strategy\". " *
-            "Known strategies: \"NeutrinoInjection\", \"CosmicRayInjection\", \"MuonInjection\"."
+            "Known strategies: \"NeutrinoInjection\", \"MuonNeutrinoInjection\", " *
+            "\"CosmicRayInjection\", \"MuonInjection\"."
         )
     end
 end

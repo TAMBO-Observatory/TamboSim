@@ -6,7 +6,7 @@ These tests use the actual TamboSim types from src/ to ensure code coverage.
 """
 
 # Import BVH-related functions
-import TamboSim: merge, surface_area, center
+import TamboSim: merge, center
 
 # ============================================================================
 # Test functions

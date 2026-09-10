@@ -583,9 +583,10 @@ end
 Unified injection entrypoint. Reads `config["strategy"]` and dispatches
 to the matching backend:
 
-- `"NeutrinoInjection"`   → [`inject_neutrinos!`](@ref)
-- `"CosmicRayInjection"`  → [`inject_cosmicrays!`](@ref)
-- `"MuonInjection"`       → [`inject_cosmicrays!`](@ref) (alias for atmospheric muon injection)
+- `"NeutrinoInjection"`       → [`inject_neutrinos!`](@ref)
+- `"MuonNeutrinoInjection"`   → [`inject_neutrinos!`](@ref) (same physics; routes muon to CORSIKA directly)
+- `"CosmicRayInjection"`      → [`inject_cosmicrays!`](@ref)
+- `"MuonInjection"`           → [`inject_cosmicrays!`](@ref) (alias for atmospheric muon injection)
 
 Errors loudly if `strategy` is missing or not recognized. The backends
 remain callable directly for tests and power users.
@@ -597,17 +598,19 @@ function inject!(
 )
     haskey(config, "strategy") || error(
         "inject!: injection config is missing required `strategy` field. " *
-        "Set it to one of \"NeutrinoInjection\", \"CosmicRayInjection\", or \"MuonInjection\"."
+        "Set it to one of \"NeutrinoInjection\", \"MuonNeutrinoInjection\", " *
+        "\"CosmicRayInjection\", or \"MuonInjection\"."
     )
     strategy = config["strategy"]
-    if strategy == "NeutrinoInjection"
+    if strategy == "NeutrinoInjection" || strategy == "MuonNeutrinoInjection"
         return inject_neutrinos!(frames, config; prefix=prefix)
     elseif strategy == "CosmicRayInjection" || strategy == "MuonInjection"
         return inject_cosmicrays!(frames, config; prefix=prefix)
     else
         error(
             "inject!: unknown strategy \"$strategy\". " *
-            "Expected \"NeutrinoInjection\", \"CosmicRayInjection\", or \"MuonInjection\"."
+            "Expected \"NeutrinoInjection\", \"MuonNeutrinoInjection\", " *
+            "\"CosmicRayInjection\", or \"MuonInjection\"."
         )
     end
 end

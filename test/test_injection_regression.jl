@@ -208,9 +208,11 @@ function run_injection_regression_tests()
     init_proposal(Dict("tablespath" => tables_path, "vcut" => 0.5))
 
     @testset "Post-propagation in-air fraction" begin
+        # Baselined 2026-09-03 against TauRunner main (>= icecube/TauRunner#72, 2026-07-22),
+        # which fixed a bug in TR's detection of tau decays.
         for (gamma, fstates, expected_frac) in [
-            (1.0, fstates_g1, 0.200),
-            (2.0, fstates_g2, 0.197)
+            (1.0, fstates_g1, 0.240),  
+            (2.0, fstates_g2, 0.205)   
         ]
             n_prop_air = 0
             for (j, fs) in enumerate(fstates)
@@ -220,6 +222,7 @@ function run_injection_regression_tests()
                 end
             end
             frac_prop_air = n_prop_air / length(fstates)
+            @info "Post-propagation in-air fraction" gamma frac_prop_air n_prop_air n=length(fstates)
             @test isapprox(frac_prop_air, expected_frac, atol=0.02)
         end
     end
@@ -258,6 +261,40 @@ function run_injection_regression_tests()
         # The vast majority of tau propagations should end in decay
         frac_decayed = n_with_decay / n_tested
         @test frac_decayed > 0.9
+    end
+
+    # ---- taurunner_interface survived-guard contract (ν_μ) ----
+    # taurunner_interface drops leptons TauRunner marks absorbed (survived=false):
+    # it returns the NaN null particle, which inject_neutrinos! filters via its
+    # isnan(energy) gate. Without the guard, a ν_μ that CC-converts deep in the
+    # Earth yields a muon that ranges out (survived=false) but leaks back with a
+    # finite energy as a spurious injection_final_state far underground.
+    #
+    # Two deterministic (global-seed, tr_seed) cases pin the contract. Large
+    # margins keep the boolean survived outcome robust to minor physics drift:
+    #   - seed 247: muon ranges out ~8900 km short of the detector → dropped (isnan)
+    #   - seed 176: muon reaches the detector with ~9 km of range to spare → kept
+    # Remove the guard and the "dead" case returns a finite muon → this fails.
+    # If TauRunner / PROPOSAL change materially (both are pinned to `master`), the
+    # seeds may need refreshing: re-scan ν_μ injections for a large-margin
+    # absorbed case (range ≪ distance-to-detector) and a clearly-reaching case.
+    @testset "MuonNeutrinoInjection: survived-guard drops absorbed leptons" begin
+        pl_munu = UnitfulPowerLawSampler(1.5, 3e5u"GeV", 1e9u"GeV")
+
+        # not-survived: muon ranges out far from the detector → guard returns null
+        Random.seed!(247)
+        _, _, fstate_dead, _ = inject_neutrino_event(
+            14, prem, bvh, cs, detector_region, as, pl_munu, xs, detector_props; tr_seed=UInt32(100247)
+        )
+        @test isnan(fstate_dead.energy)
+
+        # survived: muon reaches the detector → finite muon final state
+        Random.seed!(176)
+        _, _, fstate_live, _ = inject_neutrino_event(
+            14, prem, bvh, cs, detector_region, as, pl_munu, xs, detector_props; tr_seed=UInt32(100176)
+        )
+        @test !isnan(fstate_live.energy)
+        @test abs(Int(fstate_live.pdg)) == 13
     end
 end
 if abspath(PROGRAM_FILE) == @__FILE__

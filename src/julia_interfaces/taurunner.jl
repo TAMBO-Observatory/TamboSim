@@ -115,6 +115,16 @@ function taurunner_interface(
         TR.propagate!(tr_particle, track, earth, clp;
                       condition=stopping_condition, rng=rng)
 
+        # Honor TauRunner's absorption verdict. When it marks the propagated
+        # lepton not-survived (survived=false), it determined the lepton stops
+        # before reaching the track end — e.g. a nu_mu that CC-converts deep in
+        # the Earth becomes a muon whose range falls short of the detector. Such
+        # a lepton cannot be a valid injection final state, so return the null
+        # particle and let inject_neutrinos! drop the event via its
+        # isnan(energy) gate. Without this guard the absorbed muon spawns a
+        # zero-yield CORSIKA job.
+        tr_particle.survived || return Particle(T)
+
         # Convert back to TamboSim format.
         # particle.position is the Earth entry point. Advance forward along
         # the neutrino direction by the distance TauRunner traveled.
@@ -211,6 +221,10 @@ function taurunner_interface(
         TR.propagate!(tr_particle, track, body, clp;
                       condition=stopping_condition, rng=rng)
 
+        # See the spherical branch above: drop leptons TauRunner marked
+        # absorbed/stopped so they don't leak through as finite-energy final states.
+        tr_particle.survived || return Particle(T)
+
         # NOTE: Propagator caching removed. PROPOSAL C++ propagator objects are
         # bound to a specific geometry (slab body). Reusing them across events with
         # different layer structures causes memory corruption and segfaults.
@@ -253,7 +267,15 @@ function make_stopping_condition()
                 remaining_distance = TR.x_to_d(track, 1.0 - p.position)
                 return d > remaining_distance
             end
-            return true  # Other charged leptons: stop
+            # For muon: propagate forward until rock range < remaining distance
+            if abs(Int(p.id)) == 13
+                energy_GeV = p.energy / TR.units.GeV * u"GeV"
+                lrange = particle_rock_range(energy_GeV, ParticleType(Int(p.id))) / ROCK_DENSITY
+                d = ustrip(u"m", lrange) / (TR.length(body) / TR.units.meter)
+                remaining_distance = TR.x_to_d(track, 1.0 - p.position)
+                return d > remaining_distance
+            end
+            return true  # Other charged leptons: stop immediately
         elseif TR.is_neutrino(p.id)
             # For neutrinos: check if interaction depth exceeds remaining column depth
             remaining_depth = TR.total_column_depth(track, body) - TR.x_to_X(track, body, p.position)

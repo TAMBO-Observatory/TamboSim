@@ -95,12 +95,22 @@
 #include <CLI/Config.hpp>
 #include <CLI/Formatter.hpp>
 
+// Vendored single-header TOML parser (see external/tomlplusplus/README.md).
+// TOML_EXCEPTIONS 0 makes toml::parse_file return a testable parse_result
+// instead of throwing, which suits a CLI that reports errors and exits.
+#define TOML_EXCEPTIONS 0
+#include <toml.hpp>
+
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
 #include <limits>
-#include <type_traits>
+#include <optional>
+#include <set>
 #include <string>
+#include <type_traits>
+#include <vector>
 
 using namespace corsika;
 using namespace std;
@@ -275,29 +285,44 @@ struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
   }
 };
 
-// Production safety net for the rock/air interface.  RockExitRelocator's
-// position nudge resolves the known way a particle can end up logically
-// resident in the terrain rock while geometrically outside it (a degenerate
-// on-surface re-resolution after a rock-exit boundary crossing).  This process
-// is deliberately pathway-agnostic: rather than handle a specific entry route,
-// it watches for the *invariant violation itself* -- logical node == rock yet
-// rock.contains(position) == false -- which is the signature underlying a
-// particle that bleeds StandardRock dE/dx while geometrically in air and
-// silently ranges out before reaching any readout.  A healthy rock traversal
-// has logical == rock AND contains() == true and resets the counter every
-// step; the pathology accumulates logical == rock AND !contains() for tens of
-// thousands of consecutive steps.  On crossing a generous persistence
-// threshold the run is aborted with diagnostics rather than allowed to emit a
-// complete-looking shower output in which an Earth-skimming signal particle
-// was quietly lost.  The counter is a deliberately coarse run-global burst
-// detector, not a per-particle accountant: a stuck particle steps thousands
-// of times with no interleaving secondary, so a global count is a sufficient
-// and cheap tripwire.  No-op when the terrain mesh is disabled
-// (rockNode_ == nullptr); one pointer compare per step otherwise, with the
-// contains() test reached only while a particle is logically in the rock.
+// Self-heal + safety net for the rock/air interface.  A particle can end up
+// logically resident in the terrain rock while geometrically outside it -- the
+// signature of a particle that bleeds StandardRock dE/dx in air and silently
+// ranges out before reaching any readout.  Two known routes produce it:
+// (1) a degenerate on-surface re-resolution after a rock-EXIT crossing
+// (handled at the source by RockExitRelocator's nudge), and (2) a near-tangent
+// grazing ENTRY through a thin rock feature, where the tracker fires the
+// air->rock entry crossing but the matching rock->air exit crossing is filtered
+// away by the mesh boundary padding, so the logical node is never corrected and
+// RockExitRelocator (from==rock only) never runs.
+//
+// This process is deliberately pathway-agnostic: rather than handle a specific
+// route it watches for the invariant violation itself -- logical node == rock
+// yet rock.contains(position) == false -- and, once that has persisted kHealAt
+// steps, SELF-HEALS by re-rooting the logical node to the geometrically correct
+// containing air layer (getContainingNode).  The heal is only reached while
+// !contains(), i.e. the particle is already geometrically in air, so re-rooting
+// to air is correct; kHealAt is set so the particle is clear of the 1um
+// on-surface padding zone (where getContainingNode is degenerate) by the time
+// it fires.  The cascade does not re-derive the node after a continuous step,
+// so the correction persists into the next step; at most kHealAt wrong-medium
+// steps are spent per grazing event.
+//
+// The abort is retained only as a backstop for a heal that fails its job, in
+// either of two shapes: kStuckLimit consecutive un-cleared steps (no containing
+// air node could be resolved), or kMaxHeals total heals (the particle heals,
+// re-sticks, and heals again -- a livelock the consecutive counter cannot see
+// because each heal zeroes it).  Counters are run-global: grazing events are
+// rare enough run-wide that the heal cap won't false-trip, and a livelock
+// concentrates on one particle and blows the cap unambiguously.  No-op when the
+// terrain mesh is disabled (rockNode_ == nullptr); one pointer compare per step
+// otherwise, with the contains() test reached only while a particle is
+// logically in the rock.
 struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
+  EnvType& env_; // for getContainingNode at the self-heal
   void const* rockNode_;
-  explicit RockInterfaceTripwire(void const* rockNode) : rockNode_(rockNode) {}
+  RockInterfaceTripwire(EnvType& env, void const* rockNode)
+      : env_(env), rockNode_(rockNode) {}
   template <typename TParticle>
   ProcessReturn doContinuous(Step<TParticle>& step, bool const) {
     if (rockNode_ == nullptr) return ProcessReturn::Ok;
@@ -309,25 +334,63 @@ struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
                             ->getVolume()
                             .contains(pre.getPosition());
     static long stuck = 0;
+    static long heals = 0;
     if (inside) {
       stuck = 0;
       return ProcessReturn::Ok;
     }
-    constexpr long kStuckLimit = 1000; // a real loop racks up tens of thousands
-    if (++stuck >= kStuckLimit) {
+    ++stuck;
+    constexpr long kHealAt = 50;     // wrong-medium steps tolerated before heal
+    constexpr long kStuckLimit = 1000; // heal failed to clear the invariant
+    constexpr long kMaxHeals = 1000; // livelock backstop (total heals run-wide)
+    auto abortStuck = [&](char const* why) {
       auto const c =
           pre.getPosition().getCoordinates(get_root_CoordinateSystem());
       CORSIKA_LOG_ERROR(
-          "Rock/air interface stuck state: a particle has been logically "
-          "resident in the terrain rock while geometrically OUTSIDE it for {} "
-          "consecutive steps -- it is bleeding StandardRock dE/dx in air and "
-          "will silently range out before reaching any readout.  Reached via "
-          "a path RockExitRelocator's nudge does not cover.  pid={} "
-          "E={} GeV pos=({:.1f},{:.1f},{:.1f}) m.  Aborting rather than emit "
-          "a misleading shower output.",
-          stuck, pre.getPID(), pre.getEnergy() / 1_GeV, c.getX() / 1_m,
-          c.getY() / 1_m, c.getZ() / 1_m);
+          "Rock/air interface stuck state [{}]: a particle has been logically "
+          "resident in the terrain rock while geometrically OUTSIDE it -- it "
+          "bleeds StandardRock dE/dx in air and silently ranges out before "
+          "reaching any readout.  stuck={} heals={} pid={} E={} GeV "
+          "pos=({:.1f},{:.1f},{:.1f}) m.  Aborting rather than emit a "
+          "misleading shower output.",
+          why, stuck, heals, pre.getPID(), pre.getEnergy() / 1_GeV,
+          c.getX() / 1_m, c.getY() / 1_m, c.getZ() / 1_m);
       std::exit(EXIT_FAILURE);
+    };
+    // Self-heal: re-root the logical node to the geometrically-correct
+    // containing node (see the struct comment).  Reached only when !contains(),
+    // so the particle is already in air; once the invariant has persisted
+    // kHealAt steps it is clear of the on-surface padding zone, so
+    // getContainingNode is unambiguous and returns the air layer, not the rock.
+    // The Step interface exposes the pre-step particle as const, but the
+    // underlying stack particle is mutable and no ContinuousProcess node hook
+    // exists upstream, so the const_cast is sound; setNode takes a
+    // node_type const* so the const containing-node pointer passes directly.
+    if (stuck >= kHealAt) {
+      auto const* cn = env_.getUniverse()->getContainingNode(pre.getPosition());
+      if (cn != nullptr && static_cast<void const*>(cn) != rockNode_) {
+        if (heals >= kMaxHeals) {
+          abortStuck("heal-loop -- node re-rooted to air but particle keeps "
+                     "re-sticking");
+        }
+        const_cast<TParticle&>(pre).setNode(cn);
+        ++heals;
+        auto const c =
+            pre.getPosition().getCoordinates(get_root_CoordinateSystem());
+        CORSIKA_LOG_INFO(
+            "Rock/air interface: re-rooted a logically-in-rock particle to the "
+            "containing air layer after {} stuck steps (heal #{}).  pid={} "
+            "E={} GeV pos=({:.1f},{:.1f},{:.1f}) m.",
+            stuck, heals, pre.getPID(), pre.getEnergy() / 1_GeV, c.getX() / 1_m,
+            c.getY() / 1_m, c.getZ() / 1_m);
+        stuck = 0;
+        return ProcessReturn::Ok;
+      }
+      // No valid containing air node (cn null or still rock): cannot heal --
+      // fall through to the consecutive-step backstop.
+    }
+    if (stuck >= kStuckLimit) {
+      abortStuck("unhealed -- no containing air node could be resolved");
     }
     return ProcessReturn::Ok;
   }
@@ -370,38 +433,236 @@ using MyExtraEnv = media::GladstoneDaleRefractiveIndex<
     media::MediumPropertyModel<media::UniformMagneticField<T>>>;
 
 // ---------------------------------------------------------------------------
-// Custom 5-layer atmosphere for the Colca Valley (TAMBO site).
-// Layer parameters fitted to local radiosonde / reanalysis data.
+// Atmosphere profile and geomagnetic field.
+//
+// Together these are the "site" parameters: the environment a shower develops
+// in.  Both are read at runtime from the TOML named by --site-file, and
+// neither is compiled in.  The schema and the shipped files (colca, lima) are
+// in resources/sites/ -- see its README.md.  The ground is not part of this:
+// terrain and observation surfaces arrive separately, as meshes via
+// --terrain-mesh and --obs-mesh.
+//
+// NOTE: media::AtmosphereLayerParameters is { altitude, offset, scaleHeight },
+// and altitude and scaleHeight are both LengthType, so transposing them in
+// parseLayer's aggregate initialiser below would compile silently.
+// ---------------------------------------------------------------------------
+
+//! One atmosphere layer: CORSIKA's parameter triple plus its density profile.
+struct AtmosphereLayerSpec {
+  media::AtmosphereLayerParameters params; //< altitude (outer boundary), offset, scaleHeight
+  bool linear;                             //< true => constant density, false => exponential
+};
+
+//! A parsed site file.
+struct SiteSpec {
+  std::string name;                        //< [name], or the file stem
+  std::string description;                 //< [description], may be empty
+  std::vector<AtmosphereLayerSpec> layers; //< innermost first, any count
+  double B_E;                              //< geomagnetic field, uT, local ENU east
+  double B_N;                              //< geomagnetic field, uT, local ENU north
+  double B_U;                              //< geomagnetic field, uT, local ENU up
+};
+
+namespace {
+
+  //! Reject keys the schema does not define, so a typo cannot be silently
+  //! ignored and quietly change the atmosphere.  Returns false and logs on the
+  //! first offender.
+  bool rejectUnknownKeys(toml::table const& tbl, std::set<std::string> const& allowed,
+                         std::string const& what, std::string const& path) {
+    for (auto const& [key, _] : tbl) {
+      if (allowed.count(std::string{key.str()}) == 0) {
+        std::string permitted;
+        for (auto const& a : allowed) { permitted += (permitted.empty() ? "" : ", ") + a; }
+        CORSIKA_LOG_ERROR("{}: unknown key '{}' in {}; permitted keys are: {}", path,
+                          key.str(), what, permitted);
+        return false;
+      }
+    }
+    return true;
+  }
+
+  //! Read a required finite double.  Logs and returns nullopt if absent, of the
+  //! wrong type, or not finite.
+  std::optional<double> requireNumber(toml::table const& tbl, std::string_view key,
+                                      std::string const& what, std::string const& path) {
+    auto const node = tbl[key];
+    if (!node) {
+      CORSIKA_LOG_ERROR("{}: {} is missing the required key '{}'", path, what, key);
+      return std::nullopt;
+    }
+    auto const value = node.value<double>();
+    if (!value) {
+      CORSIKA_LOG_ERROR("{}: {} key '{}' must be a number", path, what, key);
+      return std::nullopt;
+    }
+    if (!std::isfinite(*value)) {
+      CORSIKA_LOG_ERROR("{}: {} key '{}' must be finite (got {})", path, what, key, *value);
+      return std::nullopt;
+    }
+    return value;
+  }
+
+  //! Parse one [[atmosphere.layer]] entry.  `index` is 0-based, used in messages.
+  std::optional<AtmosphereLayerSpec> parseLayer(toml::node const& node, size_t const index,
+                                                std::string const& path) {
+    std::string const what = "atmosphere.layer[" + std::to_string(index) + "]";
+    auto const* tbl = node.as_table();
+    if (tbl == nullptr) {
+      CORSIKA_LOG_ERROR("{}: {} must be a table", path, what);
+      return std::nullopt;
+    }
+    if (!rejectUnknownKeys(*tbl, {"type", "top_altitude_km", "offset_g_cm2",
+                                  "scale_height_cm"}, what, path))
+      return std::nullopt;
+
+    auto const type = (*tbl)["type"].value<std::string>();
+    if (!type) {
+      CORSIKA_LOG_ERROR("{}: {} is missing the required key 'type'", path, what);
+      return std::nullopt;
+    }
+    if (*type != "exponential" && *type != "linear") {
+      CORSIKA_LOG_ERROR("{}: {} type must be \"exponential\" or \"linear\" (got \"{}\")",
+                        path, what, *type);
+      return std::nullopt;
+    }
+
+    auto const altitudeKm = requireNumber(*tbl, "top_altitude_km", what, path);
+    auto const offset = requireNumber(*tbl, "offset_g_cm2", what, path);
+    auto const scaleHeight = requireNumber(*tbl, "scale_height_cm", what, path);
+    if (!altitudeKm || !offset || !scaleHeight) return std::nullopt;
+
+    // Both are divided as offset/scaleHeight to get a density, so neither may
+    // be zero or negative.
+    if (*offset <= 0) {
+      CORSIKA_LOG_ERROR("{}: {} offset_g_cm2 must be positive (got {})", path, what, *offset);
+      return std::nullopt;
+    }
+    if (*scaleHeight <= 0) {
+      CORSIKA_LOG_ERROR("{}: {} scale_height_cm must be positive (got {})", path, what,
+                        *scaleHeight);
+      return std::nullopt;
+    }
+
+    return AtmosphereLayerSpec{{*altitudeKm * 1_km,
+                                *offset * 1_g / (1_cm * 1_cm),
+                                *scaleHeight * 1_cm},
+                               *type == "linear"};
+  }
+
+} // namespace
+
+/**
+ * Load and validate a site file.
+ *
+ * Returns nullopt after logging on any problem, so main() can exit with a
+ * readable message rather than letting a bad file surface later as a CORSIKA
+ * exception (LayeredSphericalAtmosphereBuilder throws a bare "radius must be
+ * greater than previous" on non-increasing layer boundaries) or, worse, as a
+ * silently wrong atmosphere.
+ */
+static std::optional<SiteSpec> loadSiteSpec(std::string const& path) {
+  toml::parse_result parsed = toml::parse_file(path);
+  if (!parsed) {
+    auto const& err = parsed.error();
+    CORSIKA_LOG_ERROR("{}: not valid TOML at line {}, column {}: {}", path,
+                      err.source().begin.line, err.source().begin.column,
+                      std::string{err.description()});
+    return std::nullopt;
+  }
+  toml::table const& root = parsed.table();
+
+  if (!rejectUnknownKeys(root, {"name", "description", "geomagnetic_field", "atmosphere"},
+                         "the top level", path))
+    return std::nullopt;
+
+  SiteSpec spec;
+  // boost::filesystem::path::string() returns a reference into the path, so the
+  // default must be a named local: value_or deduces T&& and cannot bind an
+  // rvalue reference to it.
+  std::string const defaultName = boost::filesystem::path(path).stem().string();
+  spec.name = root["name"].value_or(defaultName);
+  spec.description = root["description"].value_or(std::string{});
+
+  // ---- [geomagnetic_field] ----
+  auto const* field = root["geomagnetic_field"].as_table();
+  if (field == nullptr) {
+    CORSIKA_LOG_ERROR("{}: missing the required [geomagnetic_field] table", path);
+    return std::nullopt;
+  }
+  if (!rejectUnknownKeys(*field, {"east_uT", "north_uT", "up_uT"}, "[geomagnetic_field]",
+                         path))
+    return std::nullopt;
+  auto const B_E = requireNumber(*field, "east_uT", "[geomagnetic_field]", path);
+  auto const B_N = requireNumber(*field, "north_uT", "[geomagnetic_field]", path);
+  auto const B_U = requireNumber(*field, "up_uT", "[geomagnetic_field]", path);
+  if (!B_E || !B_N || !B_U) return std::nullopt;
+  spec.B_E = *B_E;
+  spec.B_N = *B_N;
+  spec.B_U = *B_U;
+
+  // ---- [[atmosphere.layer]] ----
+  auto const* atmosphere = root["atmosphere"].as_table();
+  if (atmosphere == nullptr) {
+    CORSIKA_LOG_ERROR("{}: missing the required [atmosphere] table", path);
+    return std::nullopt;
+  }
+  if (!rejectUnknownKeys(*atmosphere, {"layer"}, "[atmosphere]", path)) return std::nullopt;
+  auto const* layers = (*atmosphere)["layer"].as_array();
+  if (layers == nullptr || layers->empty()) {
+    CORSIKA_LOG_ERROR("{}: needs at least one [[atmosphere.layer]] entry", path);
+    return std::nullopt;
+  }
+
+  spec.layers.reserve(layers->size());
+  for (size_t i = 0; i < layers->size(); ++i) {
+    auto const layer = parseLayer(*layers->get(i), i, path);
+    if (!layer) return std::nullopt;
+    // The builder adds concentric spheres outward and throws on a boundary
+    // that does not grow; check here so the message says which layer.
+    if (i > 0 && layer->params.altitude <= spec.layers.back().params.altitude) {
+      CORSIKA_LOG_ERROR(
+          "{}: atmosphere.layer[{}] top_altitude_km ({:.4f}) must be greater than "
+          "layer[{}]'s ({:.4f}); layers are listed innermost first",
+          path, i, layer->params.altitude / 1_km, i - 1,
+          spec.layers.back().params.altitude / 1_km);
+      return std::nullopt;
+    }
+    spec.layers.push_back(*layer);
+  }
+
+  return spec;
+}
+
+// ---------------------------------------------------------------------------
+// Build a spherical layered atmosphere from a site spec, using the standard
+// air composition.
+//
+// Any number of layers in any mix of profiles is supported: CORSIKA's builder
+// keeps them on a stack and only requires each outer boundary to exceed the
+// previous one (already validated in loadSiteSpec).  The familiar
+// "4 exponential + 1 linear" shape is the CORSIKA 7 preset convention, not a
+// limit.
 // ---------------------------------------------------------------------------
 template <typename TEnvironmentInterface, template <typename> typename TExtraEnv,
           typename TEnvironment, typename... TArgs>
-void create_5layer_colca_atmosphere(TEnvironment& env,
-                                    Point const& center, TArgs... args) {
+void create_atmosphere_from_spec(TEnvironment& env, SiteSpec const& site,
+                                 Point const& center, TArgs... args) {
   auto builder = media::make_layered_spherical_atmosphere_builder<
       TEnvironmentInterface, TExtraEnv>::create(center, constants::EarthRadius::Mean,
                                                 std::forward<TArgs>(args)...);
 
   builder.setNuclearComposition(media::standardAirComposition);
 
-  using media::AtmosphereLayerParameters;
-  // Field order is positional: AtmosphereLayerParameters is declared
-  // { LengthType altitude; GrammageType offset; LengthType scaleHeight; }
-  // (CORSIKA7Atmospheres.hpp:66-70).  addExponentialLayer/addLinearLayer
-  // take (offset b, scaleHeight, altitude upperBoundary) -- see the
-  // params[i].offset/.scaleHeight/.altitude call order below.
-  constexpr std::array<AtmosphereLayerParameters, 5> params{{
-      {3.8_km,   1208.0663_g / (1_cm * 1_cm), 1045629.03_cm},
-      {9.7_km,   1148.2458_g / (1_cm * 1_cm),  963788.26_cm},
-      {26.5_km,  1182.7783_g / (1_cm * 1_cm),  770343.77_cm},
-      {100_km,   1510.0311_g / (1_cm * 1_cm),  701471.17_cm},
-      {5000_km,  1_g / (1_cm * 1_cm),          1e9_cm},
-  }};
-
-  for (int i = 0; i < 4; ++i) {
-    builder.addExponentialLayer(params[i].offset, params[i].scaleHeight,
-                                params[i].altitude);
+  for (auto const& layer : site.layers) {
+    if (layer.linear) {
+      builder.addLinearLayer(layer.params.offset, layer.params.scaleHeight,
+                             layer.params.altitude);
+    } else {
+      builder.addExponentialLayer(layer.params.offset, layer.params.scaleHeight,
+                                  layer.params.altitude);
+    }
   }
-  builder.addLinearLayer(params[4].offset, params[4].scaleHeight, params[4].altitude);
 
   builder.assemble(env);
 }
@@ -675,6 +936,12 @@ int main(int argc, char** argv) {
       ->group("Primary");
       
   // ---- Geometry / mesh ----
+  app.add_option("--site-file",
+                 "Path to a site TOML file supplying the atmosphere layer "
+                 "profile and the geomagnetic field (see resources/sites/)")
+      ->required()
+      ->check(CLI::ExistingFile)
+      ->group("Geometry");
   app.add_option("--obs-mesh",
                  "Path to the observation-region PLY file (ECEF metres)")
       ->required()
@@ -846,6 +1113,44 @@ int main(int argc, char** argv) {
 
   #pragma endregion
 
+  #pragma region Site file
+  /* === SITE: ATMOSPHERE PROFILE + GEOMAGNETIC FIELD ===
+   * Loaded here, before the meshes, so a bad site file is rejected before the
+   * seconds of BVH construction.  See loadSiteSpec above and
+   * resources/sites/README.md for the schema.
+   */
+  std::string const siteFile = app["--site-file"]->as<std::string>();
+  auto const siteSpec = loadSiteSpec(siteFile);
+  if (!siteSpec) {
+    CORSIKA_LOG_CRITICAL("Could not load site file: {}", siteFile);
+    return EXIT_FAILURE;
+  }
+  SiteSpec const& site = *siteSpec;
+
+  // The outermost layer must enclose the injection point: a primary injected
+  // outside the topmost layer is resolved into the universe node and erased,
+  // which would silently yield an empty shower.  Refuse to run instead.
+  {
+    double const ix = app["--inject-x"]->as<double>();
+    double const iy = app["--inject-y"]->as<double>();
+    double const iz = app["--inject-z"]->as<double>();
+    LengthType const injectAltitude =
+        std::sqrt(ix * ix + iy * iy + iz * iz) * 1_m - constants::EarthRadius::Mean;
+    LengthType const atmosphereTop = site.layers.back().params.altitude;
+    if (injectAltitude >= atmosphereTop) {
+      CORSIKA_LOG_CRITICAL(
+          "Injection altitude ({:.3f} km) is at or above the top of the "
+          "atmosphere for site '{}' ({:.3f} km): the primary would land outside "
+          "the outermost layer and be erased.  Raise the outermost layer's "
+          "top_altitude_km in {} (it is effectively vacuum, so extending it "
+          "costs nothing), or inject lower.",
+          injectAltitude / 1_km, site.name, atmosphereTop / 1_km, siteFile);
+      return EXIT_FAILURE;
+    }
+  }
+
+  #pragma endregion
+
   #pragma region Load meshes
   /* === LOAD MESHES === */
   LoadedMeshes loadedMeshes = loadMeshes(app["--obs-mesh"]->as<std::string>(),
@@ -871,24 +1176,32 @@ int main(int argc, char** argv) {
   #pragma endregion
 
   #pragma region Atmosphere
-  /* === ATMOSPHERE with correct magnetic field at obs mesh centroid === */
-  // WMM for TAMBO site (lat ~ -15.6°, lon ~ -72.3°, alt ~ 3.5 km, epoch 2024):
-  // see https://www.ngdc.noaa.gov/geomag/calculators/magcalc.shtml#igrfwmm
-  constexpr double B_E =  -2.5;  // uT (eastward component)
-  constexpr double B_N =  22.9;  // uT (northward component)
-  constexpr double B_U =  -3.7;  // uT (upward component)
-  double const Bx = B_E * eastHat[0] + B_N * northHat[0] + B_U * upHat[0];
-  double const By = B_E * eastHat[1] + B_N * northHat[1] + B_U * upHat[1];
-  double const Bz = B_E * eastHat[2] + B_N * northHat[2] + B_U * upHat[2];
+  /* === ATMOSPHERE with correct magnetic field at obs mesh centroid ===
+   * Both the layer profile and the field come from `site`, loaded above; the
+   * site's ENU field triplet is rotated into ECEF using the local basis at the
+   * intercept.
+   */
+  double const Bx = site.B_E * eastHat[0] + site.B_N * northHat[0] + site.B_U * upHat[0];
+  double const By = site.B_E * eastHat[1] + site.B_N * northHat[1] + site.B_U * upHat[1];
+  double const Bz = site.B_E * eastHat[2] + site.B_N * northHat[2] + site.B_U * upHat[2];
   MagneticFieldVector const obsField{rootCS, Bx * 1_uT, By * 1_uT, Bz * 1_uT};
 
-  CORSIKA_LOG_INFO("Magnetic field (ECEF nT): ({:.1f}, {:.1f}, {:.1f})",
+  CORSIKA_LOG_INFO("Site '{}' ({}): {} atmosphere layers, top at {:.1f} km; "
+                   "magnetic field (ENU uT) = ({:.3f}, {:.3f}, {:.3f}), "
+                   "(ECEF nT) = ({:.1f}, {:.1f}, {:.1f})",
+                   site.name, siteFile, site.layers.size(),
+                   site.layers.back().params.altitude / 1_km,
+                   site.B_E, site.B_N, site.B_U,
                    obsField.getX(rootCS) / 1_nT,
                    obsField.getY(rootCS) / 1_nT,
                    obsField.getZ(rootCS) / 1_nT);
 
-  create_5layer_colca_atmosphere<EnvironmentInterface, MyExtraEnv>(
-      env, earthCenter, 1.000327, earthSurface,
+  if (!site.description.empty()) {
+    CORSIKA_LOG_INFO("Site '{}': {}", site.name, site.description);
+  }
+
+  create_atmosphere_from_spec<EnvironmentInterface, MyExtraEnv>(
+      env, site, earthCenter, 1.000327, earthSurface,
       media::Medium::AirDry1Atm, obsField);
 
   #pragma endregion
@@ -980,6 +1293,21 @@ int main(int argc, char** argv) {
     }
   }
   OutputManager output(outFilename, seed, args.str(), compressOutput);
+
+  // Copy the site file in alongside the writers' output.  config.yaml records
+  // only the argv string, which pins the site file's *path* -- and that file
+  // can be edited after the run.  Keeping the bytes makes the atmosphere and
+  // field a permanent part of the run record.
+  {
+    boost::system::error_code ec;
+    boost::filesystem::copy_file(siteFile,
+                                 boost::filesystem::path(outFilename) / "site.toml",
+                                 boost::filesystem::copy_options::overwrite_existing, ec);
+    if (ec) {
+      CORSIKA_LOG_WARN("Could not copy site file into the output directory: {}",
+                       ec.message());
+    }
+  }
 
   EnergyLossWriter dEdX{showerAxis, dX};
   output.add("energyloss", dEdX);
@@ -1140,7 +1468,7 @@ int main(int argc, char** argv) {
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
     RockExitRelocator rockRelocator{env, rockNodePtr};
     RockEMAbsorber rockEMAbsorber{rockNodePtr};
-    RockInterfaceTripwire rockTripwire{rockNodePtr};
+    RockInterfaceTripwire rockTripwire{env, rockNodePtr};
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut.
     // rockRelocator runs early so any later boundary-aware process in the same

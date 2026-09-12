@@ -27,6 +27,7 @@ argument defaults to one of these.
 | File | Purpose |
 |---|---|
 | `tau_neutrino_cc.toml` | The standard nu_tau CC configuration for the Colca Valley site, used for the TAMBO sensitivity paper. |
+| `muon_neutrino_cc.toml` | Muon-neutrino CC variant; sets `strategy = "MuonNeutrinoInjection"`, and the injected muon goes straight to CORSIKA with no PROPOSAL decay step. |
 | `cosmic_ray_proton.toml` | Cosmic-ray proton injection variant; sets `strategy = "CosmicRayInjection"` so `inject!` dispatches to the proton backend. Pass to `templates/3_inject.jl` via `--config`. |
 
 The shipped CORSIKA energy cuts (`hadron_ecut` ≈ 0.05 GeV, `em_ecut` /
@@ -89,7 +90,9 @@ The schema, unit conventions and the "how to add a site" notes are in
 
 `cross_sections.h5` — neutrino-nucleon CC cross-section tables (CSMS),
 loaded by `TamboSim.CrossSection` for use during injection. Indexed by
-PDG via group names like `CSMS_nutau`, `CSMS_numu`, etc.
+PDG via group names like `CSMS_nutau`; the shipped file currently
+contains only the `CSMS_nutau` group, which every example config points
+at (the CC cross section is near flavour-independent at these energies).
 
 ## `proposal_tables/`
 

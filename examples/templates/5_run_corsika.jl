@@ -97,7 +97,7 @@ end
 
 if !isfile(corsika_config["corsika_path"])
     error("tambo_shower binary not found at $(corsika_config["corsika_path"]) — " *
-          "build it first (see resources/corsika/src/BUILD.md)")
+          "build it first (see src/corsika/tambo_shower/src/README.md)")
 end
 
 frames = load_frames([geometry_file, infile])

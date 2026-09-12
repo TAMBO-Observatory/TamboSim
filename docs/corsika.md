@@ -172,7 +172,7 @@ Source pointers (under `corsika/`; FASRC `/n/holylfs05/LABS/arguelles_delgado_la
 
 They are deleted cleanly, with a log line, and no further tracking. CORSIKA 8 has an explicit erase path for this case.
 
-The volume tree at the root is `Universe`, an infinite-radius `Sphere` whose `contains(p)` always returns true. Universe is *not* given any `HomogeneousMedium` or other model properties in `tambo_shower` — it is an empty container. Its direct child is the largest atmosphere layer (the 5000 km-radius outermost ball, in the Colca 5-layer config). When a particle inside that outermost layer steps far enough outward to cross its surface, the tracking machinery in `Intersect.inl` resolves the next volume as `volumeNode.getParent()` — which is Universe. At that point `Cascade::step` (lines 278–281 of `Cascade.inl`) sees `nextVol == environment_.getUniverse().get()`, calls `particle.erase()` *before* updating the particle's logical node, and emits a log message reading:
+The volume tree at the root is `Universe`, an infinite-radius `Sphere` whose `contains(p)` always returns true. Universe is *not* given any `HomogeneousMedium` or other model properties in `tambo_shower` — it is an empty container. Its direct child is the largest atmosphere layer (the 5000 km-radius outermost ball, in the shipped `colca.toml` site file). When a particle inside that outermost layer steps far enough outward to cross its surface, the tracking machinery in `Intersect.inl` resolves the next volume as `volumeNode.getParent()` — which is Universe. At that point `Cascade::step` (lines 278–281 of `Cascade.inl`) sees `nextVol == environment_.getUniverse().get()`, calls `particle.erase()` *before* updating the particle's logical node, and emits a log message reading:
 
 > `particle left physics world, is now in unknown space -> delete`
 
@@ -308,7 +308,7 @@ Source pointers (under `corsika/` in the CORSIKA 8 source tree; FASRC `/n/holylf
 <details>
 <summary><h3>How does `tambo_shower` determine the PROPOSAL table settings (`emCut, v_cut`)?</h3></summary>
 
-`v_cut` is a hardcoded framework constant in `corsika/modules/PROPOSAL.hpp` (0.01, overridden to 1 for ionization via `p_cut_no_vcut`). `emCut` is derived from the `tambo_shower`'s four CLI energy cut flags: ([tambo_shower.cpp:279–295](../src/corsika/tambo_shower/src/tambo_shower.cpp#L279-L295)):
+`v_cut` is a hardcoded framework constant in `corsika/modules/PROPOSAL.hpp` (0.01, overridden to 1 for ionization via `p_cut_no_vcut`). `emCut` is derived from the `tambo_shower`'s four CLI energy cut flags: ([tambo_shower.cpp:978–994](../src/corsika/tambo_shower/src/tambo_shower.cpp#L978-L994)):
 
 | Flag | `tambo_shower` Default | Primary meaning |
 |---|---|---|
@@ -317,9 +317,9 @@ Source pointers (under `corsika/` in the CORSIKA 8 source tree; FASRC `/n/holylf
 | `--mucut`  | 10 GeV | min. kinetic energy of muons |
 | `--taucut` | 10 GeV | min. kinetic energy of tau leptons |
 
-The primary job of these flags is unrelated to PROPOSAL: each is the **cascade kill threshold** for its particle class, wired into CORSIKA's `ParticleCut` at [line 726](../src/corsika/tambo_shower/src/tambo_shower.cpp#L726) (`ParticleCut(emcut, emcut, hadcut, mucut, taucut, …)`) — a particle is dropped from the shower once its kinetic energy falls below the threshold for its class.
+The primary job of these flags is unrelated to PROPOSAL: each is the **cascade kill threshold** for its particle class, wired into CORSIKA's `ParticleCut` at [line 1376](../src/corsika/tambo_shower/src/tambo_shower.cpp#L1376) (`ParticleCut(emcut, emcut, hadcut, mucut, taucut, …)`) — a particle is dropped from the shower once its kinetic energy falls below the threshold for its class.
 
-Their secondary job sets the PROPOSAL `emCut`. `tambo_shower` takes the minimum of all four and applies that one value uniformly as the production threshold for every tracked species ([lines 729–736](../src/corsika/tambo_shower/src/tambo_shower.cpp#L729-L736)):
+Their secondary job sets the PROPOSAL `emCut`. `tambo_shower` takes the minimum of all four and applies that one value uniformly as the production threshold for every tracked species ([lines 1379–1386](../src/corsika/tambo_shower/src/tambo_shower.cpp#L1379-L1386)):
 
 ```cpp
 auto const prod_threshold = std::min({emcut, hadcut, mucut, taucut});

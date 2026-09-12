@@ -21,6 +21,10 @@ option(WITH_FLUKA "Use FLUKA as the low-energy hadronic model instead of UrQMD" 
 add_executable(tambo_shower tambo_shower.cpp)
 target_link_libraries(tambo_shower PRIVATE CORSIKA8::CORSIKA8)
 
+# Vendored header-only TOML parser used to read site files; see
+# external/tomlplusplus/README.md.
+target_include_directories(tambo_shower PRIVATE external/tomlplusplus)
+
 if(WITH_FLUKA)
   target_compile_definitions(tambo_shower PRIVATE WITH_FLUKA)
 endif()

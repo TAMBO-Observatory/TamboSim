@@ -32,11 +32,12 @@ altitude = 112.0 # km — sample primary along the trajectory at this altitude
 [corsika]
 seed = 925
 thinning = 1.0e-6
+site_file = "resources/sites/colca.toml"
 hadron_model = "SIBYLL-2.3d"
 hadron_ecut = 1.0  # GeV
 em_ecut = 1.0      # GeV
 mu_ecut = 1.0      # GeV
-corsika_path = "_TAMBOSIM_PATH_/src/corsika/tambo_shower/build/tambo_shower"
+corsika_path = "_TAMBOSIM_PATH_/src/corsika/tambo_shower/src/build/tambo_shower"
 
 # Executor selection (optional; default = "run_local"):
 #   executor = "run_sbatch"

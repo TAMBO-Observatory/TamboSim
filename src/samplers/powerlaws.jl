@@ -75,7 +75,6 @@ function pl_norm(γ, emin, emax)
         norm = 1 / (emin * log(emax / emin))
         return norm
     else
-        γ > 1
         mg = 1 - γ
         norm = mg / (emin^γ * (emax^mg - emin^mg))
         return norm

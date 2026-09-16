@@ -246,10 +246,22 @@ function _inject_neutrino_event_impl(
     earth_entry = last(intersections).point
     initial_state = Particle(ParticleType(pdg), initial_energy, earth_entry, d)
 
+    # END of the track: the detector-side (closest) intersection. Computed once
+    # and handed to the through-Earth step so it references the same point that
+    # force_interaction_vertex independently reads as `first(intersections)`.
+    end_point = first(intersections).point
+
     local close_state, final_state, point
     try
-        # Propagate through Earth via TauRunner interface
-        close_state = taurunner_interface(initial_state, intersections, tr_seed)
+        # Propagate through Earth
+        finals = propagate_through_the_earth!(initial_state, intersections, end_point, prem, bvh, tr_seed)
+
+        # NeutrinoInjection carries a single injection_final_state.
+        length(finals) > 1 &&
+            error("_inject_neutrino_event_impl: propagate_through_the_earth! returned " *
+                  "$(length(finals)) final states; NeutrinoInjection supports one")
+        # Empty (chain killed / absorbed / crossed no medium) -> null -> dropped below.
+        close_state = isempty(finals) ? Particle(T) : finals[1]
 
         # Handle null particle from failed propagation
         if isnan(close_state.energy)
@@ -271,7 +283,9 @@ function _inject_neutrino_event_impl(
             return initial_state, close_state, Particle(T), nothing
         end
 
-        # Force interaction for neutrino output
+        # Force interaction for neutrino output. force_interaction_vertex derives
+        # END internally as first(intersections).point — the through-Earth step above 
+        # now uses the same end point, for consistency.
         final_state, eout, cd, density = force_interaction_vertex(
             close_state, xs, intersections, cs, d
         )
@@ -656,6 +670,13 @@ function inject_neutrinos!(
 )
     g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_neutrinos!")
     d_frame = m_frame.d_frame
+
+    # Injection requires TauRunner and PROPOSAL to be initialized (checked once here
+    # rather than per event). tr_init runs at package load; init_proposal must be
+    # called by the caller before injection.
+    _tr_initialized[] || error("inject_neutrinos!: TauRunner not initialized")
+    is_proposal_available() ||
+        error("inject_neutrinos!: PROPOSAL not initialized; call init_proposal(config[\"proposal\"]) first")
 
     prem            = g_frame["prem"]
     bvh             = g_frame["bvh"]

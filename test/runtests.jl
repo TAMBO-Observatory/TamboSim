@@ -14,6 +14,7 @@ const TESTSETS = [
     ("Julia Interfaces",           "test_julia_interfaces.jl",           :run_julia_interfaces_tests),
     ("Sampler Statistics",         "test_regression.jl",                 :run_sampler_statistics_tests),
     ("Display",                    "test_coverage_extras.jl",            :run_display_tests),
+    ("Through-Earth Propagation",  "test_propagate_through_earth.jl",    :run_propagate_through_earth_tests),
     ("Injection Regression",       "test_injection_regression.jl",       :run_injection_regression_tests),
     ("Propagation Decay Fraction", "test_propagation_decay_fraction.jl", :run_propagation_decay_fraction_tests),
     ("CORSIKA Read",               "test_read_corsika.jl",               :run_read_corsika_tests),

@@ -23,7 +23,7 @@ struct CrossSection{T}
 end
 
 """
-    CrossSection(location::String, epsilon::Float64=1e-6) -> CrossSection
+    CrossSection(location::String) -> CrossSection
 
 Constructs a `CrossSection` object by loading and interpolating cross-section data from an HDF5 file.
 
@@ -34,12 +34,11 @@ and constructs an `inverter` spline for efficient sampling of outgoing energies.
 # Arguments
 - `location::String`: A string indicating the path to the HDF5 file and the group name
   within it (e.g., "cross_sections.h5:neutrino_nu_e").
-- `epsilon::Float64`: A small value used for numerical stability during CDF inversion. Defaults to 1e-6.
 
 # Returns
 - A new `CrossSection` object.
 """
-function CrossSection(location::String, epsilon::Float64=1e-6)
+function CrossSection(location::String)
     filename, groupname = split(location, ":")
     es, zs, tot_xs, diff_xs, emin = h5open(filename) do file
         group = file[groupname]
@@ -76,9 +75,7 @@ function CrossSection(location::String, epsilon::Float64=1e-6)
             domain = (minimum(zs[lidx:ridx]), z)
             prob = IntegralProblem(f, domain)
             sol = solve(prob, HCubatureJL(); reltol = 1e-10, abstol = 1e-10)
-            # The raw integral is pushed unclamped: values are cm²-scale
-            # (~1e-36), so any fixed clamp on this scale would either never
-            # bind or flatten the whole CDF. Normalization happens below.
+            # Raw integral; normalized below.
             push!(cdfs, sol.u)
         end
         nan_mask = .!isnan.(cdfs)

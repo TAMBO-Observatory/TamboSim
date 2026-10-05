@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Default to the local corsika_upstream build tree.
 # Override with -Dcorsika_DIR=/path/to/corsikaConfig.cmake dir.
 # Dependencies (CLI11, Boost, etc.) are managed by Conan; pass the toolchain:
-#   cmake -S . -B ../build \
+#   cmake -S . -B build \
 #     -DCMAKE_TOOLCHAIN_FILE=$HOME/research/corsika/build/conan_toolchain.cmake
 if(NOT DEFINED corsika_DIR)
   set(corsika_DIR "$ENV{HOME}/research/corsika_upstream/build"
@@ -20,6 +20,10 @@ option(WITH_FLUKA "Use FLUKA as the low-energy hadronic model instead of UrQMD" 
 
 add_executable(tambo_shower tambo_shower.cpp)
 target_link_libraries(tambo_shower PRIVATE CORSIKA8::CORSIKA8)
+
+# Vendored header-only TOML parser used to read site files; see
+# external/tomlplusplus/README.md.
+target_include_directories(tambo_shower PRIVATE external/tomlplusplus)
 
 if(WITH_FLUKA)
   target_compile_definitions(tambo_shower PRIVATE WITH_FLUKA)

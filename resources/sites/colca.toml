@@ -25,8 +25,11 @@ up_uT    = 3.7
 # Atmosphere layers, innermost first; top_altitude_km must strictly increase.
 #
 #   exponential:  rho(h) = offset_g_cm2 / scale_height_cm
-#                            * exp(-(h - top_altitude) / scale_height)
+#                            * exp(-h / scale_height_cm)
 #   linear:       rho(h) = offset_g_cm2 / scale_height_cm   (constant density)
+#
+# h is the altitude above sea level, not above a layer boundary: every layer
+# is anchored at h = 0, and top_altitude_km only sets where the layer ends.
 #
 # Any number of layers is allowed, in any mix of the two types.
 

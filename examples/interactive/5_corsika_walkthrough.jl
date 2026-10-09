@@ -181,7 +181,7 @@ end
 #       particles.parquet   per-particle records crossing the obs mesh
 #     profile.parquet       longitudinal shower profile
 #
-# The full schema lives in resources/corsika/src/README.md.
+# The full schema lives in src/corsika/tambo_shower/src/README.md.
 
 # =============================================================================
 # 6. Reading the output back

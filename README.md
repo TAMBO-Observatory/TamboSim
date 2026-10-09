@@ -51,7 +51,7 @@ The simulation's configuration lives on the `M` frame under the `injection`, `pr
 For a guided tour of `TamboFrames` and the rest of the simulation framework, see [`examples/`](examples/).
 
 ## Related Packages
-- [TAMBOSim-pipeline](https://github.com/TAMBO-Observatory/TAMBOSim-pipeline): Scripts for mass producing simulation, for the TamboSim Collaboration.
+- [TamboSimProd](https://github.com/TAMBO-Observatory/TamboSimProd): Scripts for mass producing simulation, for the TamboSim Collaboration.
 - [TamboMakie](https://github.com/TAMBO-Observatory/TamboMakie.jl): Plotting and visualization software, built on top of TamboSim.
 
 ## Getting Started
@@ -102,7 +102,7 @@ Running CORSIKA is computationally expensive, so it typically only makes sense t
 ### [3] Examples
 Example uses of `TamboSim` can be found in the `examples/` directory. 
 
-If you are a member of the TAMBO Collaboration and interested in producing *lots* of simulation, you should look at the related package [TAMBOSim-pipeline](https://github.com/TAMBO-Observatory/TAMBOSim-pipeline).
+If you are a member of the TAMBO Collaboration and interested in producing *lots* of simulation, you should look at the related package [TamboSimProd](https://github.com/TAMBO-Observatory/TamboSimProd).
 
 ## License
 

@@ -597,7 +597,7 @@ function inject!(
 )
     haskey(config, "strategy") || error(
         "inject!: injection config is missing required `strategy` field. " *
-        "Set it to one of \"NeutrinoInjection\" or \"CosmicRayInjection\"."
+        "Set it to one of \"NeutrinoInjection\", \"MuonNeutrinoInjection\", or \"CosmicRayInjection\"."
     )
     strategy = config["strategy"]
     if strategy == "NeutrinoInjection" || strategy == "MuonNeutrinoInjection"

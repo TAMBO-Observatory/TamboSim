@@ -12,6 +12,7 @@ gitignored.
 resources/
 ├── configuration_examples/     example TOML configs
 ├── geometry/                   site geometries (HDF5 + JLD2)
+├── sites/                      atmosphere + geomagnetic field per site (TOML)
 ├── cross_section_tables/       neutrino-nucleon xsec tables
 └── proposal_tables/            PROPOSAL energy-loss tables (gitignored)
 ```
@@ -26,6 +27,7 @@ argument defaults to one of these.
 | File | Purpose |
 |---|---|
 | `tau_neutrino_cc.toml` | The standard nu_tau CC configuration for the Colca Valley site, used for the TAMBO sensitivity paper. |
+| `muon_neutrino_cc.toml` | Muon-neutrino CC variant; sets `strategy = "MuonNeutrinoInjection"`, and the injected muon goes straight to CORSIKA with no PROPOSAL decay step. |
 | `cosmic_ray_proton.toml` | Cosmic-ray proton injection variant; sets `strategy = "CosmicRayInjection"` so `inject!` dispatches to the proton backend. Pass to `templates/3_inject.jl` via `--config`. |
 
 The shipped CORSIKA energy cuts (`hadron_ecut` ≈ 0.05 GeV, `em_ecut` /
@@ -68,11 +70,29 @@ The currently-shipped site is **Colca Valley**:
 
 To generate a new site, see [`examples/templates/1_create_geometry.jl`](../examples/templates/1_create_geometry.jl).
 
+## `sites/`
+
+One TOML file per observation site, giving the atmosphere layer profile and
+the local geomagnetic field — the two location-dependent inputs to CORSIKA.
+`[corsika] site_file` gives the path to one of these, or to a file of your own;
+`tambo_shower` reads it via `--site-file`, so **adding or editing a site needs
+no rebuild**. Any number of layers is supported.
+
+| File | Purpose |
+|---|---|
+| `colca.toml` | TAMBO site, Colca Valley. Local radiosonde / reanalysis fit. |
+| `lima.toml` | TAMBO-4 Lima validation site. ERA5 garua-season fit. |
+
+The schema, unit conventions and the "how to add a site" notes are in
+[`sites/README.md`](sites/README.md).
+
 ## `cross_section_tables/`
 
 `cross_sections.h5` — neutrino-nucleon CC cross-section tables (CSMS),
 loaded by `TamboSim.CrossSection` for use during injection. Indexed by
-PDG via group names like `CSMS_nutau`, `CSMS_numu`, etc.
+PDG via group names like `CSMS_nutau`; the shipped file currently
+contains only the `CSMS_nutau` group, which every example config points
+at (the CC cross section is near flavour-independent at these energies).
 
 ## `proposal_tables/`
 

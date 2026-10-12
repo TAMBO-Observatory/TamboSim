@@ -164,6 +164,8 @@ end
 #     --inject-x/y/z <ECEF metres>
 #     --intercept-x/y/z <ECEF metres>
 #     --obs-mesh <path>
+#     --site-file <path.toml>  # atmosphere layers + geomagnetic field, from
+#                              # [corsika] site_file.  See resources/sites/.
 #     --emcut/hadcut/mucut/taucut <GeV>
 #     -M <hadron_model> -N <nevent> --seed <seed> --emthin <thinning>
 #     -f <outdir>
@@ -179,7 +181,7 @@ end
 #       particles.parquet   per-particle records crossing the obs mesh
 #     profile.parquet       longitudinal shower profile
 #
-# The full schema lives in resources/corsika/src/README.md.
+# The full schema lives in src/corsika/tambo_shower/src/README.md.
 
 # =============================================================================
 # 6. Reading the output back

@@ -1,0 +1,50 @@
+# TAMBO-4 validation site: Lima, Peru.
+#
+# See resources/sites/README.md for the full schema, and
+# resources/sites/colca.toml for a commented reference file.
+
+name = "lima"
+description = """
+Lima validation site for TAMBO-4.  Layer parameters fitted to ERA5
+monthly-mean reanalysis, garua season (May-Nov, years 2000-2014 + 2017-2022 +
+2025, strong El Nino years excluded; weak/moderate events retained).
+Source: met.igp.gob.pe/elnino
+"""
+
+[geomagnetic_field]
+# WMM epoch 2024, evaluated at the site; up_uT is positive UP (the negative of
+# the NOAA calculator's Z, which is positive down).
+east_uT  = -1.525
+north_uT = 24.357
+up_uT    = 0.645
+
+[[atmosphere.layer]]
+type            = "exponential"
+top_altitude_km = 10.3136
+offset_g_cm2    = 1144.6055
+scale_height_cm = 958794.22
+
+[[atmosphere.layer]]
+type            = "exponential"
+top_altitude_km = 14.1131
+offset_g_cm2    = 1163.8507
+scale_height_cm = 852273.92
+
+[[atmosphere.layer]]
+type            = "exponential"
+top_altitude_km = 35.4794
+offset_g_cm2    = 1658.1561
+scale_height_cm = 596173.39
+
+[[atmosphere.layer]]
+type            = "exponential"
+top_altitude_km = 100.0
+offset_g_cm2    = 655.6731
+scale_height_cm = 737521.77
+
+# Effective vacuum; extends above the injection altitude (see colca.toml).
+[[atmosphere.layer]]
+type            = "linear"
+top_altitude_km = 5000.0
+offset_g_cm2    = 1.0
+scale_height_cm = 1.0e9

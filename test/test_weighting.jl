@@ -75,6 +75,9 @@ function run_weighting_tests()
         test_round_trip_oneweights_match_inline_formula()
     end
 
+    @testset "MuonNeutrinoInjection dispatch" begin
+        test_build_phase_space_munu()
+    end
     @testset "geometry_hash validation" begin
         test_validate_geometry_hash_mismatch()
         test_validate_geometry_hash_match()
@@ -341,6 +344,26 @@ function test_round_trip_oneweights_match_inline_formula()
         n_checked += 1
     end
     @test n_checked > 0
+end
+
+
+function test_build_phase_space_munu()
+    # MuonNeutrinoInjection should return NeutrinoInjectionPS, not error.
+    cfg = Dict{String,Any}(
+        "strategy"      => "MuonNeutrinoInjection",
+        "geometry_hash" => _TEST_GEOM_HASH,
+        "pdg"           => 14,
+        "emin"          => 1e6, "emax" => 1e7,
+        "gamma"         => 1.0,
+        "thetamin"      => 0.0, "thetamax" => 117.0,
+        "phimin"        => 90.0, "phimax"  => 290.0,
+        "nevent"        => 100,
+    )
+    m  = Frame('M', Dict{String,Any}("injection" => cfg))
+    tf = TamboFrames(Frame[m])
+    ps = TamboSim.build_phase_space(tf.m_frames[1])
+    @test ps isa NeutrinoInjectionPS
+    @test ps.pdg == 14
 end
 
 # =============================================================================

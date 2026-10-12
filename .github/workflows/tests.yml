@@ -31,7 +31,7 @@ jobs:
         if: steps.proposal-cache.outputs.cache-hit != 'true'
         run: |
           gh release download proposal-tables-v1 \
-            --repo TAMBO-Observatory/TAMBOSim \
+            --repo TAMBO-Observatory/TamboSim \
             --pattern "proposal_tables.tar.gz" \
             --dir /tmp
           tar -xzf /tmp/proposal_tables.tar.gz -C resources/

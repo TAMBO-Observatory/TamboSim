@@ -29,6 +29,7 @@ argument defaults to one of these.
 | `tau_neutrino_cc.toml` | The standard nu_tau CC configuration for the Colca Valley site, used for the TAMBO sensitivity paper. |
 | `muon_neutrino_cc.toml` | Muon-neutrino CC variant; sets `strategy = "MuonNeutrinoInjection"`, and the injected muon goes straight to CORSIKA with no PROPOSAL decay step. |
 | `cosmic_ray_proton.toml` | Cosmic-ray proton injection variant; sets `strategy = "CosmicRayInjection"` so `inject!` dispatches to the proton backend. Pass to `templates/3_inject.jl` via `--config`. |
+| `atmospheric_muon.toml` | Atmospheric-muon variant; injects muons (`pdg = 13`) through `strategy = "CosmicRayInjection"` at a 6.5 km injection altitude, for weighting against an altitude-dependent muon flux such as TamboAtmMuonFlux.jl. |
 
 The shipped CORSIKA energy cuts (`hadron_ecut` ≈ 0.05 GeV, `em_ecut` /
 `photon_ecut` ≈ 0.001 GeV) produce more complete shower particle lists

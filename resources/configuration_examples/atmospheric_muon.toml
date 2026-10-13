@@ -1,27 +1,25 @@
 # Downgoing atmospheric muon configuration for the TAMBO site.
 #
-# Muons are injected directly via the MuonInjection strategy, which routes
-# through the same inject_cosmicrays! backend as CosmicRayInjection. Every
-# injected muon is placed at the specified altitude and propagated down to
-# the detector by CORSIKA.
+# Muons are injected directly as cosmic-ray primaries (strategy =
+# "CosmicRayInjection", pdg = 13). Every injected muon is placed at the
+# specified altitude and propagated down to the detector by CORSIKA.
 #
 # To weight events against the physical atmospheric muon flux, multiply each
-# event's oneweight by Φ_μ(E, cosθ, h) evaluated at the injected energy,
-# direction, and altitude. TamboAtmMuonFlux.jl provides this flux model.
-# The injection altitude is always recorded on the M frame at
-# m["injection"]["altitude"] (km) so flux evaluation can recover it.
+# event's oneweight by Φ_μ(E, cosθ, h) evaluated at the injected energy, the
+# local zenith at the injection point, and the injection altitude.
+# TamboAtmMuonFlux.jl provides this flux model. The injection altitude is
+# recorded on the M frame at m["injection"]["altitude"] (km).
 #
-# Altitude choice: must be ABOVE the detector terrain (the volcano/colca
-# detector region tops out near 3.9 km above sea level), otherwise the
-# backtrace-to-altitude geometry has no solution. 5.0 km clears the mesh and
-# sits within the TamboAtmMuonFlux table (0–20 km). The injection altitude is
-# where Φ_μ(E, cosθ, h) is evaluated, so it must match the flux model.
+# Altitude choice: the injection altitude is where Φ_μ is evaluated, so it
+# must match the flux model and lie above all terrain in the geometry mesh,
+# which reaches ~6.3 km above sea level. Campaigns at different altitudes are
+# weighted independently and give separate rate estimates.
 
 [geometry]
 geometry_path = "_TAMBOSIM_PATH_/resources/geometry/colca_valley_3000.jld2"
 
 [injection]
-strategy = "MuonInjection"
+strategy = "CosmicRayInjection"
 seed = 925
 nevent = 100000
 pdg = 13       # muon (use -13 for anti-muon)
@@ -32,7 +30,7 @@ thetamin = 91  # degrees (downgoing: zenith > 90°)
 thetamax = 130 # degrees
 phimin = 0     # degrees
 phimax = 360   # degrees
-altitude = 5.0 # km — must exceed detector terrain top (~3.9 km); see note above
+altitude = 6.5 # km — above the highest terrain in the mesh; see note above
 
 [corsika]
 seed = 925

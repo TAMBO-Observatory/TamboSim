@@ -485,6 +485,19 @@ function Base.show(io::IO, ::MIME"text/plain", pt::ForcedNeutrinoInteractionPoin
     print(io,   "  dsigma: $(@sprintf("%.3g", ustrip(u"cm^2", pt.dsigma))) cm²")
 end
 
+function Base.show(io::IO, ::MIME"text/plain", pt::GlashowInteractionPoint)
+    println(io, "GlashowInteractionPoint:")
+    _show_point_common!(io, pt)
+    println(io)
+    println(io, "  E_tau:     $(_format_energy(ustrip(u"GeV", pt.E_tau)))")
+    println(io, "  rho:       $(round(ustrip(u"g/cm^3", pt.rho), digits=3)) g/cm³")
+    println(io, "  cd_cap:    $(round(ustrip(u"g/cm^2", pt.cd_cap), digits=2)) g/cm²")
+    println(io, "  x_up:      $(round(ustrip(u"g/cm^2", pt.x_up), digits=2)) g/cm²")
+    println(io, "  sigma_tau: $(@sprintf("%.3g", ustrip(u"cm^2", pt.sigma_tau))) cm²")
+    println(io, "  sigma_gr:  $(@sprintf("%.3g", ustrip(u"cm^2", pt.sigma_gr))) cm²")
+    print(io,   "  sigma_dis: $(@sprintf("%.3g", ustrip(u"cm^2", pt.sigma_dis))) cm²")
+end
+
 # ============================================================================
 # Stochastic Loss Type
 # ============================================================================

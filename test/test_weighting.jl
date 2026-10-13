@@ -78,6 +78,12 @@ function run_weighting_tests()
     @testset "MuonNeutrinoInjection dispatch" begin
         test_build_phase_space_munu()
     end
+
+    @testset "GlashowInjection" begin
+        test_build_phase_space_glashow()
+        test_glashow_functor_matches_formula()
+        test_glashow_single_campaign_round_trip()
+    end
     @testset "geometry_hash validation" begin
         test_validate_geometry_hash_mismatch()
         test_validate_geometry_hash_match()
@@ -364,6 +370,64 @@ function test_build_phase_space_munu()
     ps = TamboSim.build_phase_space(tf.m_frames[1])
     @test ps isa NeutrinoInjectionPS
     @test ps.pdg == 14
+end
+
+function _glashow_cfg(; nevent=100)
+    Dict{String,Any}(
+        "strategy"      => "GlashowInjection",
+        "geometry_hash" => _TEST_GEOM_HASH,
+        "pdg"           => -12,
+        "emin"          => 1e6, "emax" => 1e8,
+        "gamma"         => 1.0,
+        "thetamin"      => 0.0, "thetamax" => 117.0,
+        "phimin"        => 90.0, "phimax"  => 290.0,
+        "nevent"        => nevent,
+    )
+end
+
+function test_build_phase_space_glashow()
+    m  = Frame('M', Dict{String,Any}("injection" => _glashow_cfg()))
+    ps = TamboSim.build_phase_space(m)
+    @test ps isa GlashowInjectionPS
+    @test ps.pdg == -12
+end
+
+# Independent reference: 1/w = p_E p_Ω/A / (cd_cap · (Z/A)N_A σ_τ · survival).
+# The ρ and 3(1−y)²/E factors cancel between the MC and physical densities.
+function test_glashow_functor_matches_formula()
+    ps = TamboSim.build_phase_space(Frame('M', Dict{String,Any}("injection" => _glashow_cfg())))
+    pt = GlashowInteractionPoint(6.3e6u"GeV", 1.2e6u"GeV", 1.6, 3.0, 4.0e7u"m^2",
+                                 2.65u"g/cm^3", 5.0e4u"g/cm^2", 2.0e6u"g/cm^2",
+                                 5.4e-32u"cm^2", 4.9e-31u"cm^2", 1.5e-33u"cm^2")
+    p_E  = pl_norm(1.0, 1e6u"GeV", 1e8u"GeV") * (pt.E / 1e6u"GeV")^(-1.0)
+    Ω    = (cos(ps.thetamin) - cos(ps.thetamax)) * (ps.phimax - ps.phimin) * u"sr"
+    n_N  = 1 / (TamboSim.speedoflight^(-2) * (938.27208816u"MeV" + 939.5654133u"MeV") / 2)
+    surv = exp(-uconvert(NoUnits, pt.x_up * (0.5 * 6.02214076e23 / u"g" * pt.sigma_gr +
+                                             pt.sigma_dis * n_N)))
+    expected = p_E / Ω / pt.area / (pt.cd_cap * 0.5 * 6.02214076e23 / u"g" * pt.sigma_tau * surv)
+    @test ustrip(u"GeV^-1 * m^-2 * sr^-1", ps(pt)) ≈
+          ustrip(u"GeV^-1 * m^-2 * sr^-1", uconvert(u"GeV^-1 * m^-2 * sr^-1", expected))
+    # x_up = 2e6 g/cm² is ~0.3 λ_GR in rock, so survival is well inside (0, 1).
+    @test 0.5 < surv < 0.9
+
+    # A point outside the campaign energy range gets zero density.
+    out = GlashowInteractionPoint(2e8u"GeV", 1e7u"GeV", 1.6, 3.0, 4.0e7u"m^2",
+                                  2.65u"g/cm^3", 5.0e4u"g/cm^2", 0.0u"g/cm^2",
+                                  1e-35u"cm^2", 1e-34u"cm^2", 1e-33u"cm^2")
+    @test iszero(ustrip(ps(out)))
+end
+
+function test_glashow_single_campaign_round_trip()
+    m  = Frame('M', Dict{String,Any}("injection" => _glashow_cfg(nevent=250)))
+    q  = Frame('Q', Dict{String,Any}(), Dict{Char,Frame}('M' => m))
+    pt = GlashowInteractionPoint(6.3e6u"GeV", 1.2e6u"GeV", 1.6, 3.0, 4.0e7u"m^2",
+                                 2.65u"g/cm^3", 5.0e4u"g/cm^2", 1.0e5u"g/cm^2",
+                                 5.4e-32u"cm^2", 4.9e-31u"cm^2", 1.5e-33u"cm^2")
+    q["phase_space_point"] = pt
+    tf = TamboFrames(Frame[m, q])
+    ps = TamboSim.build_phase_space(m)
+    @test ustrip(u"GeV*m^2*sr", oneweight(tf, q)) ≈
+          ustrip(u"GeV*m^2*sr", uconvert(u"GeV*m^2*sr", inv(ps(pt) * 250)))
 end
 
 # =============================================================================

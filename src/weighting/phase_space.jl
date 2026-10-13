@@ -34,6 +34,37 @@ struct UpstreamNeutrinoInteractionPoint <: PhaseSpacePoint
     area     :: Quantity{Float64, ldim^2, typeof(u"m^2")}
 end
 
+# --- Glashow-resonance injection (ν̄_e e⁻ → W⁻ → τ⁻ ν̄_τ, forced vertex, no TauRunner) ---
+
+struct GlashowInjectionPS <: PhaseSpace
+    geometry_hash :: UInt
+    pdg           :: Int
+    emin     :: Quantity{Float64, edim, typeof(u"GeV")}
+    emax     :: Quantity{Float64, edim, typeof(u"GeV")}
+    gamma    :: Float64
+    thetamin :: Float64   # rad
+    thetamax :: Float64   # rad
+    phimin   :: Float64   # rad
+    phimax   :: Float64   # rad
+    nevent   :: Int
+end
+
+# `cd_cap` is the column within the τ decay range (the vertex is uniform in it).
+# `x_up` is the column from Earth entry to the vertex, used for ν̄_e survival.
+struct GlashowInteractionPoint <: PhaseSpacePoint
+    E          :: Quantity{Float64, edim, typeof(u"GeV")}
+    E_tau      :: Quantity{Float64, edim, typeof(u"GeV")}
+    theta      :: Float64   # rad
+    phi        :: Float64   # rad
+    area       :: Quantity{Float64, ldim^2, typeof(u"m^2")}
+    rho        :: Quantity{Float64, mdim/ldim^3, typeof(u"g/cm^3")}
+    cd_cap     :: Quantity{Float64, mdim/ldim^2, typeof(u"g/cm^2")}
+    x_up       :: Quantity{Float64, mdim/ldim^2, typeof(u"g/cm^2")}
+    sigma_tau  :: Quantity{Float64, ldim^2, typeof(u"cm^2")}
+    sigma_gr   :: Quantity{Float64, ldim^2, typeof(u"cm^2")}
+    sigma_dis  :: Quantity{Float64, ldim^2, typeof(u"cm^2")}
+end
+
 # --- Cosmic-ray injection (surface sampling) ---
 
 struct CosmicRayInjectionPS <: PhaseSpace
@@ -131,6 +162,32 @@ function (ps::NeutrinoInjectionPS)(pt::UpstreamNeutrinoInteractionPoint)
     return _surface_pdf(ps, pt)
 end
 
+function (ps::GlashowInjectionPS)(pt::GlashowInteractionPoint)
+    _compatible(ps, pt) || return _zero_iow
+
+    y    = pt.E_tau / pt.E
+    ypdf = 3 * (1 - y)^2 / pt.E   # dP/dE_τ, the sampled τ energy distribution
+
+    # Monte Carlo density (energy × angular × area × vertex × τ energy)
+    norm = pl_norm(ps.gamma, ps.emin, ps.emax)
+    mc   = norm * (pt.E / ps.emin)^(-ps.gamma)
+    Ω    = (cos(ps.thetamin) - cos(ps.thetamax)) * (ps.phimax - ps.phimin) * u"sr"
+    mc  /= Ω
+    mc  /= pt.area
+    mc  *= pt.rho / pt.cd_cap
+    mc  *= ypdf
+
+    # Physical density: n_e dσ_τ/dE_τ per unit length, times ν̄_e survival to the vertex
+    miso     = speedoflight^(-2) * (938.27208816u"MeV" + 939.5654133u"MeV") / 2
+    n_e      = ELECTRONS_PER_GRAM * pt.rho
+    survival = exp(-uconvert(NoUnits,
+        pt.x_up * (ELECTRONS_PER_GRAM * pt.sigma_gr + pt.sigma_dis / miso)))
+    phys  = n_e * pt.sigma_tau * ypdf
+    phys *= survival
+
+    return uconvert(u"GeV^-1 * m^-2 * sr^-1", mc / phys)
+end
+
 function (ps::CosmicRayInjectionPS)(pt::SurfaceCRPoint)
     _compatible(ps, pt) || return _zero_iow
     return _surface_pdf(ps, pt)
@@ -221,7 +278,8 @@ end
 
 Construct the appropriate `PhaseSpace` subtype from an M frame's injection
 config. The config table at `m[prefix]` must declare `strategy`, set to
-one of `"NeutrinoInjection"` or `"CosmicRayInjection"`, and must carry the
+one of `"NeutrinoInjection"`, `"MuonNeutrinoInjection"`, `"GlashowInjection"`
+or `"CosmicRayInjection"`, and must carry the
 `geometry_hash` snapshot that `_setup_injection` writes at injection time.
 """
 function build_phase_space(m::Frame; prefix::String="injection")
@@ -240,19 +298,22 @@ function build_phase_space(m::Frame; prefix::String="injection")
     )
     haskey(cfg, "strategy") || error(
         "build_phase_space: M frame config (prefix=\"$prefix\") is missing " *
-        "required `strategy` field. Set it to one of \"NeutrinoInjection\" " *
-        "or \"CosmicRayInjection\". See resources/configuration_examples/ " *
+        "required `strategy` field. Set it to one of \"NeutrinoInjection\", " *
+        "\"MuonNeutrinoInjection\", \"GlashowInjection\" or \"CosmicRayInjection\". See resources/configuration_examples/ " *
         "for the current schema."
     )
     strategy = cfg["strategy"]
     if strategy == "NeutrinoInjection" || strategy == "MuonNeutrinoInjection"
         return NeutrinoInjectionPS(args...)
+    elseif strategy == "GlashowInjection"
+        return GlashowInjectionPS(args...)
     elseif strategy == "CosmicRayInjection"
         return CosmicRayInjectionPS(args...)
     else
         error(
             "build_phase_space: unknown strategy \"$strategy\". " *
-            "Known strategies: \"NeutrinoInjection\", \"MuonNeutrinoInjection\", \"CosmicRayInjection\"."
+            "Known strategies: \"NeutrinoInjection\", \"MuonNeutrinoInjection\", " *
+            "\"GlashowInjection\", \"CosmicRayInjection\"."
         )
     end
 end

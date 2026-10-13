@@ -60,8 +60,8 @@ absolute path `<base_outdir>/event_<padded>/shower_<idx>/`.
 
 Branches on the latest M frame's `m["injection"]["strategy"]`:
 
-- `"NeutrinoInjection"`: one job per non-neutrino (`pdg ∉ {12,14,16}`)
-  particle in `q["proposal_decay_products"]`.
+- `"NeutrinoInjection"`, `"GlashowInjection"`: one job per non-neutrino
+  (`pdg ∉ {12,14,16}`) particle in `q["proposal_decay_products"]`.
 - `"MuonNeutrinoInjection"`: one job per `q["injection_final_state"]`
   muon (the CC-vertex muon), with `decay_id = 1`. CORSIKA transports
   the muon through rock→air and generates in-air radiative sub-showers.
@@ -89,7 +89,8 @@ function plan_corsika_jobs(frames::TamboFrames, config::Dict, base_outdir::Strin
     for frame in frames.q_frames
         event_id = frame["event_id"]
         
-        if strategy == "NeutrinoInjection"
+        # GlashowInjection also hands a τ⁻ to PROPOSAL, so it uses the same decay products.
+        if strategy == "NeutrinoInjection" || strategy == "GlashowInjection"
             haskey(frame, "proposal_decay_products") || continue
             for (idx, particle) in enumerate(frame["proposal_decay_products"])
                 abs(Int(particle.pdg)) in (12, 14, 16) && continue

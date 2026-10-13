@@ -28,6 +28,7 @@ argument defaults to one of these.
 |---|---|
 | `tau_neutrino_cc.toml` | The standard nu_tau CC configuration for the Colca Valley site, used for the TAMBO sensitivity paper. |
 | `muon_neutrino_cc.toml` | Muon-neutrino CC variant; sets `strategy = "MuonNeutrinoInjection"`, and the injected muon goes straight to CORSIKA with no PROPOSAL decay step. |
+| `glashow_nuebar.toml` | Glashow-resonance ν̄_e variant (ν̄_e e⁻ → W⁻ → τ⁻ ν̄_τ); sets `strategy = "GlashowInjection"` and `pdg = -12`. The τ⁻ goes through PROPOSAL like the ν_τ case. `xs_location` is only used for ν̄_e attenuation on nucleons. `glashow_corrections = true` applies the Doppler + ISR ratios from group `GR_nuebar`. |
 | `cosmic_ray_proton.toml` | Cosmic-ray proton injection variant; sets `strategy = "CosmicRayInjection"` so `inject!` dispatches to the proton backend. Pass to `templates/3_inject.jl` via `--config`. |
 
 The shipped CORSIKA energy cuts (`hadron_ecut` ≈ 0.05 GeV, `em_ecut` /

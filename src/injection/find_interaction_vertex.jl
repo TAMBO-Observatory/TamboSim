@@ -1,5 +1,8 @@
 const AIR_DENSITY = 1.205e-3 * u"g"/u"cm"^3
 const ROCK_DENSITY = 2.65 * u"g"/u"cm"^3
+# Electrons per gram for an isoscalar medium (Z/A = 0.5), used as the Glashow-resonance
+# target density: n_e = ELECTRONS_PER_GRAM * ρ.
+const ELECTRONS_PER_GRAM = 0.5 * 6.02214076e23 / u"g"
 
 """
     find_vertex_distance_by_distance(
@@ -35,6 +38,22 @@ function find_vertex_distance_by_distance(
     intersections::I,
     epsilon::Float64=1e-3
 ) where {T<:Real, I<:AbstractVector{Intersection{T}}}
+    d, cd, dens, _ = _find_vertex_distance_by_distance(direction, distance, intersections)
+    return d, cd, dens
+end
+
+"""
+    _find_vertex_distance_by_distance(direction, distance, intersections)
+        -> Tuple{Quantity, Quantity, Quantity, Quantity}
+
+Same as [`find_vertex_distance_by_distance`](@ref), but also returns the column depth
+from the first intersection to the sampled vertex as a fourth element.
+"""
+function _find_vertex_distance_by_distance(
+    direction::Direction{T},
+    distance::Quantity{T},
+    intersections::I,
+) where {T<:Real, I<:AbstractVector{Intersection{T}}}
 
     densities = @views compute_density(intersections, direction)[2:end]
     distances = @views compute_lengths(intersections)[2:end]
@@ -58,13 +77,13 @@ function find_vertex_distance_by_distance(
         segment_cd = dist * dens
         if segment_cd + accrued_cd > target_column_depth
             accrued_d += (target_column_depth - accrued_cd) / dens
-            return accrued_d, cd, dens
+            return accrued_d, cd, dens, target_column_depth
         end
         accrued_d += dist
         accrued_cd += segment_cd
     end
     # Fallback: return final position if loop completes (edge case)
-    return accrued_d, cd, last(densities)
+    return accrued_d, cd, last(densities), accrued_cd
 end
 
 """
@@ -127,6 +146,22 @@ function find_vertex_distance_by_cd(
     end
     # Fallback: return final position if loop completes (edge case)
     return accrued_d, cd, last(densities)
+end
+
+"""
+    total_column_depth(intersections::AbstractVector{Intersection{T}}, direction::Direction{T})
+        -> Quantity
+
+Total column depth from the first intersection to the last one along `direction`.
+Uses the same segment densities as the vertex finders.
+"""
+function total_column_depth(
+    intersections::I,
+    direction::Direction{T}
+) where {T<:Real, I<:AbstractVector{Intersection{T}}}
+    densities = @views compute_density(intersections, direction)[2:end]
+    distances = @views compute_lengths(intersections)[2:end]
+    return sum(dist * dens for (dist, dens) in zip(distances, densities)) |> u"g/cm^2"
 end
 
 """

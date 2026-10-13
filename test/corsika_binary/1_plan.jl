@@ -116,7 +116,7 @@ function plan_one(config_path, env)
     strategy = injection_cfg["strategy"]
 
     # The cross-section table ships inside TamboSim resources.
-    if strategy == "NeutrinoInjection"
+    if strategy in ("NeutrinoInjection", "GlashowInjection")
         injection_cfg["xs_location"] = joinpath(
             get_tambosim_path(), "resources", "cross_section_tables",
             "cross_sections.h5") * ":CSMS_nutau"
@@ -134,7 +134,7 @@ function plan_one(config_path, env)
 
     inject!(frames, injection_cfg)
 
-    if strategy == "NeutrinoInjection"
+    if strategy in ("NeutrinoInjection", "GlashowInjection")
         # Keep only events with a final-state lepton, propagate the tau,
         # then keep only events that produced decay products.
         filter!(f -> haskey(f, "injection_final_state"), frames)

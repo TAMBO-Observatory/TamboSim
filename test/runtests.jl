@@ -20,6 +20,7 @@ const TESTSETS = [
     ("CORSIKA Orchestrator",       "test_run_corsika.jl",                :run_corsika_orchestrator_tests),
     ("CORSIKA Hits",               "test_corsika_hits.jl",               :run_corsika_hits_tests),
     ("Cosmic Ray Injection",       "test_cosmicray_injection.jl",        :run_cosmicray_injection_tests),
+    ("Glashow Injection",          "test_glashow.jl",                    :run_glashow_tests),
     ("Simulation API",             "test_simulation_api.jl",             :run_simulation_api_tests),
 ]
 

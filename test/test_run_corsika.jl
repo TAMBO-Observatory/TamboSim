@@ -22,6 +22,8 @@ const _NEUTRINO_OUTPUT_PATH = joinpath(_TAMBOSIM_PATH, "examples",
                                         "resources", "example_output.jld2")
 const _NUMU_OUTPUT_PATH = joinpath(_TAMBOSIM_PATH, "examples",
                                     "resources", "example_numu_output.jld2")
+const _GLASHOW_FIXTURE_PATH = joinpath(_TAMBOSIM_PATH, "examples",
+                                       "resources", "example_glashow_output.jld2")
 
 function _cr_injection_config(; nevent::Int=5, seed::Int=42)
     return Dict{String,Any}(
@@ -64,6 +66,7 @@ function run_corsika_orchestrator_tests()
     # geometry's G/C/D so plan_corsika_jobs can walk to D for the BVH.
     nu_combined   = load_frames([_GEOMETRY_PATH, _NEUTRINO_OUTPUT_PATH])
     numu_combined = load_frames([_GEOMETRY_PATH, _NUMU_OUTPUT_PATH])
+    glashow_combined = load_frames([_GEOMETRY_PATH, _GLASHOW_FIXTURE_PATH])
 
     @testset "plan_corsika_jobs — cosmic rays" begin
         test_plan_cosmic_rays(cr_frames)
@@ -74,6 +77,9 @@ function run_corsika_orchestrator_tests()
     end
     @testset "plan_corsika_jobs — MuonNeutrinoInjection" begin
         test_plan_munu_uses_final_state(numu_combined)
+    end
+    @testset "plan_corsika_jobs — GlashowInjection" begin
+        test_plan_glashow_uses_decay_products(glashow_combined)
     end
     @testset "build_corsika_argv" begin
         test_argv_has_required_flags(cr_frames)
@@ -187,6 +193,30 @@ function test_plan_munu_uses_final_state(numu_combined)
     @test all(j -> abs(Int(j.primary.pdg)) == 13, jobs)
     @test all(j -> startswith(j.outdir, base_outdir), jobs)
     @test length(jobs) <= length(frames.q_frames)
+end
+
+# ============================================================================
+# plan_corsika_jobs — GlashowInjection
+# ============================================================================
+
+function test_plan_glashow_uses_decay_products(glashow_combined)
+    frames = deepcopy(glashow_combined)
+
+    m = _get_last_frame(frames, 'M')
+    @test m["injection"]["strategy"] == "GlashowInjection"
+    @test any(q -> haskey(q, "proposal_decay_products"), frames.q_frames)
+
+    cfg = _default_corsika_config()
+    base_outdir = mktempdir()
+    jobs = plan_corsika_jobs(frames, cfg, base_outdir)
+
+    # Jobs come from the τ decay products (never the τ itself, never neutrinos).
+    @test !isempty(jobs)
+    @test all(j -> !(abs(Int(j.primary.pdg)) in (12, 14, 15, 16)), jobs)
+    for j in jobs
+        q = only(filter(q -> q["event_id"] == j.event_id, frames.q_frames))
+        @test j.primary == q["proposal_decay_products"][j.decay_id]
+    end
 end
 
 # ============================================================================

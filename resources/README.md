@@ -95,6 +95,15 @@ PDG via group names like `CSMS_nutau`; the shipped file currently
 contains only the `CSMS_nutau` group, which every example config points
 at (the CC cross section is near flavour-independent at these energies).
 
+The `GR_nuebar` group holds the Glashow-resonance correction ratios
+(Doppler broadening + initial-state radiation over tree level, for the
+total and the τ-channel cross section, standard rock, 0.1% log-E steps
+over 1e5–1e9 GeV). It is read by `GlashowCrossSection` when an injection
+config sets `glashow_corrections = true`, and is produced by
+`scripts/make_glashow_table.jl` (references in that script). At the peak
+the correction is −30% (Doppler −19%, ISR −15%). Above it, ISR radiative
+return raises σ by 2.6× at 10 PeV.
+
 ## `proposal_tables/`
 
 PROPOSAL caches its interpolated energy-loss tables here on first use.

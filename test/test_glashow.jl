@@ -35,6 +35,7 @@ function run_glashow_tests()
     @testset "Correction table" begin
         test_glashow_corrections_need_location()
         test_glashow_corrections_scale_tree_level()
+        test_glashow_shipped_table()
     end
     @testset "τ energy sampler" begin
         test_glashow_y_sampler()
@@ -107,6 +108,20 @@ function test_glashow_corrections_scale_tree_level()
     @test glashow_sigma_total(corr, _E_RES) ≈ 0.8 * glashow_sigma_total(tree, _E_RES)
     @test glashow_sigma_tau(corr, _E_RES)   ≈ 0.7 * glashow_sigma_tau(tree, _E_RES)
     @test_throws ArgumentError glashow_sigma_total(corr, 1e10u"GeV")
+end
+
+function test_glashow_shipped_table()
+    h5 = joinpath(get_tambosim_path(), "resources", "cross_section_tables", "cross_sections.h5")
+    tree = GlashowCrossSection()
+    corr = GlashowCrossSection(; corrections=true, location="$(h5):GR_nuebar")
+    r(E) = glashow_sigma_total(corr, E) / glashow_sigma_total(tree, E)
+    # Doppler + ISR lower the peak by ~30% (Ding & Liu, Huang et al.) ...
+    @test r(_E_RES) ≈ 0.70 atol=0.03
+    # ... and radiative return raises σ above the resonance by more than 2× (Huang et al.).
+    @test r(1e7u"GeV") > 2
+    # Far below the resonance the corrections are small.
+    @test r(2e5u"GeV") ≈ 1 atol=0.1
+    @test glashow_sigma_tau(corr, _E_RES) / glashow_sigma_tau(tree, _E_RES) ≈ r(_E_RES) rtol=1e-3
 end
 
 function test_glashow_y_sampler()

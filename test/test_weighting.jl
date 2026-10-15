@@ -61,6 +61,8 @@ function run_weighting_tests()
     @testset "Campaign-level compatibility (M ↔ PS filter)" begin
         test_campaign_pdg_mismatch_via_filter()
         test_campaign_geometry_mismatch_via_filter()
+        test_campaign_altitude_mismatch_via_filter()
+        test_campaign_missing_altitude_falls_back()
     end
 
     @testset "Multi-campaign oneweight" begin
@@ -98,9 +100,10 @@ function _test_neutrino_ps(; emin=1e3, emax=1e6, nevent=1000,
 end
 
 function _test_cr_ps(; emin=1e3, emax=1e6, nevent=1000,
-                      geometry_hash::UInt=_TEST_GEOM_HASH, pdg::Int=2212)
+                      geometry_hash::UInt=_TEST_GEOM_HASH, pdg::Int=2212,
+                      altitude=112.0)
     CosmicRayInjectionPS(geometry_hash, pdg, emin*u"GeV", emax*u"GeV",
-                         2.0, 0.0, π/2, 0.0, 2π, nevent)
+                         2.0, 0.0, π/2, 0.0, 2π, nevent, altitude*u"km")
 end
 
 function test_forced_neutrino_functor_matches_old_formula()
@@ -151,7 +154,7 @@ function test_compatibility_phi_wraparound()
     # [3π/2, 5π/2], i.e. 270°→90° through 0°). cart_to_sph returns φ in
     # [-π, π], so an event at φ = -π/2 must still match this range.
     ps = CosmicRayInjectionPS(_TEST_GEOM_HASH, 2212, 1e3u"GeV", 1e6u"GeV", 2.0,
-                              0.0, π/2, 3π/2, 5π/2, 1000)
+                              0.0, π/2, 3π/2, 5π/2, 1000, 112.0u"km")
     # In-range: φ = -π/2 is the same direction as 3π/2.
     pt_in = SurfaceCRPoint(1e4u"GeV", π/4, -π/2, 500.0u"m^2")
     @test ps(pt_in) > 0.0u"GeV^-1 * m^-2 * sr^-1"
@@ -179,14 +182,35 @@ function test_campaign_geometry_mismatch_via_filter()
     @test _oneweight_from_ps(q, PhaseSpace[ps]) == 0.0u"GeV*m^2*sr"
 end
 
+function test_campaign_altitude_mismatch_via_filter()
+    ps5  = _test_cr_ps(; altitude=5.0)
+    ps10 = _test_cr_ps(; altitude=10.0)
+    pt   = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    q5   = _make_q_frame_with_point(pt; altitude=5.0)
+    # A 5 km event is weighted against the 5 km campaign only.
+    ow_both = _oneweight_from_ps(q5, PhaseSpace[ps5, ps10])
+    ow_5    = _oneweight_from_ps(q5, PhaseSpace[ps5])
+    @test ustrip(u"GeV*m^2*sr", ow_both) ≈ ustrip(u"GeV*m^2*sr", ow_5)
+    @test _oneweight_from_ps(q5, PhaseSpace[ps10]) == 0.0u"GeV*m^2*sr"
+end
+
+function test_campaign_missing_altitude_falls_back()
+    ps = _test_cr_ps(; altitude=112.0)
+    pt = SurfaceCRPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2")
+    q  = _make_q_frame_with_point(pt; altitude=nothing)
+    ow = @test_logs (:warn, r"no `altitude`") _oneweight_from_ps(q, PhaseSpace[ps])
+    @test ow > 0.0u"GeV*m^2*sr"
+end
+
 # =============================================================================
 # Multi-campaign oneweight tests
 # =============================================================================
 
 function _make_q_frame_with_point(pt::PhaseSpacePoint;
                                    geometry_hash::UInt=_TEST_GEOM_HASH,
-                                   pdg::Int=2212)
+                                   pdg::Int=2212, altitude=112.0)
     cfg = Dict{String,Any}("geometry_hash" => geometry_hash, "pdg" => pdg)
+    isnothing(altitude) || (cfg["altitude"] = altitude)
     m   = Frame('M', Dict{String,Any}("injection" => cfg))
     return Frame('Q', Dict{String,Any}("phase_space_point" => pt),
                  Dict{Char,Frame}('M' => m))

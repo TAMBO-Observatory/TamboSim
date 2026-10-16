@@ -85,6 +85,7 @@ function run_geometry_tests()
         test_place_detector_units_slope_filter()
         test_place_detector_units_spacing()
         test_place_detector_units_tilt_mode()
+        test_place_detector_units_clearance()
     end
 end
 
@@ -605,6 +606,41 @@ function test_place_detector_units_tilt_mode()
     # fixed_tilt_deg requires :fixed, and must be in range.
     @test_throws ArgumentError TamboSim.place_detector_units(g_flat, d_flat; fixed_tilt_deg=90.0)
     @test_throws ArgumentError TamboSim.place_detector_units(g_flat, d_flat; tilt_mode=:fixed, fixed_tilt_deg=200.0)
+end
+
+# Height of each OBB corner above the surface, from a vertical ray through it.
+function _corner_heights(obb, bvh, cs)
+    up = TamboSim.Direction([0.0, 0.0, 1.0], cs)
+    map(obb.vertices) do v
+        x, y, z = v.point
+        ixs = TamboSim.intersect_all(bvh, TamboSim.Ray(Coordinate(x, y, 0.0u"m", cs), up))
+        z - ixs[1].point.point[3]
+    end
+end
+
+function test_place_detector_units_clearance()
+    g_frame, d_frame = _roof_detector_frames()
+    cs, bvh = g_frame["cs"], d_frame["detector_bvh"]
+    half = [0.9375u"m", 0.4u"m", 0.00575u"m"]
+
+    # Without clearance a vertical panel is centred on the surface: half buried.
+    sunk, _ = TamboSim.place_detector_units(g_frame, d_frame; half_lengths=half,
+        tilt_mode=:fixed, fixed_tilt_deg=90.0)
+    @test all(o -> minimum(_corner_heights(o, bvh, cs)) < 0.0u"m", sunk)
+
+    # With clearance the lowest corner sits exactly `clearance` above ground,
+    # on both slopes of the roof, and orientations and sites are unchanged.
+    for tilt in (30.0, 90.0)
+        lifted, _ = TamboSim.place_detector_units(g_frame, d_frame; half_lengths=half,
+            tilt_mode=:fixed, fixed_tilt_deg=tilt, clearance=0.03u"m")
+        @test length(lifted) == length(sunk)
+        @test all(o -> isapprox(minimum(_corner_heights(o, bvh, cs)), 0.03u"m"; atol=1e-6u"m"), lifted)
+        @test length(unique(_axis_key.(lifted))) == 1
+    end
+
+    @test_throws ArgumentError TamboSim.place_detector_units(g_frame, d_frame; clearance=0.03u"m")
+    @test_throws ArgumentError TamboSim.place_detector_units(g_frame, d_frame;
+        tilt_mode=:fixed, clearance=-0.03u"m")
 end
 if abspath(PROGRAM_FILE) == @__FILE__
     @testset "Geometry" begin

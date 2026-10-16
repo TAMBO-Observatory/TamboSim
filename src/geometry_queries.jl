@@ -64,6 +64,7 @@ is_above_topography(particle::Particle, bvh::BVHTree) =
         grid_margin        = 500.0u"m",
         tilt_mode          = :terrain,
         fixed_tilt_deg     = nothing,
+        clearance          = nothing,
     ) -> (Vector{OBB{Float64}}, Union{BVHTree, Nothing})
 
 Lay out detector OBBs on a hexagonal grid covering the detector surface
@@ -108,6 +109,11 @@ Typical caller pattern:
   `90` = vertical — in the azimuth of the mean normal's horizontal projection
   (tilts "downhill"; azimuth defaults to +x if the mean normal is vertical).
   Must lie in `[0, 180]`.
+- `clearance`: only valid with `tilt_mode=:fixed`. `nothing` (default) puts
+  each module's centre on the surface, as in `:terrain` mode; a fixed-tilt
+  panel then sits half underground wherever its tilt differs from the local
+  slope. A length raises each module vertically until its lowest corner is
+  `clearance` above the detector surface.
 
 # Returns
 - `(obbs, obb_bvh)` — `Vector{OBB{Float64}}` of placed modules and a
@@ -125,6 +131,7 @@ function place_detector_units(
     grid_margin   = 500.0u"m",
     tilt_mode      = :terrain,
     fixed_tilt_deg = nothing,
+    clearance      = nothing,
 )
     tilt_mode in (:terrain, :fixed) ||
         throw(ArgumentError("tilt_mode must be :terrain or :fixed, got $(repr(tilt_mode))"))
@@ -132,6 +139,10 @@ function place_detector_units(
         throw(ArgumentError("fixed_tilt_deg is only valid with tilt_mode=:fixed"))
     fixed_tilt_deg === nothing || (0 ≤ fixed_tilt_deg ≤ 180) ||
         throw(ArgumentError("fixed_tilt_deg must be in [0, 180] degrees, got $fixed_tilt_deg"))
+    clearance === nothing || tilt_mode === :fixed ||
+        throw(ArgumentError("clearance is only valid with tilt_mode=:fixed"))
+    clearance === nothing || clearance ≥ 0.0u"m" ||
+        throw(ArgumentError("clearance must be non-negative, got $clearance"))
 
     cs  = g_frame["cs"]
     bvh = d_frame["detector_bvh"]
@@ -222,10 +233,37 @@ function place_detector_units(
         end
         rot = tilt_mode === :fixed ? fixed_rot : local_rot
         center = ixs[1].point
-        push!(obbs, OBB(center, rot, half_lengths))
+        obb = OBB(center, rot, half_lengths)
+        if clearance !== nothing
+            obb = OBB(_lifted_center(obb, bvh, ixs[1], up, clearance), rot, half_lengths)
+        end
+        push!(obbs, obb)
     end
 
     return obbs, isempty(obbs) ? nothing : BVHTree(obbs)
+end
+
+# Centre of `obb` (placed with its centre on the surface) raised vertically so
+# that every corner is at least `clearance` above the detector surface. Each
+# corner's surface height comes from a vertical ray through it, as in the grid
+# search above; a corner outside the meshed region falls back to the tangent
+# plane at the placement site.
+function _lifted_center(obb, bvh, site, up, clearance)
+    c  = obb.center
+    cs = c.coordinate_system
+    n  = site.normal.point
+    lift = 0.0u"m"
+    for v in obb.vertices
+        x, y, z = v.point
+        ixs = intersect_all(bvh, Ray(Coordinate(x, y, 0.0u"m", cs), up))
+        zs = if isempty(ixs)
+            c.point[3] - (n[1] * (x - c.point[1]) + n[2] * (y - c.point[2])) / n[3]
+        else
+            ixs[1].point.point[3]
+        end
+        lift = max(lift, clearance - (z - zs))
+    end
+    return Coordinate(c.point .+ lift .* up.point, cs)
 end
 
 """

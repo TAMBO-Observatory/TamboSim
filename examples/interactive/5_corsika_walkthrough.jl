@@ -194,12 +194,28 @@ end
 #       objects (one per particle crossing the obs mesh) with positions
 #       transformed into the target CRS.
 #
-#   read_corsika_hits!(frames; …)
+#   read_corsika_hits!(frames, config)
 #       Frame-level orchestrator. Reads q["corsika_directories"] from
 #       every Q frame (stamped by corsika_run!), reduces per-shower paths
 #       to event-level dirs via dirname, calls read_corsika_mesh on each,
 #       projects onto d_frame["detector_unit_bvh"], and stamps
 #       q["corsika_hits"]. 6_corsika_hits.jl is now a thin shim over this.
+#
+#       Thinning and de-thinning. A high-energy shower has far too many
+#       particles to follow one by one, so tambo_shower thins the
+#       electromagnetic part (the --emthin flag above). Once EM particles
+#       drop below that fraction of the primary energy, CORSIKA keeps only
+#       one secondary per interaction and raises its weight to compensate.
+#       Each recorded particle then carries a weight w and stands in for
+#       w real particles that would have landed nearby.
+#
+#       Projected as-is, a thinned particle hits at most one panel,
+#       carrying all of w: totals are right on average, but per-panel hit
+#       counts come out too low. With config["dethin"] = true, each panel
+#       instead draws weight-1 clones from the thinned particles that
+#       crossed the shower plane near it, so the hit counts come out
+#       right. For more information on method and caveats, see
+#       `src/corsika/corsika_dethin.jl`.
 
 @doc TamboSim.read_corsika_hits!
 

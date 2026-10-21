@@ -12,6 +12,10 @@ struct CorsikaEvent{T<:Real}
     weight::T
 end
 
+# One detector hit, as stamped in `q["corsika_hits"]` by `read_corsika_hits!`.
+const CorsikaHitRec = NamedTuple{(:particle, :module_index, :weight),
+                                 Tuple{Particle{Float64}, Int, Float64}}
+
 """
     precompute_cs_transform(cs_from::CoordinateSystem, cs_to::CoordinateSystem)
 
@@ -109,15 +113,23 @@ function read_corsika_mesh(
     cs_earth::CoordinateSystem{T};
     t0=0.0u"s",
 ) where {T<:Real}
-    dirs = glob("shower_*/particles/", basedir)
-    filenames, transforms = String[], Function[]
+    showers = _corsika_showers(basedir, cs_earth; t0)
+    isempty(showers) && throw(ArgumentError("No completed showers found in $basedir"))
+    return MultiParquetIterator([s.file for s in showers],
+                                Function[s.transform for s in showers]; T=CorsikaEvent)
+end
 
+# The completed showers under `basedir`, as `(shower_dir, file, transform)`:
+# the `shower_N` dir, its `particles.parquet`, and the row -> `CorsikaEvent`
+# transform for it. Incomplete showers are skipped with a warning. Shared by
+# `read_corsika_mesh` and de-thinning, which reads one shower at a time.
+function _corsika_showers(basedir, cs_earth; t0=0.0u"s")
     dir_rot, coord_offset = precompute_cs_transform(ecefcoordinates, cs_earth)
+    showers = NamedTuple{(:shower_dir, :file, :transform), Tuple{String,String,Function}}[]
 
-    for pdir in dirs
-        shower_dir = dirname(pdir)
-        if !isfile(joinpath(shower_dir, "summary.yaml"))
-            @warn "$shower_dir did not finish running."
+    for pdir in glob("shower_*/particles/", basedir)
+        if !isfile(joinpath(dirname(pdir), "summary.yaml"))
+            @warn "$(dirname(pdir)) did not finish running."
             continue
         end
 
@@ -140,10 +152,7 @@ function read_corsika_mesh(
         coord_offset_with_center = coord_offset .+ mesh_center
 
         trans(row) = CorsikaEvent(row, cs_earth, dir_rot, coord_offset_with_center; t0=t0)
-        push!(filenames, pfile)
-        push!(transforms, trans)
+        push!(showers, (shower_dir=dirname(dirname(pdir)), file=pfile, transform=trans))
     end
-
-    isempty(filenames) && throw(ArgumentError("No completed showers found in $basedir"))
-    return MultiParquetIterator(filenames, transforms; T=CorsikaEvent)
+    return showers
 end

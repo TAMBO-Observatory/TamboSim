@@ -47,6 +47,7 @@ struct CosmicRayInjectionPS <: PhaseSpace
     phimin   :: Float64   # rad
     phimax   :: Float64   # rad
     nevent   :: Int
+    altitude :: Quantity{Float64, ldim, typeof(u"km")}
 end
 
 struct SurfaceCRPoint <: PhaseSpacePoint
@@ -60,15 +61,33 @@ end
 # Compatibility guards
 # =============================================================================
 
-# Campaign-level: does this PS describe the same geometry + species as the
-# campaign that produced events under M? Used to filter the PS list before
-# weighting any single Q.
+# Campaign-level: does this PS describe the same geometry + species (and, for
+# cosmic-ray injection, the same injection altitude) as the campaign that
+# produced events under M? Used to filter the PS list before weighting any
+# single Q.
 function _compatible(m::Frame, ps::PhaseSpace; prefix::String="injection")
     haskey(m.data, prefix) || return false
     cfg = m[prefix]
     UInt(cfg["geometry_hash"]) == ps.geometry_hash || return false
     Int(cfg["pdg"])            == ps.pdg           || return false
-    return true
+    return _same_altitude(cfg, ps)
+end
+
+_same_altitude(cfg, ::PhaseSpace) = true
+_same_altitude(cfg, ps::CosmicRayInjectionPS) = _cr_altitude(cfg) == ps.altitude
+
+# Injection altitude from a cosmic-ray M-frame config snapshot. Snapshots
+# without an `altitude` key fall back to the `inject_cosmicrays!` default.
+function _cr_altitude(cfg)
+    if !haskey(cfg, "altitude")
+        @warn "Cosmic-ray injection config has no `altitude`; assuming the " *
+              "current 112 km injection default. The true altitude is unknown " *
+              "for files written before it was recorded (the default was " *
+              "50 km before PR #79). Re-inject with the current TamboSim to " *
+              "record it on the M frame." maxlog=1
+        return 112.0u"km"
+    end
+    return Float64(cfg["altitude"]) * u"km"
 end
 
 # Per-event: is this point inside this PS's sampler bounds? Geometry and pdg
@@ -179,6 +198,10 @@ end
 Per-event one-weight in units of `GeV·m²·sr`. Returns zero if `q` has no
 `"phase_space_point"` key (failed injection) with a warning, or if no M frame
 contributes a non-zero phase-space density.
+
+Campaigns are pooled only when they share geometry, pdg and, for cosmic-ray
+injection, injection altitude. Cosmic-ray campaigns at different altitudes are
+weighted independently, so each yields a separate rate estimate.
 """
 function oneweight(tf::TamboFrames, q::Frame; prefix::String="injection")
     phase_spaces = [build_phase_space(m; prefix) for m in tf.m_frames]
@@ -221,7 +244,8 @@ end
 
 Construct the appropriate `PhaseSpace` subtype from an M frame's injection
 config. The config table at `m[prefix]` must declare `strategy`, set to
-one of `"NeutrinoInjection"` or `"CosmicRayInjection"`, and must carry the
+one of `"NeutrinoInjection"`, `"MuonNeutrinoInjection"`, or
+`"CosmicRayInjection"`, and must carry the
 `geometry_hash` snapshot that `_setup_injection` writes at injection time.
 """
 function build_phase_space(m::Frame; prefix::String="injection")
@@ -240,15 +264,15 @@ function build_phase_space(m::Frame; prefix::String="injection")
     )
     haskey(cfg, "strategy") || error(
         "build_phase_space: M frame config (prefix=\"$prefix\") is missing " *
-        "required `strategy` field. Set it to one of \"NeutrinoInjection\" " *
-        "or \"CosmicRayInjection\". See resources/configuration_examples/ " *
+        "required `strategy` field. Set it to one of \"NeutrinoInjection\", " *
+        "\"MuonNeutrinoInjection\", or \"CosmicRayInjection\". See resources/configuration_examples/ " *
         "for the current schema."
     )
     strategy = cfg["strategy"]
     if strategy == "NeutrinoInjection" || strategy == "MuonNeutrinoInjection"
         return NeutrinoInjectionPS(args...)
     elseif strategy == "CosmicRayInjection"
-        return CosmicRayInjectionPS(args...)
+        return CosmicRayInjectionPS(args..., _cr_altitude(cfg))
     else
         error(
             "build_phase_space: unknown strategy \"$strategy\". " *

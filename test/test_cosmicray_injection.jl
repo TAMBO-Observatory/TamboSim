@@ -30,6 +30,8 @@ function run_cosmicray_injection_tests()
     @testset "inject_cosmicrays!" begin
         test_inject_cosmicrays_produces_frames()
         test_inject_cosmicrays_altitude_snapshot()
+        test_muon_primary_injection()
+        test_inject_cosmicrays_rejects_neutrinos()
     end
 
     @testset "nucleus_pdg & pdg resolution" begin
@@ -226,6 +228,48 @@ function test_inject_cosmicrays_altitude_snapshot()
     @test frames.m_frames[end]["injection"]["altitude"] == 112.0
 end
 
+function test_muon_primary_injection()
+    tambosim_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
+    geometry_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley_3000.jld2")
+
+    injection_config = Dict{String,Any}(
+        "strategy"  => "CosmicRayInjection",
+        "seed"      => 42,
+        "nevent"    => 20,
+        "pdg"       => 13,
+        "gamma"     => 2.7,
+        "emin"      => 1e2,
+        "emax"      => 1e6,
+        "thetamin"  => 91.0,   # downgoing (zenith > 90°), matching cosmic-ray convention
+        "thetamax"  => 130.0,
+        "phimin"    => 0.0,
+        "phimax"    => 360.0,
+        "altitude"  => 6.5,    # above the highest terrain in the mesh
+    )
+    frames = load_frames(geometry_path)
+    inject!(frames, injection_config)
+
+    q_frames = filter(f -> f.stream == 'Q', frames)
+    @test length(q_frames) == 20
+    @test count(f -> haskey(f, "injection_initial_state"), q_frames) > 0
+    @test frames.m_frames[end]["injection"]["pdg"] == 13
+    @test frames.m_frames[end]["injection"]["altitude"] == 6.5
+end
+
+function test_inject_cosmicrays_rejects_neutrinos()
+    tambosim_path = get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, ".."))
+    geometry_path = joinpath(tambosim_path, "resources", "geometry", "colca_valley_3000.jld2")
+    frames = load_frames(geometry_path)
+    for pdg in (12, -14, 16)
+        cfg = Dict{String,Any}(
+            "strategy" => "CosmicRayInjection", "seed" => 1, "nevent" => 1,
+            "pdg" => pdg, "gamma" => 2.0, "emin" => 1e3, "emax" => 1e6,
+            "thetamin" => 91.0, "thetamax" => 130.0, "phimin" => 0.0, "phimax" => 360.0,
+        )
+        @test_throws ErrorException inject!(frames, cfg)
+    end
+end
+
 # ============================================================================
 # nucleus_pdg + pdg-resolution tests
 # ============================================================================
@@ -283,6 +327,7 @@ function test_inject_cosmicrays_AZ_config()
     ps = TamboSim.build_phase_space(m)
     @test ps isa CosmicRayInjectionPS
     @test ps.pdg == 1000080160
+    @test ps.altitude == m["injection"]["altitude"] * u"km"
 end
 if abspath(PROGRAM_FILE) == @__FILE__
     @testset "Cosmic Ray Injection" begin

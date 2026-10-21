@@ -12,9 +12,11 @@ test_bvh.jl.
 
 import TamboSim: Frame, _get_last_frame, place_detector_units,
                  _traceback_cap, particle_rock_range,
-                 Gamma, MuMinus, PiPlus
+                 Gamma, MuMinus, PiPlus,
+                 CorsikaEvent, resample_shower_hits, particle_speed
 
 using YAML
+using Parquet2
 
 # ---------------------------------------------------------------------------
 # Fixture builders
@@ -80,8 +82,7 @@ end
 # Tests
 # ---------------------------------------------------------------------------
 
-const HitRec = NamedTuple{(:particle, :module_index, :weight),
-                          Tuple{Particle{Float64}, Int, Float64}}
+const HitRec = TamboSim.CorsikaHitRec
 
 function run_corsika_hits_tests()
     tambosim = get_tambosim_path()
@@ -190,6 +191,181 @@ function run_corsika_hits_tests()
         @test em_rock < mu_rock
         # The muon rock budget is the energy-aware particle_rock_range.
         @test mu_rock ≈ (particle_rock_range(100.0u"GeV", MuMinus) |> u"g/cm^2")
+    end
+
+    # -----------------------------------------------------------------------
+    # De-thinning (`dethin = true`, src/corsika/corsika_dethin.jl)
+    # -----------------------------------------------------------------------
+
+    # Synthetic thinned shower over the flat test triangle: vertical muons of
+    # weight W at density ρ/W, in disks around every panel. Each panel's expected
+    # clone count is ρ × (top-face area), whatever the sampling region is.
+    function _thinned_vertical_shower(units, cs; ρ, W, R = 40.0, rng)
+        evs = CorsikaEvent{Float64}[]
+        z = 100.0
+        dir = Direction([0.0, 0.0, -1.0], cs)
+        E = 1.0u"GeV"
+        for u in units
+            cx, cy = ustrip.(u"m", u.center.point[1:2])
+            for _ in 1:rand(rng, Poisson(ρ / W * π * R^2))
+                r, φ = R * sqrt(rand(rng)), 2π * rand(rng)
+                pos = Coordinate([(cx + r*cos(φ))*u"m", (cy + r*sin(φ))*u"m", z*u"m"], cs)
+                p = Particle(MuMinus, E, pos, dir, 0.0u"s", particle_speed(E, MuMinus))
+                push!(evs, CorsikaEvent(p, Float64(W)))
+            end
+        end
+        axis = (point = SVector(0.0, 0.0, z) .* u"m", dir = SVector(0.0, 0.0, -1.0))
+        return evs, axis
+    end
+
+    # Write `evs` as a one-shower tambo_shower output dir (mesh centre at the
+    # origin, so raw positions are ECEF), with the primary files the shower axis
+    # is read from.
+    function _write_shower!(event_dir, evs, axis; primary = true)
+        sd = joinpath(event_dir, "shower_1")
+        pd = joinpath(sd, "particles")
+        mkpath(pd)
+        P = [e.particle for e in evs]
+        tbl = (shower = fill(Int32(0), length(P)), pdg = Int32[Int(p.pdg) for p in P],
+               kinetic_energy = Float32[ustrip(u"GeV", p.energy) for p in P],
+               x = Float32[ustrip(u"m", p.position.point[1]) for p in P],
+               y = Float32[ustrip(u"m", p.position.point[2]) for p in P],
+               z = Float32[ustrip(u"m", p.position.point[3]) for p in P],
+               nx = Float32[p.direction.point[1] for p in P],
+               ny = Float32[p.direction.point[2] for p in P],
+               nz = Float32[p.direction.point[3] for p in P],
+               time = Float64[ustrip(u"s", p.time) for p in P],
+               weight = Float32[e.weight for e in evs])
+        Parquet2.writefile(joinpath(pd, "particles.parquet"), tbl)
+        open(io -> write(io, "status: completed\n"), joinpath(pd, "summary.yaml"), "w")
+        YAML.write_file(joinpath(pd, "config.yaml"), Dict("mesh" => Dict("bounds" => Dict(
+            "min" => [0.0, 0.0, 0.0], "max" => [0.0, 0.0, 0.0]))))
+        primary || return [sd]
+        mkpath(joinpath(sd, "primary"))
+        YAML.write_file(joinpath(sd, "primary", "config.yaml"),
+                        Dict("frame" => Dict("center" => [0.0, 0.0, 0.0])))
+        x, n = ustrip.(u"m", axis.point), axis.dir
+        YAML.write_file(joinpath(sd, "primary", "summary.yaml"), Dict("shower_0" => Dict(
+            "x" => x[1], "y" => x[2], "z" => x[3], "nx" => n[1], "ny" => n[2], "nz" => n[3])))
+        return [sd]
+    end
+
+    @testset "dethin: read_corsika_hits! end to end" begin
+        ρ = 25.0
+        unthinned = Dict{Bool,Any}()
+        for (W, dethin) in ((1.0, false), (1.0, true), (20.0, false), (20.0, true))
+            frames, m_frame, qs = _hits_frames(n_q=1)
+            units = m_frame.d_frame["detector_unit_bvh"].triangles
+            evs, axis = _thinned_vertical_shower(units, m_frame.g_frame["cs"]; ρ, W, rng=Xoshiro(5))
+            expected = ρ * sum(4 * ustrip(u"m", u.half_extents[1]) * ustrip(u"m", u.half_extents[2])
+                               for u in units)
+            mktempdir() do base
+                # Unthinned showers must not need primary/ (the axis is read lazily).
+                qs[1]["corsika_directories"] =
+                    _write_shower!(joinpath(base, "event_000001"), evs, axis; primary = W > 1)
+                read_corsika_hits!(frames, Dict{String,Any}("dethin" => dethin, "seed" => 1))
+            end
+            hits = qs[1]["corsika_hits"]
+            @test hits isa Vector{HitRec}
+            # With de-thinning on, the defaults used are written back for provenance.
+            @test haskey(m_frame["corsika_hits"], "dethin_s_max") == dethin
+            if W == 1.0 || dethin
+                @test isapprox(length(hits), expected; rtol = 0.1)
+            else
+                @test length(hits) < expected / 5
+            end
+            W == 1.0 && (unthinned[dethin] = hits)
+        end
+        # With every weight 1, de-thinning is a no-op.
+        key(h) = (h.module_index, h.particle.time, h.weight)
+        @test sort(key.(unthinned[true])) == sort(key.(unthinned[false]))
+    end
+
+    @testset "dethin: config handling and skipped event dirs" begin
+        frames, m_frame, qs = _hits_frames(n_q=1)
+        units = m_frame.d_frame["detector_unit_bvh"].triangles
+        evs, axis = _thinned_vertical_shower(units, m_frame.g_frame["cs"]; ρ=10.0, W=20.0,
+                                             rng=Xoshiro(3))
+        cfg = Dict{String,Any}("dethin" => true)
+        mktempdir() do base
+            # A thinned shower without primary/ cannot be de-thinned: warn, skip the dir.
+            qs[1]["corsika_directories"] =
+                _write_shower!(joinpath(base, "event_000001"), evs, axis; primary = false)
+            @test_logs (:warn, r"seed") (:warn, r"skipping event dir") match_mode=:any read_corsika_hits!(frames, cfg)
+        end
+        @test isempty(qs[1]["corsika_hits"])
+        @test cfg["seed"] isa Integer
+        @test m_frame["corsika_hits"]["dethin_s_min"] == 4.0
+
+        # De-thinning is the default, and the choice is recorded.
+        frames, _, _ = _hits_frames(n_q=1)
+        cfg = Dict{String,Any}("seed" => 1)
+        read_corsika_hits!(frames, cfg)
+        @test cfg["dethin"] === true
+    end
+
+    @testset "dethin: clone density matches the thinned density" begin
+        frames, m_frame, _ = _hits_frames(n_q=1)
+        g, d = m_frame.g_frame, m_frame.d_frame
+        units = d["detector_unit_bvh"].triangles
+        ρ, W = 25.0, 20.0
+        evs, axis = _thinned_vertical_shower(units, g["cs"]; ρ, W, rng=Xoshiro(1))
+        hits = resample_shower_hits(7, evs, axis, units, d["detector_unit_bvh"], g["bvh"])
+        @test all(h -> h.weight == 1.0, hits)
+        top = [4 * ustrip(u"m", u.half_extents[1]) * ustrip(u"m", u.half_extents[2]) for u in units]
+        expected = ρ * sum(top)
+        @test length(units) >= 3
+        @test isapprox(length(hits), expected; rtol = 0.1)
+        # Without resampling each parent lands on at most one panel, ~W times too few.
+        naive = resample_shower_hits(7, evs, axis, units, d["detector_unit_bvh"], g["bvh"];
+                                     w_unthinned = Inf)
+        @test length(naive) < expected / 5
+    end
+
+    @testset "dethin: mixed weights, reproducible end to end" begin
+        # Unthinned (W = 1) and thinned (W = 20) particles in one shower: both
+        # densities add up, and two runs (different storage paths) give identical hits.
+        ρ1, ρ2 = 10.0, 15.0
+        runs = map(1:2) do run
+            frames, m_frame, qs = _hits_frames(n_q=1)
+            units = m_frame.d_frame["detector_unit_bvh"].triangles
+            cs = m_frame.g_frame["cs"]
+            e1, axis = _thinned_vertical_shower(units, cs; ρ=ρ1, W=1.0, rng=Xoshiro(8))
+            e2, _ = _thinned_vertical_shower(units, cs; ρ=ρ2, W=20.0, rng=Xoshiro(9))
+            mktempdir() do base
+                qs[1]["corsika_directories"] =
+                    _write_shower!(joinpath(base, "run$run", "event_000001"), vcat(e1, e2), axis)
+                read_corsika_hits!(frames, Dict{String,Any}("dethin" => true, "seed" => -3))
+            end
+            area = sum(4 * ustrip(u"m", u.half_extents[1]) * ustrip(u"m", u.half_extents[2])
+                       for u in units)
+            (hits = qs[1]["corsika_hits"], expected = (ρ1 + ρ2) * area)
+        end
+        @test isapprox(length(runs[1].hits), runs[1].expected; rtol = 0.1)
+        key(h) = (h.module_index, h.particle.time)
+        @test sort(key.(runs[1].hits)) == sort(key.(runs[2].hits))
+    end
+
+    @testset "dethin: panel draws do not depend on other panels" begin
+        frames, m_frame, _ = _hits_frames(n_q=1)
+        g, d = m_frame.g_frame, m_frame.d_frame
+        units = d["detector_unit_bvh"].triangles
+        evs, axis = _thinned_vertical_shower(units, g["cs"]; ρ=10.0, W=20.0, rng=Xoshiro(2))
+        full = resample_shower_hits(3, evs, axis, units, d["detector_unit_bvh"], g["bvh"])
+        ids = collect(1:2:length(units))
+        sub = resample_shower_hits(3, evs, axis, units[ids], BVHTree(units[ids]), g["bvh"];
+                                   unit_ids = ids)
+        key(h, idx) = (idx[h.module_index], h.particle.time)
+        @test !isempty(sub)
+        @test sort([key(h, ids) for h in sub]) ==
+              sort([key(h, 1:length(units)) for h in full if h.module_index in ids])
+        # Same seed, same output; another seed, other draws.
+        again = resample_shower_hits(3, evs, axis, units, d["detector_unit_bvh"], g["bvh"])
+        @test sort([key(h, 1:length(units)) for h in again]) ==
+              sort([key(h, 1:length(units)) for h in full])
+        other = resample_shower_hits(4, evs, axis, units, d["detector_unit_bvh"], g["bvh"])
+        @test sort([h.particle.time for h in other]) != sort([h.particle.time for h in full]) ||
+              length(other) != length(full)
     end
 
 end

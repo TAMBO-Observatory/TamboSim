@@ -35,8 +35,8 @@ Unitful = "1986cc42-f94f-5a68-af5c-568840ba703d"
 YAML = "ddb6d928-2868-570f-bddf-ab3f9cf99eb6"
 
 [sources]
-PROPOSAL = {rev = "master", url = "https://github.com/jlazar17/PROPOSAL.jl.git"}
-TauRunner = {rev = "master", subdir = "TauRunner.jl", url = "https://github.com/icecube/TauRunner.git"}
+PROPOSAL = {rev = "70cac31a9138f15f234aa405d6ef9d8fa86575e5", url = "https://github.com/jlazar17/PROPOSAL.jl.git"}
+TauRunner = {rev = "d139e7334e0b3792f604d68342852119042700df", subdir = "TauRunner.jl", url = "https://github.com/icecube/TauRunner.git"}
 
 [compat]
 Arrow = "2.8.0"

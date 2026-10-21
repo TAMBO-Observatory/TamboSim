@@ -5,7 +5,8 @@
 
 name = "lima"
 description = """
-Lima validation site for TAMBO-4.  Layer parameters fitted to ERA5
+Lima validation site for TAMBO-4 (lat -12.065221 deg, lon -77.081247 deg, alt ~ 70 m).
+Layer parameters fitted to ERA5
 monthly-mean reanalysis, garua season (May-Nov, years 2000-2014 + 2017-2022 +
 2025, strong El Nino years excluded; weak/moderate events retained).
 Source: met.igp.gob.pe/elnino

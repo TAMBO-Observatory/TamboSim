@@ -88,7 +88,7 @@ function plan_corsika_jobs(frames::TamboFrames, config::Dict, base_outdir::Strin
     jobs = NamedTuple[]
     for frame in frames.q_frames
         event_id = frame["event_id"]
-        
+
         if strategy == "NeutrinoInjection"
             haskey(frame, "proposal_decay_products") || continue
             for (idx, particle) in enumerate(frame["proposal_decay_products"])
@@ -112,7 +112,7 @@ function plan_corsika_jobs(frames::TamboFrames, config::Dict, base_outdir::Strin
                             base_seed, detector_bvh, base_outdir)
             isnothing(job) && continue
             push!(jobs, job)
-            
+
         else
             error("plan_corsika_jobs: unknown injection strategy $(strategy)")
         end

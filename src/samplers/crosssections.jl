@@ -176,8 +176,8 @@ function Base.rand(
     # Epsilon for floating point precision issues
     ein - minimum(xs.es) > -1e-6u"GeV" || throw(ArgumentError("Energy $(ein) out of range for splines"))
     u = rand()
-    # Catch numerical instabilities for u~1e-20.
-    z = max(0, xs.inverter(log(ustrip(ein |> u"GeV")), u))
+    # Clamp z to [0,1]: spline extrapolation near u≈0 or u≈1 can overshoot.
+    z = clamp(xs.inverter(log(ustrip(ein |> u"GeV")), u), 0, 1)
     return z * (ein - xs.emin) + xs.emin
 end
 

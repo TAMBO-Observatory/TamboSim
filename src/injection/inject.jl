@@ -769,6 +769,10 @@ function inject_cosmicrays!(
     prefix::String="injection"
 )
     pdg = _resolve_primary_pdg(config)
+    abs(pdg) in (12, 14, 16) && error(
+        "inject_cosmicrays!: pdg=$pdg is a neutrino. Use strategy " *
+        "\"NeutrinoInjection\" or \"MuonNeutrinoInjection\" instead."
+    )
     # Canonicalize `pdg` and `altitude` onto the config before snapshotting, so
     # the M-frame snapshot (and thus build_phase_space / oneweight / any flux
     # lookup) always sees explicit values — even for A/Z configs or when

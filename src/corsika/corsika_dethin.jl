@@ -41,9 +41,10 @@
 #
 # Validation and limits. This implementation was checked when first written
 # against CORSIKA showers at 6–13 PeV run both without thinning and with
-# thinning at maximum weights of 50 and 500. Per-panel particle counts, panel
-# multiplicities and first-arrival times matched the unthinned showers at both
-# weights.
+# thinning at maximum weights of 50 and 500. At maximum weight 50, per-panel
+# particle counts and panel multiplicities matched the unthinned showers. At
+# maximum weight 500 they came out 5–20% high, within the shower-to-shower
+# scatter of the ten-shower sample. First-arrival times matched at both weights.
 # Within-panel spreads in arrival time and energy can show too little variation,
 # because a clone copies its parent's energy and time. At maximum weight 500 both
 # spreads came out too small beyond ~150 m from the axis. Our standard CORSIKA

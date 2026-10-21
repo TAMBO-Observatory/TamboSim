@@ -73,6 +73,16 @@ function _corsika_module_hit(event::CorsikaEvent, det_bvh, topo_bvh)
             weight=event.weight)
 end
 
+# All hits of one event dir without de-thinning: each particle projected once.
+function _event_hits(event_dir, cs, det_bvh, topo_bvh)
+    hits = CorsikaHitRec[]
+    for event in read_corsika_mesh(event_dir, cs)
+        hit = _corsika_module_hit(event, det_bvh, topo_bvh)
+        isnothing(hit) || push!(hits, hit)
+    end
+    return hits
+end
+
 """
     read_corsika_hits!(frames::TamboFrames, config::Dict=Dict{String,Any}();
                        cs=nothing, prefix::String="corsika_hits") -> nothing
@@ -87,10 +97,27 @@ and stamp `q["corsika_hits"]` with the resulting hit records.
   carries a coordinate system and whose D frame carries
   `"detector_unit_bvh"` (place units via `place_detector_units` /
   `examples/templates/2_create_detector.jl` first).
-- `config`: configuration table stamped onto the M frame at
-  `m[prefix]` for provenance. Currently no fields are consulted; the
-  positional matches the shape of [`corsika_run!`](@ref) and other
-  frame-level orchestrators (`inject!`, `proposal_propagation!`).
+- `config`: configuration table (e.g. the `[corsika_hits]` TOML section),
+  stamped onto the M frame at `m[prefix]` for provenance. All keys are
+  optional:
+  - `"dethin"` (default `true`): resample thinned particles (weight > 1)
+    into weight-1 clones per panel instead of projecting them once with
+    their full weight; see [`resample_shower_hits`](@ref) and
+    `src/corsika/corsika_dethin.jl`. Unthinned particles give the same hits
+    either way. Needs each thinned shower's `primary/` output for the shower
+    axis. Set to `false` for the plain projection. The value used is written
+    back into `config`.
+  - `"seed"`: base seed for de-thinning. If absent when `"dethin"` is set,
+    one is drawn and written back into `config`, as in
+    [`corsika_run!`](@ref). Each (shower, panel) pair draws from its own
+    stream, keyed by the shower's `event_XXXXXX/shower_N` path and the panel
+    index, so results do not depend on thread count or on where the showers
+    are stored, and masking the hits to a subset of panels is the same as
+    de-thinning that subset.
+  - `"dethin_epsilon"` (default `0.15`), `"dethin_s_min"` (default `4.0`, m),
+    `"dethin_s_max"` (default `30.0`, m): sampling-region side as a fraction
+    of core distance, and its bounds. With `"dethin"` set, the defaults used
+    are written back into `config`.
 - `cs`: target `CoordinateSystem` for transformed particle positions.
   Defaults to `m_frame.g_frame["cs"]`.
 - `prefix`: M-frame key under which `config` is stamped. Defaults to
@@ -109,12 +136,16 @@ and stamp `q["corsika_hits"]` with the resulting hit records.
   dir.
 - Incomplete showers (missing `summary.yaml`) are skipped per
   `read_corsika_mesh`'s sentinel.
+- An event dir that fails to read (e.g. no completed showers, or, with
+  de-thinning, a thinned shower without `primary/`) is skipped with a
+  warning and contributes no hits.
 
 # Output
 Stamps each handled Q frame with
-`q["corsika_hits"]::Vector{NamedTuple}` of
+`q["corsika_hits"]::Vector{CorsikaHitRec}` of
 `(particle::Particle, module_index::Int, weight::Float64)` entries —
-one per particle that intersected a detector OBB.
+one per particle that intersected a detector OBB (with `"dethin"` set,
+one per clone, weight 1).
 """
 function read_corsika_hits!(
     frames::TamboFrames,
@@ -126,6 +157,18 @@ function read_corsika_hits!(
     g_frame = m_frame.g_frame
     d_frame = m_frame.d_frame
     m_frame[prefix] = config
+
+    dethin = get!(config, "dethin", true)
+    if dethin && !haskey(config, "seed")
+        @warn "Deciding de-thinning seed via RNG and adding to configuration"
+        config["seed"] = rand(UInt32)
+    end
+    dethin_kwargs = !dethin ? (;) : (
+        seed  = config["seed"],
+        ε     = get!(config, "dethin_epsilon", 0.15),
+        s_min = get!(config, "dethin_s_min", 4.0) * u"m",
+        s_max = get!(config, "dethin_s_max", 30.0) * u"m",
+    )
 
     haskey(d_frame, "detector_unit_bvh") || error(
         "read_corsika_hits!: D frame is missing \"detector_unit_bvh\". " *
@@ -144,27 +187,26 @@ function read_corsika_hits!(
         cs = g_frame["cs"]
     end
 
-    HitRec = NamedTuple{(:particle, :module_index, :weight),
-                       Tuple{Particle{Float64}, Int, Float64}}
+    units = detector_unit_bvh.triangles   # the OBBs, in module_index order
 
     Threads.@threads :dynamic for i in eachindex(frames.q_frames)
         q = frames.q_frames[i]
         haskey(q, "corsika_directories") || continue
         event_dirs = unique(dirname.(q["corsika_directories"]))
 
-        hits = HitRec[]
+        hits = CorsikaHitRec[]
         for d in event_dirs
             isdir(d) || continue
-            events = try
-                read_corsika_mesh(d, cs)
+            # A failing event dir contributes no hits, rather than some of them.
+            dir_hits = try
+                dethin ? _dethinned_event_hits(d, cs, units, detector_unit_bvh,
+                                               topo_bvh; dethin_kwargs...) :
+                         _event_hits(d, cs, detector_unit_bvh, topo_bvh)
             catch err
                 @warn "read_corsika_hits!: skipping event dir" dir=d exception=err
                 continue
             end
-            for event in events
-                hit = _corsika_module_hit(event, detector_unit_bvh, topo_bvh)
-                isnothing(hit) || push!(hits, hit)
-            end
+            append!(hits, dir_hits)
         end
         q["corsika_hits"] = hits
     end

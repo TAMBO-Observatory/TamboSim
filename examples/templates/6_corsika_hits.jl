@@ -17,6 +17,12 @@
 #   <outfile>.jld2      the same Q-frame stream with a new key
 #                       `corsika_hits`: a Vector of NamedTuples
 #                       (particle, module_index, weight), one per hit
+#
+# Options come from the config's optional [corsika_hits] section. By default,
+# each thinned particle (from high-energy showers) is resampled into weight-1
+# clones per panel; set `dethin = false` there for the plain projection. See
+# `read_corsika_hits!` for the other keys (`seed`, `dethin_epsilon`,
+# `dethin_s_min`, `dethin_s_max`).
 
 tambo_path = get(ENV, "TAMBOSIM_PATH", dirname(dirname(@__DIR__)))
 
@@ -66,7 +72,7 @@ relativize!(config)
 geometry_file = something(args["geometry"], config["geometry"]["geometry_path"])
 
 frames = load_frames([geometry_file, infile])
-read_corsika_hits!(frames)
+read_corsika_hits!(frames, get(config, "corsika_hits", Dict{String,Any}()))
 
 mkpath(dirname(outfile))
 save_frames(outfile, frames)

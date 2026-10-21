@@ -48,3 +48,10 @@ corsika_path = "_TAMBOSIM_PATH_/src/corsika/tambo_shower/src/build/tambo_shower"
 # or
 #   executor = "dump_to_file"
 #   executor_dump_path = "jobs.jsonl"
+
+[corsika_hits]
+dethin = true         # resample thinned particles into weight-1 clones per panel
+seed = 925            # used only when dethin = true
+dethin_epsilon = 0.15 # sampling-region side, as a fraction of core distance
+dethin_s_min = 4.0    # m
+dethin_s_max = 30.0   # m

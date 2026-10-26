@@ -1138,7 +1138,9 @@ private:
     for (std::size_t i = 0; i < nodes_->size(); ++i)
       index[static_cast<void const*>((*nodes_)[i])] = static_cast<int>(i);
     auto const& cs = get_root_CoordinateSystem();
-    std::string const tmp = path_ + ".partial"; // write-then-rename: atomic
+    // Written to <file>.partial only. main() renames it after the partial
+    // ground output is flushed, so the checkpoint never outruns the output.
+    std::string const tmp = path_ + ".partial";
     std::ofstream f(tmp);
     f << std::setprecision(17);
     f << "# tambo_shower checkpoint v3: pdg e_kin(raw) x_m y_m z_m dx dy dz "
@@ -1164,9 +1166,8 @@ private:
     }
     ckpt::writeRng(f);
     f.close();
-    std::rename(tmp.c_str(), path_.c_str());
     CORSIKA_LOG_WARN("Checkpoint: {} pending particles and RNG state written to {}",
-                     n, path_);
+                     n, tmp);
   }
 };
 
@@ -1929,6 +1930,13 @@ int main(int argc, char** argv) {
   output.endOfLibrary();
   #pragma endregion
   if (checkpointFired) {
+    // Commit point: the partial output is on disk, now publish the checkpoint.
+    std::string const partial = checkpointPath + ".partial";
+    if (std::rename(partial.c_str(), checkpointPath.c_str()) != 0) {
+      CORSIKA_LOG_CRITICAL("Could not commit checkpoint {} -> {}", partial,
+                           checkpointPath);
+      return EXIT_FAILURE;
+    }
     CORSIKA_LOG_WARN("Run CHECKPOINTED (incomplete); retry with --resume-from {}",
                      checkpointPath);
     return 3; // resumable, distinct from success (0) and crash

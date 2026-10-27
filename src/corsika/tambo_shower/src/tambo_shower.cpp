@@ -929,6 +929,16 @@ static TerrainRockResult registerTerrainRock(EnvType& env,
 #include <corsika/framework/process/CascadeEquationsProcess.hpp>
 #include <corsika/framework/process/StackProcess.hpp>
 
+// SOPHIA's bundled JETSET 7.4 draws from its own generator (RLU), whose state
+// is COMMON /LUDATR/ MRLU(6), RRLU(100). It is not a CORSIKA stream, so the
+// checkpoint saves it separately.
+extern "C" {
+extern struct {
+  int mrlu[6];
+  double rrlu[100];
+} ludatr_;
+}
+
 namespace ckpt {
   volatile std::sig_atomic_t requested = 0; // async-signal-safe request flag
   inline void onSignal(int) { requested = 1; }
@@ -960,6 +970,12 @@ namespace ckpt {
       for (std::size_t i = 0; i < st.size(); ++i) f << ' ' << st[i];
       f << ' ' << e.getTrigger() << '\n';
     }
+    auto const prec = f.precision(17); // 17 digits round-trip a double exactly
+    f << "@jetset";
+    for (int const m : ludatr_.mrlu) f << ' ' << m;
+    for (double const r : ludatr_.rrlu) f << ' ' << r;
+    f << '\n';
+    f.precision(prec);
   }
 
   // Restores the global seed and every saved stream. Returns the number of
@@ -1014,6 +1030,21 @@ namespace ckpt {
       }
       ++n;
     }
+    bool jetset = false;
+    for (auto const& l : lines) {
+      if (l.rfind("@jetset ", 0) != 0) continue;
+      std::istringstream ss(l.substr(8));
+      auto saved = ludatr_;
+      for (int& m : saved.mrlu) ss >> m;
+      for (double& r : saved.rrlu) ss >> r;
+      if (!ss) throw std::runtime_error("malformed @jetset line in " + path);
+      ludatr_ = saved;
+      jetset = true;
+    }
+    if (!jetset)
+      CORSIKA_LOG_WARN("Resume file has no @jetset record: SOPHIA's JETSET "
+                       "generator restarts from its default seed (statistically "
+                       "valid, not an exact continuation)");
     return n;
   }
 
@@ -1145,7 +1176,7 @@ private:
     f << std::setprecision(17);
     f << "# tambo_shower checkpoint v3: pdg e_kin(raw) x_m y_m z_m dx dy dz "
          "t(raw) weight volume_index; @seed/@rng lines = random-number stream "
-         "state\n";
+         "state; @jetset = SOPHIA JETSET generator state\n";
     std::size_t n = 0;
     for (auto it = stack.begin(); it != stack.end(); ++it) {
       if (stack.isErased(it)) continue;

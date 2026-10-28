@@ -1159,6 +1159,12 @@ public:
                                            ckpt::t_start)
                  .count() >= deadline_s_;
     if (!fire) return;
+    // Nothing left to run: let the cascade finish rather than commit an empty
+    // checkpoint that no retry could resume.
+    bool live = false;
+    for (auto it = stack.begin(); it != stack.end() && !live; ++it)
+      live = !stack.isErased(it);
+    if (!live) return;
     dump(stack);
     throw std::runtime_error("CheckpointStop");
   }

@@ -924,6 +924,13 @@ static TerrainRockResult registerTerrainRock(EnvType& env,
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <cstring>
+#include <elf.h>
+#include <fcntl.h>
+#include <link.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include <iomanip>
 #include <unordered_map>
 #include <corsika/framework/process/CascadeEquationsProcess.hpp>
@@ -954,6 +961,69 @@ namespace ckpt {
     for (auto const& c : n->getChildNodes()) collectNodes<TNode>(c.get(), out);
   }
 
+  // SIBYLL's GASDEV (polar Box-Muller) caches its second deviate between
+  // calls: ISET in COMMON /RNDMGAS/ and a SAVEd local GSET. Neither symbol is
+  // exported from libSIBYLL23d.so, so find them in the library's own ELF
+  // symbol table at run time. Both stay null if the library is not loaded or
+  // is stripped.
+  struct Gasdev {
+    int* iset = nullptr;
+    double* gset = nullptr;
+  };
+
+  inline Gasdev const& gasdev() {
+    static Gasdev const g = [] {
+      Gasdev r;
+      struct Lib {
+        std::string path;
+        ElfW(Addr) base = 0;
+      } lib;
+      dl_iterate_phdr(
+          [](dl_phdr_info* info, std::size_t, void* data) -> int {
+            if (!info->dlpi_name || !std::strstr(info->dlpi_name, "libSIBYLL23d.so"))
+              return 0;
+            auto* l = static_cast<Lib*>(data);
+            l->path = info->dlpi_name;
+            l->base = info->dlpi_addr;
+            return 1;
+          },
+          &lib);
+      if (lib.path.empty()) return r;
+      int const fd = ::open(lib.path.c_str(), O_RDONLY);
+      if (fd < 0) return r;
+      struct stat sb {};
+      bool const ok = ::fstat(fd, &sb) == 0;
+      std::size_t const len = ok ? static_cast<std::size_t>(sb.st_size) : 0;
+      void* const m = ok ? ::mmap(nullptr, len, PROT_READ, MAP_PRIVATE, fd, 0) : MAP_FAILED;
+      ::close(fd);
+      if (m == MAP_FAILED) return r;
+      auto const* img = static_cast<unsigned char const*>(m);
+      auto const* eh = reinterpret_cast<ElfW(Ehdr) const*>(img);
+      if (len >= sizeof(ElfW(Ehdr)) && std::memcmp(eh->e_ident, ELFMAG, SELFMAG) == 0 &&
+          eh->e_shoff + std::size_t(eh->e_shnum) * sizeof(ElfW(Shdr)) <= len) {
+        auto const* sh = reinterpret_cast<ElfW(Shdr) const*>(img + eh->e_shoff);
+        for (int i = 0; i < eh->e_shnum; ++i) {
+          if (sh[i].sh_type != SHT_SYMTAB || sh[i].sh_link >= eh->e_shnum) continue;
+          auto const& str = sh[sh[i].sh_link];
+          auto const* sym = reinterpret_cast<ElfW(Sym) const*>(img + sh[i].sh_offset);
+          std::size_t const n = sh[i].sh_size / sizeof(ElfW(Sym));
+          for (std::size_t k = 0; k < n; ++k) {
+            if (sym[k].st_name >= str.sh_size) continue;
+            char const* nm = reinterpret_cast<char const*>(img + str.sh_offset + sym[k].st_name);
+            if (std::strcmp(nm, "rndmgas_") == 0 && sym[k].st_size == sizeof(int))
+              r.iset = reinterpret_cast<int*>(lib.base + sym[k].st_value);
+            else if (std::strcmp(nm, "gset.0") == 0 && sym[k].st_size == sizeof(double))
+              r.gset = reinterpret_cast<double*>(lib.base + sym[k].st_value);
+          }
+        }
+      }
+      ::munmap(m, len);
+      if (!r.iset || !r.gset) r = Gasdev{};
+      return r;
+    }();
+    return g;
+  }
+
   using Prng = RNGManager<>::prng_type;
   using SeedT = std::decay_t<decltype(std::declval<Prng const&>().getSeed())>;
   using StateT = std::decay_t<decltype(std::declval<Prng const&>().getState())>;
@@ -975,6 +1045,8 @@ namespace ckpt {
     for (int const m : ludatr_.mrlu) f << ' ' << m;
     for (double const r : ludatr_.rrlu) f << ' ' << r;
     f << '\n';
+    if (auto const& g = gasdev(); g.iset)
+      f << "@gasdev " << *g.iset << ' ' << *g.gset << '\n';
     f.precision(prec);
   }
 
@@ -1045,6 +1117,24 @@ namespace ckpt {
       CORSIKA_LOG_WARN("Resume file has no @jetset record: SOPHIA's JETSET "
                        "generator restarts from its default seed (statistically "
                        "valid, not an exact continuation)");
+    bool gas = false;
+    for (auto const& l : lines) {
+      if (l.rfind("@gasdev ", 0) != 0) continue;
+      std::istringstream ss(l.substr(8));
+      int iset = 0;
+      double gset = 0;
+      ss >> iset >> gset;
+      if (!ss) throw std::runtime_error("malformed @gasdev line in " + path);
+      if (auto const& g = gasdev(); g.iset) {
+        *g.iset = iset;
+        *g.gset = gset;
+        gas = true;
+      }
+    }
+    if (!gas)
+      CORSIKA_LOG_WARN("No usable @gasdev record (missing, or SIBYLL's symbols "
+                       "not found): SIBYLL's Gaussian cache starts empty "
+                       "(statistically valid, not an exact continuation)");
     return n;
   }
 
@@ -1182,7 +1272,8 @@ private:
     f << std::setprecision(17);
     f << "# tambo_shower checkpoint v3: pdg e_kin(raw) x_m y_m z_m dx dy dz "
          "t(raw) weight volume_index; @seed/@rng lines = random-number stream "
-         "state; @jetset = SOPHIA JETSET generator state\n";
+         "state; @jetset = SOPHIA JETSET generator state; @gasdev = SIBYLL "
+         "GASDEV cache\n";
     std::size_t n = 0;
     for (auto it = stack.begin(); it != stack.end(); ++it) {
       if (stack.isErased(it)) continue;

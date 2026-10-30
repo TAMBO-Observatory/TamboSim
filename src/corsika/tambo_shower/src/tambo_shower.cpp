@@ -1024,6 +1024,26 @@ namespace ckpt {
     return g;
   }
 
+  // Pythia8 Decay marks a species unstable before decaying it and stable
+  // afterwards, so once a species has decayed Pythia no longer decays it
+  // inside later decay chains: run history that the checkpoint must carry.
+  // Points at decaySequence's particle table; set in main.
+  inline Pythia8::ParticleData* pyDecayData = nullptr;
+
+  // The species whose decay flag the checkpoint carries: every non-nucleus
+  // CORSIKA code that Pythia knows, as a positive id (a particle and its
+  // antiparticle share one entry). ParticleData::nextId(0) returns 0 in this
+  // Pythia build, so the table cannot be walked directly.
+  inline std::set<int> pyDecayIds() {
+    std::set<int> ids;
+    for (Code const c : get_all_particles()) {
+      if (is_nucleus(c)) continue;
+      int const id = std::abs(static_cast<int>(get_PDG(c)));
+      if (id != 0 && pyDecayData->isParticle(id)) ids.insert(id);
+    }
+    return ids;
+  }
+
   using Prng = RNGManager<>::prng_type;
   using SeedT = std::decay_t<decltype(std::declval<Prng const&>().getSeed())>;
   using StateT = std::decay_t<decltype(std::declval<Prng const&>().getState())>;
@@ -1048,6 +1068,18 @@ namespace ckpt {
     if (auto const& g = gasdev(); g.iset)
       f << "@gasdev " << *g.iset << ' ' << *g.gset << '\n';
     f.precision(prec);
+    if (pyDecayData) {
+      f << "@pydecay";
+      for (int const id : pyDecayIds())
+        if (!pyDecayData->mayDecay(id)) f << ' ' << id;
+      f << '\n';
+    }
+    // raw bytes: the doubles in cbr round-trip exactly
+    auto const* b = reinterpret_cast<unsigned char const*>(::sibyll23d::s_csydec_);
+    f << "@sibdec " << sizeof(*::sibyll23d::s_csydec_) << ' ' << std::hex;
+    for (std::size_t i = 0; i < sizeof(*::sibyll23d::s_csydec_); ++i)
+      f << std::setw(2) << std::setfill('0') << static_cast<int>(b[i]);
+    f << std::dec << std::setfill(' ') << '\n';
   }
 
   // Restores the global seed and every saved stream. Returns the number of
@@ -1135,6 +1167,37 @@ namespace ckpt {
       CORSIKA_LOG_WARN("No usable @gasdev record (missing, or SIBYLL's symbols "
                        "not found): SIBYLL's Gaussian cache starts empty "
                        "(statistically valid, not an exact continuation)");
+    bool pyd = false;
+    for (auto const& l : lines) {
+      if (l.rfind("@pydecay", 0) != 0 || !pyDecayData) continue;
+      std::istringstream ss(l.substr(8));
+      std::set<int> stable;
+      for (int id; ss >> id;) stable.insert(id);
+      for (int const id : pyDecayIds()) pyDecayData->mayDecay(id, stable.count(id) == 0);
+      pyd = true;
+    }
+    if (!pyd)
+      CORSIKA_LOG_WARN("Resume file has no @pydecay record: Pythia's decay flags "
+                       "start from their defaults (statistically valid, not an "
+                       "exact continuation)");
+    bool sib = false;
+    for (auto const& l : lines) {
+      if (l.rfind("@sibdec ", 0) != 0) continue;
+      std::istringstream ss(l.substr(8));
+      std::size_t sz = 0;
+      std::string hex;
+      ss >> sz >> hex;
+      if (!ss || sz != sizeof(*::sibyll23d::s_csydec_) || hex.size() != 2 * sz)
+        throw std::runtime_error("malformed @sibdec line in " + path);
+      auto* b = reinterpret_cast<unsigned char*>(::sibyll23d::s_csydec_);
+      for (std::size_t i = 0; i < sz; ++i)
+        b[i] = static_cast<unsigned char>(std::stoi(hex.substr(2 * i, 2), nullptr, 16));
+      sib = true;
+    }
+    if (!sib)
+      CORSIKA_LOG_WARN("Resume file has no @sibdec record: SIBYLL's decay table "
+                       "starts from its defaults (statistically valid, not an "
+                       "exact continuation)");
     return n;
   }
 
@@ -1273,7 +1336,8 @@ private:
     f << "# tambo_shower checkpoint v3: pdg e_kin(raw) x_m y_m z_m dx dy dz "
          "t(raw) weight volume_index; @seed/@rng lines = random-number stream "
          "state; @jetset = SOPHIA JETSET generator state; @gasdev = SIBYLL "
-         "GASDEV cache\n";
+         "GASDEV cache; @pydecay = Pythia decayer species marked stable; "
+         "@sibdec = SIBYLL decay table\n";
     std::size_t n = 0;
     for (auto it = stack.begin(); it != stack.end(); ++it) {
       if (stack.isErased(it)) continue;
@@ -1810,6 +1874,7 @@ int main(int argc, char** argv) {
   InteractionCounter heCounted{heModel};
 
   corsika::pythia8::Decay decaySequence;
+  ckpt::pyDecayData = &decaySequence.particleData;
 
   bool NC = false, CC = false;
   if (auto const s = app["--neutrino-interaction-type"]->as<std::string>();

@@ -896,6 +896,506 @@ static TerrainRockResult registerTerrainRock(EnvType& env,
 // ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
+// =====================================================================
+// Resumable checkpoints.
+//
+// A long shower killed at the wall loses ALL its work and is retried from
+// scratch. With --checkpoint-file set, SIGTERM / SIGUSR1 (e.g. sbatch
+// --signal=USR1@600) or the --checkpoint-after-s soft deadline stops the run
+// BETWEEN two cascade steps and writes a checkpoint: every pending stack
+// particle with its logical volume, plus the exact position of every
+// random-number stream. The run exits with code 3 and keeps the ground
+// particles produced so far. A retry with --resume-from restores the stack,
+// the volumes and the streams, so it continues the SAME shower: the partial
+// output followed by the resumed output reproduces the uninterrupted run.
+// Every physics model in this binary draws from the RNGManager streams
+// (SIBYLL, FLUKA, Pythia, PROPOSAL, UrQMD, thinning, cascade), so those
+// streams are the complete random state.
+//
+// Why between steps: a particle's interaction and decay lengths are sampled
+// at the START of its step, before any process runs, so a mid-step checkpoint
+// would already have consumed randoms that the resume re-draws. A
+// StackProcess runs after each completed step, when nothing is in flight.
+// Why save volumes: Cascade::run re-derives every particle's volume from its
+// position (setNodes), which is ambiguous for a particle sitting on a
+// boundary. initCascadeEquations runs after setNodes and before the first
+// step, so a CascadeEquationsProcess can put the saved volumes back.
+// =====================================================================
+#include <chrono>
+#include <csignal>
+#include <cstdio>
+#include <cstring>
+#include <elf.h>
+#include <fcntl.h>
+#include <link.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <iomanip>
+#include <unordered_map>
+#include <corsika/framework/process/CascadeEquationsProcess.hpp>
+#include <corsika/framework/process/StackProcess.hpp>
+
+// SOPHIA's bundled JETSET 7.4 draws from its own generator (RLU), whose state
+// is COMMON /LUDATR/ MRLU(6), RRLU(100). It is not a CORSIKA stream, so the
+// checkpoint saves it separately.
+extern "C" {
+extern struct {
+  int mrlu[6];
+  double rrlu[100];
+} ludatr_;
+}
+
+namespace ckpt {
+  volatile std::sig_atomic_t requested = 0; // async-signal-safe request flag
+  inline void onSignal(int) { requested = 1; }
+  inline std::chrono::steady_clock::time_point t_start =
+      std::chrono::steady_clock::now(); // process start, for the soft deadline
+
+  // Volumes are stored as indices into a depth-first walk of the volume tree,
+  // which is identical in every run because the environment is built the
+  // same way each time.
+  template <typename TNode>
+  void collectNodes(TNode const* n, std::vector<TNode const*>& out) {
+    out.push_back(n);
+    for (auto const& c : n->getChildNodes()) collectNodes<TNode>(c.get(), out);
+  }
+
+  // SIBYLL's GASDEV (polar Box-Muller) caches its second deviate between
+  // calls: ISET in COMMON /RNDMGAS/ and a SAVEd local GSET. Neither symbol is
+  // exported from libSIBYLL23d.so, so find them in the library's own ELF
+  // symbol table at run time. Both stay null if the library is not loaded or
+  // is stripped.
+  struct Gasdev {
+    int* iset = nullptr;
+    double* gset = nullptr;
+  };
+
+  inline Gasdev const& gasdev() {
+    static Gasdev const g = [] {
+      Gasdev r;
+      struct Lib {
+        std::string path;
+        ElfW(Addr) base = 0;
+      } lib;
+      dl_iterate_phdr(
+          [](dl_phdr_info* info, std::size_t, void* data) -> int {
+            if (!info->dlpi_name || !std::strstr(info->dlpi_name, "libSIBYLL23d.so"))
+              return 0;
+            auto* l = static_cast<Lib*>(data);
+            l->path = info->dlpi_name;
+            l->base = info->dlpi_addr;
+            return 1;
+          },
+          &lib);
+      if (lib.path.empty()) return r;
+      int const fd = ::open(lib.path.c_str(), O_RDONLY);
+      if (fd < 0) return r;
+      struct stat sb {};
+      bool const ok = ::fstat(fd, &sb) == 0;
+      std::size_t const len = ok ? static_cast<std::size_t>(sb.st_size) : 0;
+      void* const m = ok ? ::mmap(nullptr, len, PROT_READ, MAP_PRIVATE, fd, 0) : MAP_FAILED;
+      ::close(fd);
+      if (m == MAP_FAILED) return r;
+      auto const* img = static_cast<unsigned char const*>(m);
+      auto const* eh = reinterpret_cast<ElfW(Ehdr) const*>(img);
+      if (len >= sizeof(ElfW(Ehdr)) && std::memcmp(eh->e_ident, ELFMAG, SELFMAG) == 0 &&
+          eh->e_shoff + std::size_t(eh->e_shnum) * sizeof(ElfW(Shdr)) <= len) {
+        auto const* sh = reinterpret_cast<ElfW(Shdr) const*>(img + eh->e_shoff);
+        for (int i = 0; i < eh->e_shnum; ++i) {
+          if (sh[i].sh_type != SHT_SYMTAB || sh[i].sh_link >= eh->e_shnum) continue;
+          auto const& str = sh[sh[i].sh_link];
+          auto const* sym = reinterpret_cast<ElfW(Sym) const*>(img + sh[i].sh_offset);
+          std::size_t const n = sh[i].sh_size / sizeof(ElfW(Sym));
+          for (std::size_t k = 0; k < n; ++k) {
+            if (sym[k].st_name >= str.sh_size) continue;
+            char const* nm = reinterpret_cast<char const*>(img + str.sh_offset + sym[k].st_name);
+            if (std::strcmp(nm, "rndmgas_") == 0 && sym[k].st_size == sizeof(int))
+              r.iset = reinterpret_cast<int*>(lib.base + sym[k].st_value);
+            else if (std::strcmp(nm, "gset.0") == 0 && sym[k].st_size == sizeof(double))
+              r.gset = reinterpret_cast<double*>(lib.base + sym[k].st_value);
+          }
+        }
+      }
+      ::munmap(m, len);
+      if (!r.iset || !r.gset) r = Gasdev{};
+      return r;
+    }();
+    return g;
+  }
+
+  // Pythia8 Decay marks a species unstable before decaying it and stable
+  // afterwards, so once a species has decayed Pythia no longer decays it
+  // inside later decay chains: run history that the checkpoint must carry.
+  // Points at decaySequence's particle table; set in main.
+  inline Pythia8::ParticleData* pyDecayData = nullptr;
+
+  // The species whose decay flag the checkpoint carries: every non-nucleus
+  // CORSIKA code that Pythia knows, as a positive id (a particle and its
+  // antiparticle share one entry). ParticleData::nextId(0) returns 0 in this
+  // Pythia build, so the table cannot be walked directly.
+  inline std::set<int> pyDecayIds() {
+    std::set<int> ids;
+    for (Code const c : get_all_particles()) {
+      if (is_nucleus(c)) continue;
+      int const id = std::abs(static_cast<int>(get_PDG(c)));
+      if (id != 0 && pyDecayData->isParticle(id)) ids.insert(id);
+    }
+    return ids;
+  }
+
+  using Prng = RNGManager<>::prng_type;
+  using SeedT = std::decay_t<decltype(std::declval<Prng const&>().getSeed())>;
+  using StateT = std::decay_t<decltype(std::declval<Prng const&>().getState())>;
+
+  inline void writeRng(std::ostream& f) {
+    auto& mgr = RNGManager<>::getInstance();
+    f << "@seed " << mgr.getSeed() << '\n';
+    for (auto const& [name, e] : mgr.getRngs()) {
+      SeedT const sd = e.getSeed();
+      StateT const st = e.getState();
+      f << "@rng " << name << ' ' << sd.size();
+      for (std::size_t i = 0; i < sd.size(); ++i) f << ' ' << sd[i];
+      f << ' ' << st.size();
+      for (std::size_t i = 0; i < st.size(); ++i) f << ' ' << st[i];
+      f << ' ' << e.getTrigger() << '\n';
+    }
+    auto const prec = f.precision(17); // 17 digits round-trip a double exactly
+    f << "@jetset";
+    for (int const m : ludatr_.mrlu) f << ' ' << m;
+    for (double const r : ludatr_.rrlu) f << ' ' << r;
+    f << '\n';
+    if (auto const& g = gasdev(); g.iset)
+      f << "@gasdev " << *g.iset << ' ' << *g.gset << '\n';
+    f.precision(prec);
+    if (pyDecayData) {
+      f << "@pydecay";
+      for (int const id : pyDecayIds())
+        if (!pyDecayData->mayDecay(id)) f << ' ' << id;
+      f << '\n';
+    }
+    // raw bytes: the doubles in cbr round-trip exactly
+    auto const* b = reinterpret_cast<unsigned char const*>(::sibyll23d::s_csydec_);
+    f << "@sibdec " << sizeof(*::sibyll23d::s_csydec_) << ' ' << std::hex;
+    for (std::size_t i = 0; i < sizeof(*::sibyll23d::s_csydec_); ++i)
+      f << std::setw(2) << std::setfill('0') << static_cast<int>(b[i]);
+    f << std::dec << std::setfill(' ') << '\n';
+  }
+
+  // Restores the global seed and every saved stream. Returns the number of
+  // streams restored, or -1 if the file carries no RNG record.
+  inline int restoreRng(std::string const& path) {
+    std::ifstream f(path);
+    std::vector<std::string> lines;
+    for (std::string l; std::getline(f, l);)
+      if (!l.empty() && l[0] == '@') lines.push_back(l);
+    auto& mgr = RNGManager<>::getInstance();
+    bool seen = false;
+    for (auto const& l : lines)
+      if (l.rfind("@seed ", 0) == 0) {
+        // the global seed seeds any stream registered later in the run
+        mgr.setSeed(std::stoull(l.substr(6)));
+        seen = true;
+      }
+    if (!seen) return -1;
+    constexpr unsigned arity = Prng::arity;
+    int n = 0;
+    for (auto const& l : lines) {
+      if (l.rfind("@rng ", 0) != 0) continue;
+      std::istringstream ss(l.substr(5));
+      std::string name;
+      std::size_t ns = 0, nc = 0;
+      SeedT sd{};
+      StateT st{};
+      unsigned trig = arity;
+      ss >> name >> ns;
+      for (std::size_t i = 0; i < ns && i < sd.size(); ++i) ss >> sd[i];
+      ss >> nc;
+      for (std::size_t i = 0; i < nc && i < st.size(); ++i) ss >> st[i];
+      ss >> trig;
+      if (!ss || ns != sd.size() || nc != st.size())
+        throw std::runtime_error("malformed @rng line in " + path + ": " + l);
+      if (!mgr.isRegistered(name)) mgr.registerRandomStream(name);
+      auto& e = mgr.getRandomStream(name);
+      e.setSeed(sd);
+      if (trig >= arity) {
+        e.setState(st);
+        e.setTrigger(arity);
+      } else {
+        // Mid-block: the engine's cached block is philox(st). It has no
+        // setter, so regenerate it by drawing once from the counter just
+        // before st (the draw increments back to st), then re-consume.
+        StateT prev = st;
+        for (std::size_t i = 0; i < prev.size(); ++i)
+          if (prev[i]-- != 0) break; // multi-word decrement, low word first
+        e.setState(prev);
+        e.setTrigger(arity);
+        for (unsigned k = 0; k < trig; ++k) (void)e();
+      }
+      ++n;
+    }
+    bool jetset = false;
+    for (auto const& l : lines) {
+      if (l.rfind("@jetset ", 0) != 0) continue;
+      std::istringstream ss(l.substr(8));
+      auto saved = ludatr_;
+      for (int& m : saved.mrlu) ss >> m;
+      for (double& r : saved.rrlu) ss >> r;
+      if (!ss) throw std::runtime_error("malformed @jetset line in " + path);
+      ludatr_ = saved;
+      jetset = true;
+    }
+    if (!jetset)
+      CORSIKA_LOG_WARN("Resume file has no @jetset record: SOPHIA's JETSET "
+                       "generator restarts from its default seed (statistically "
+                       "valid, not an exact continuation)");
+    bool gas = false;
+    for (auto const& l : lines) {
+      if (l.rfind("@gasdev ", 0) != 0) continue;
+      std::istringstream ss(l.substr(8));
+      int iset = 0;
+      double gset = 0;
+      ss >> iset >> gset;
+      if (!ss) throw std::runtime_error("malformed @gasdev line in " + path);
+      if (auto const& g = gasdev(); g.iset) {
+        *g.iset = iset;
+        *g.gset = gset;
+        gas = true;
+      }
+    }
+    if (!gas)
+      CORSIKA_LOG_WARN("No usable @gasdev record (missing, or SIBYLL's symbols "
+                       "not found): SIBYLL's Gaussian cache starts empty "
+                       "(statistically valid, not an exact continuation)");
+    bool pyd = false;
+    for (auto const& l : lines) {
+      if (l.rfind("@pydecay", 0) != 0 || !pyDecayData) continue;
+      std::istringstream ss(l.substr(8));
+      std::set<int> stable;
+      for (int id; ss >> id;) stable.insert(id);
+      for (int const id : pyDecayIds()) pyDecayData->mayDecay(id, stable.count(id) == 0);
+      pyd = true;
+    }
+    if (!pyd)
+      CORSIKA_LOG_WARN("Resume file has no @pydecay record: Pythia's decay flags "
+                       "start from their defaults (statistically valid, not an "
+                       "exact continuation)");
+    bool sib = false;
+    for (auto const& l : lines) {
+      if (l.rfind("@sibdec ", 0) != 0) continue;
+      std::istringstream ss(l.substr(8));
+      std::size_t sz = 0;
+      std::string hex;
+      ss >> sz >> hex;
+      if (!ss || sz != sizeof(*::sibyll23d::s_csydec_) || hex.size() != 2 * sz)
+        throw std::runtime_error("malformed @sibdec line in " + path);
+      auto* b = reinterpret_cast<unsigned char*>(::sibyll23d::s_csydec_);
+      for (std::size_t i = 0; i < sz; ++i)
+        b[i] = static_cast<unsigned char>(std::stoi(hex.substr(2 * i, 2), nullptr, 16));
+      sib = true;
+    }
+    if (!sib)
+      CORSIKA_LOG_WARN("Resume file has no @sibdec record: SIBYLL's decay table "
+                       "starts from its defaults (statistically valid, not an "
+                       "exact continuation)");
+    return n;
+  }
+
+  // corsika::connect_random_stream hands each Fortran model (SIBYLL, SOPHIA,
+  // FLUKA or UrQMD) a COPY of its
+  // stream (std::bind copies its arguments), so those draws never reach the
+  // RNGManager state that a checkpoint saves. Connect the models to the
+  // manager streams by reference instead.
+  //
+  // The Fortran glue (corsika_modules/common/rng_impl.hpp) also keeps a
+  // private 16-number buffer per library and refills it from this function.
+  // Unused buffered numbers are invisible to a checkpoint, so after any step
+  // in which a library refilled, reconnect it (set_rng_function discards the
+  // buffer). The stream position then defines exactly what each library
+  // draws next. Discarding unused numbers is statistically harmless.
+  struct ModelStream {
+    char const* name;
+    void (*inject)(rng_function_type);
+    default_prng_type* rng;
+    bool refilled = false;
+  };
+  inline std::vector<ModelStream> modelStreams;
+
+  inline void connect(ModelStream& m) {
+    m.refilled = false;
+    default_prng_type* rng = m.rng;
+    bool* refilled = &m.refilled;
+    m.inject([rng, refilled](double* d, std::size_t n) {
+      *refilled = true;
+      corsika::detail::rng_func(*rng, d, n);
+    });
+  }
+
+  inline void bindModelStreamsByReference() {
+    auto& mgr = RNGManager<>::getInstance();
+    modelStreams.clear();
+    modelStreams.reserve(3); // element addresses must stay valid (captured above)
+    auto add = [&](char const* name, void (*inject)(rng_function_type)) {
+      if (mgr.isRegistered(name))
+        modelStreams.push_back({name, inject, &mgr.getRandomStream(name)});
+    };
+    add("sibyll", ::sibyll23d::set_rng_function);
+    add("sophia", ::sophia::set_rng_function);
+#ifdef WITH_FLUKA
+    add("fluka", ::fluka::set_rng_function);
+#else
+    add("urqmd", ::urqmd::set_rng_function);
+#endif
+    for (auto& m : modelStreams) connect(m);
+  }
+
+  inline void flushModelBuffers() {
+    for (auto& m : modelStreams)
+      if (m.refilled) connect(m);
+  }
+} // namespace ckpt
+
+struct ResumeEntry {
+  int pdg;
+  double e_raw, x, y, z, dx, dy, dz, t_raw, w; // energy and time: raw magnitudes
+  int node = -1; // index into ckpt::collectNodes order; -1 = derive from position
+};
+
+static std::vector<ResumeEntry> readResumeFile(std::string const& path) {
+  std::vector<ResumeEntry> out;
+  std::ifstream f(path);
+  if (!f) {
+    CORSIKA_LOG_CRITICAL("Cannot open --resume-from {}", path);
+    return out;
+  }
+  std::string line;
+  if (!std::getline(f, line) || line.find("checkpoint v3") == std::string::npos) {
+    CORSIKA_LOG_CRITICAL("--resume-from {} is not a v3 checkpoint (written by an "
+                         "older tambo_shower); refusing to misread it", path);
+    return out;
+  }
+  while (std::getline(f, line)) {
+    if (line.empty() || line[0] == '#' || line[0] == '@') continue;
+    ResumeEntry r;
+    std::istringstream ss(line);
+    if (ss >> r.pdg >> r.e_raw >> r.x >> r.y >> r.z >> r.dx >> r.dy >> r.dz >>
+        r.t_raw >> r.w) {
+      if (!(ss >> r.node)) r.node = -1; // older dumps have no volume column
+      out.push_back(r);
+    } else
+      CORSIKA_LOG_WARN("Skipping malformed resume line: {}", line);
+  }
+  return out;
+}
+
+template <typename TStack, typename TNode>
+class CheckpointStackStop
+    : public StackProcess<CheckpointStackStop<TStack, TNode>> {
+  std::string path_;
+  double deadline_s_;
+  std::vector<TNode const*> const* nodes_;
+
+public:
+  CheckpointStackStop(std::string path, double deadline_s,
+                      std::vector<TNode const*> const* nodes)
+      : StackProcess<CheckpointStackStop<TStack, TNode>>(1)
+      , path_(std::move(path))
+      , deadline_s_(deadline_s)
+      , nodes_(nodes) {}
+
+  void doStack(TStack const& stack) {
+    ckpt::flushModelBuffers(); // no-op unless checkpointing or resuming
+    if (path_.empty()) return;
+    bool fire = (ckpt::requested != 0);
+    if (!fire && deadline_s_ > 0)
+      fire = std::chrono::duration<double>(std::chrono::steady_clock::now() -
+                                           ckpt::t_start)
+                 .count() >= deadline_s_;
+    if (!fire) return;
+    // Nothing left to run: let the cascade finish rather than commit an empty
+    // checkpoint that no retry could resume.
+    bool live = false;
+    for (auto it = stack.begin(); it != stack.end() && !live; ++it)
+      live = !stack.isErased(it);
+    if (!live) return;
+    dump(stack);
+    throw std::runtime_error("CheckpointStop");
+  }
+
+private:
+  void dump(TStack const& stack) const {
+    std::unordered_map<void const*, int> index;
+    for (std::size_t i = 0; i < nodes_->size(); ++i)
+      index[static_cast<void const*>((*nodes_)[i])] = static_cast<int>(i);
+    auto const& cs = get_root_CoordinateSystem();
+    // Written to <file>.partial only. main() renames it after the partial
+    // ground output is flushed, so the checkpoint never outruns the output.
+    std::string const tmp = path_ + ".partial";
+    std::ofstream f(tmp);
+    f << std::setprecision(17);
+    f << "# tambo_shower checkpoint v3: pdg e_kin(raw) x_m y_m z_m dx dy dz "
+         "t(raw) weight volume_index; @seed/@rng lines = random-number stream "
+         "state; @jetset = SOPHIA JETSET generator state; @gasdev = SIBYLL "
+         "GASDEV cache; @pydecay = Pythia decayer species marked stable; "
+         "@sibdec = SIBYLL decay table\n";
+    std::size_t n = 0;
+    for (auto it = stack.begin(); it != stack.end(); ++it) {
+      if (stack.isErased(it)) continue;
+      auto const& p = *it;
+      auto const pos = p.getPosition().getCoordinates(cs);
+      // raw doubles: the dimensionless quantity's operator<< appends '[]'
+      // copy: getComponents(cs) is a temporary, a reference into it dangles
+      Eigen::Vector3d const dir =
+          p.getDirection().getComponents(cs).getEigenVector();
+      auto const found = index.find(static_cast<void const*>(p.getNode()));
+      int const vol = (found == index.end()) ? -1 : found->second;
+      f << static_cast<int>(get_PDG(p.getPID())) << ' '
+        << p.getKineticEnergy().magnitude() << ' ' << pos.getX() / 1_m << ' '
+        << pos.getY() / 1_m << ' ' << pos.getZ() / 1_m << ' ' << dir[0]
+        << ' ' << dir[1] << ' ' << dir[2] << ' ' << p.getTime().magnitude()
+        << ' ' << p.getWeight() << ' ' << vol << '\n';
+      ++n;
+    }
+    ckpt::writeRng(f);
+    f.close();
+    CORSIKA_LOG_WARN("Checkpoint: {} pending particles and RNG state written to {}",
+                     n, tmp);
+  }
+};
+
+template <typename TStack, typename TNode>
+class ResumeNodeRestorer
+    : public CascadeEquationsProcess<ResumeNodeRestorer<TStack, TNode>> {
+  TStack* stack_ = nullptr;
+  std::vector<int> idx_;
+  std::vector<TNode const*> const* nodes_ = nullptr;
+  bool done_ = false;
+
+public:
+  void arm(TStack& s, std::vector<int> idx, std::vector<TNode const*> const* nodes) {
+    stack_ = &s;
+    idx_ = std::move(idx);
+    nodes_ = nodes;
+  }
+
+  void initCascadeEquations() {
+    if (done_ || stack_ == nullptr) return;
+    done_ = true;
+    std::size_t i = 0, n = 0;
+    for (auto it = stack_->begin(); it != stack_->end() && i < idx_.size(); ++it, ++i) {
+      int const k = idx_[i];
+      if (k >= 0 && k < static_cast<int>(nodes_->size())) {
+        (*it).setNode((*nodes_)[k]);
+        ++n;
+      }
+    }
+    CORSIKA_LOG_INFO("Resume: restored the saved volume of {} of {} particles", n,
+                     idx_.size());
+  }
+
+  void doCascadeEquations(TStack&) {}
+};
+
 int main(int argc, char** argv) {
 
   CLI::App app{"Simulate air showers at the TAMBO site using CORSIKA 8."};
@@ -1069,6 +1569,24 @@ int main(int argc, char** argv) {
       ->default_val("both")
       ->check(CLI::IsMember({"neutral", "NC", "charged", "CC", "both"}))
       ->group("Misc");
+
+  // ---- Resumable checkpoints ----
+  app.add_option("--checkpoint-file",
+                 "Arm checkpointing: on SIGTERM/SIGUSR1 or --checkpoint-after-s "
+                 "the pending stack is dumped here and the run exits with code 3")
+      ->default_val("")
+      ->group("Checkpoint");
+  app.add_option("--checkpoint-after-s",
+                 "Soft wall-clock deadline (s) for self-checkpointing "
+                 "(0 = only on signal)")
+      ->default_val(0)
+      ->check(CLI::NonNegativeNumber)
+      ->group("Checkpoint");
+  app.add_option("--resume-from",
+                 "Resume a checkpointed run: inject the dumped particles instead "
+                 "of a primary (pass the ORIGINAL --energy and --max-weight)")
+      ->default_val("")
+      ->group("Checkpoint");
 
   #pragma endregion
 
@@ -1356,6 +1874,7 @@ int main(int argc, char** argv) {
   InteractionCounter heCounted{heModel};
 
   corsika::pythia8::Decay decaySequence;
+  ckpt::pyDecayData = &decaySequence.particleData;
 
   bool NC = false, CC = false;
   if (auto const s = app["--neutrino-interaction-type"]->as<std::string>();
@@ -1452,7 +1971,41 @@ int main(int argc, char** argv) {
   double const maxWeightArg = app["--max-weight"]->as<double>();
   double const eSlope = app["--eslope"]->as<double>();
   double const maxDefl = app["--max-deflection-angle"]->as<double>();
-  int const nev = app["--nevent"]->as<int>();
+  int nev = app["--nevent"]->as<int>();
+
+  // ---- Resumable checkpoint state ----
+  std::string const checkpointPath = app["--checkpoint-file"]->as<std::string>();
+  double const checkpointAfterS = app["--checkpoint-after-s"]->as<double>();
+  std::string const resumeFrom = app["--resume-from"]->as<std::string>();
+  std::vector<ResumeEntry> resumeEntries;
+  if (!resumeFrom.empty()) {
+    resumeEntries = readResumeFile(resumeFrom);
+    if (resumeEntries.empty()) {
+      CORSIKA_LOG_CRITICAL("--resume-from {} has no usable entries", resumeFrom);
+      return EXIT_FAILURE;
+    }
+    if (nev != 1) {
+      CORSIKA_LOG_WARN("--resume-from implies -N 1 (was {})", nev);
+      nev = 1;
+    }
+  }
+  if (!checkpointPath.empty()) {
+    std::signal(SIGTERM, ckpt::onSignal);
+    std::signal(SIGUSR1, ckpt::onSignal);
+    CORSIKA_LOG_INFO("Checkpoint armed: file {}, soft deadline {} s (0 = signal only)",
+                     checkpointPath, checkpointAfterS);
+  }
+  bool checkpointFired = false;
+
+  // Every model is constructed by now, so their stream connections can be
+  // re-pointed (see ckpt::bindModelStreamsByReference).
+  if (!checkpointPath.empty() || !resumeFrom.empty())
+    ckpt::bindModelStreamsByReference();
+
+  // Volume-tree index shared by checkpoint dumps and resumes.
+  using NodeT = std::remove_cv_t<std::remove_reference_t<decltype(*env.getUniverse())>>;
+  std::vector<NodeT const*> nodeTable;
+  ckpt::collectNodes<NodeT>(env.getUniverse().get(), nodeTable);
 
   // Lambda that runs one shower given a pre-assembled process sequence.
   // EMThinning and StackInspector are added here because they depend on the
@@ -1469,6 +2022,9 @@ int main(int argc, char** argv) {
     RockExitRelocator rockRelocator{env, rockNodePtr};
     RockEMAbsorber rockEMAbsorber{rockNodePtr};
     RockInterfaceTripwire rockTripwire{env, rockNodePtr};
+    CheckpointStackStop<StackType, NodeT> ckptStop{checkpointPath, checkpointAfterS,
+                                                   &nodeTable};
+    ResumeNodeRestorer<StackType, NodeT> nodeRestorer;
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut.
     // rockRelocator runs early so any later boundary-aware process in the same
@@ -1477,7 +2033,8 @@ int main(int argc, char** argv) {
     // any interaction is sampled for it that step (collapsing the cascade).
     // rockTripwire is a passive per-step invariant check (logical==rock implies
     // contains()); it mutates nothing and only aborts on a sustained violation.
-    auto fullSequence = make_sequence(stackInspect, rockRelocator, rockEMAbsorber,
+    auto fullSequence = make_sequence(ckptStop, nodeRestorer, stackInspect,
+                                      rockRelocator, rockEMAbsorber,
                                       rockTripwire,
                                       neutrinoPrimaryPythia, hadronSequence,
                                       decaySequence, emCascade, 
@@ -1496,21 +2053,60 @@ int main(int argc, char** argv) {
     CORSIKA_LOG_INFO("Primary: {}  E_kin = {} GeV", beamCode, eKin / 1_GeV);
     CORSIKA_LOG_INFO("Shower {} of {}", i_shower, nev);
 
-    auto const primaryProperties =
-        std::make_tuple(beamCode, eKin, propDir.normalized(), injectionPos, 0_ns);
-    stack.addParticle(primaryProperties);
+    if (!resumeEntries.empty()) {
+      // Resume mode: refill the stack from the checkpoint dump. No
+      // recordPrimary / forced interaction here: the original run already
+      // recorded the primary and consumed any forced first interaction.
+      CORSIKA_LOG_INFO("Resume: injecting {} checkpointed particles",
+                       resumeEntries.size());
+      std::vector<int> savedVolumes;
+      savedVolumes.reserve(resumeEntries.size());
+      for (auto const& r : resumeEntries) {
+        auto const code = convert_from_PDG(PDGCode(r.pdg));
+        DirectionVector const dir{rootCS, {r.dx, r.dy, r.dz}};
+        Point const rpos{rootCS, r.x * 1_m, r.y * 1_m, r.z * 1_m};
+        auto rp = stack.addParticle(std::make_tuple(
+            code, HEPEnergyType(phys::units::detail::magnitude_tag, r.e_raw), dir,
+            rpos, TimeType(phys::units::detail::magnitude_tag, r.t_raw)));
+        rp.setWeight(r.w);
+        savedVolumes.push_back(r.node);
+      }
+      nodeRestorer.arm(stack, std::move(savedVolumes), &nodeTable);
+    } else {
+      auto const primaryProperties =
+          std::make_tuple(beamCode, eKin, propDir.normalized(), injectionPos, 0_ns);
+      stack.addParticle(primaryProperties);
 
-    if (force_interaction) {
-      CORSIKA_LOG_INFO("Forcing first interaction at injection point.");
-      EAS.forceInteraction();
-    }
-    if (force_decay) {
-      CORSIKA_LOG_INFO("Forcing primary decay.");
-      EAS.forceDecay();
-    }
+      if (force_interaction) {
+        CORSIKA_LOG_INFO("Forcing first interaction at injection point.");
+        EAS.forceInteraction();
+      }
+      if (force_decay) {
+        CORSIKA_LOG_INFO("Forcing primary decay.");
+        EAS.forceDecay();
+      }
 
-    primaryWriter.recordPrimary(primaryProperties);
-    EAS.run();
+      primaryWriter.recordPrimary(primaryProperties);
+    }
+    if (!resumeEntries.empty()) {
+      // Last thing before the cascade starts, so no draw lands in between.
+      int const nStreams = ckpt::restoreRng(resumeFrom);
+      if (nStreams < 0)
+        CORSIKA_LOG_WARN("Resume file has no RNG record: continuing with --seed "
+                         "(statistically valid, not an exact continuation)");
+      else
+        CORSIKA_LOG_INFO("Resume: restored {} random-number streams", nStreams);
+    }
+    try {
+      EAS.run();
+    } catch (std::runtime_error const& e) {
+      if (!checkpointPath.empty() && std::string(e.what()) == "CheckpointStop") {
+        output.endOfShower(); // keep the partial ground output
+        checkpointFired = true;
+      } else {
+        throw;
+      }
+    }
   };
 
   output.startOfLibrary();
@@ -1521,9 +2117,22 @@ int main(int argc, char** argv) {
         : plRng(RNGManager<>::getInstance().getRandomStream("primary_particle"));
     auto obsMeshSequence = make_sequence(observationLevel);
     runOneShower(obsMeshSequence, i, E);
+    if (checkpointFired) break;
   }
 
   output.endOfLibrary();
   #pragma endregion
+  if (checkpointFired) {
+    // Commit point: the partial output is on disk, now publish the checkpoint.
+    std::string const partial = checkpointPath + ".partial";
+    if (std::rename(partial.c_str(), checkpointPath.c_str()) != 0) {
+      CORSIKA_LOG_CRITICAL("Could not commit checkpoint {} -> {}", partial,
+                           checkpointPath);
+      return EXIT_FAILURE;
+    }
+    CORSIKA_LOG_WARN("Run CHECKPOINTED (incomplete); retry with --resume-from {}",
+                     checkpointPath);
+    return 3; // resumable, distinct from success (0) and crash
+  }
   return EXIT_SUCCESS;
 }

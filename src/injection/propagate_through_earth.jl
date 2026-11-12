@@ -8,11 +8,11 @@ flexible per-particle stopping box near the detector-side END of the track.
 
 Coordinate spine: geometric distance along the actual backward-traced ray,
 measured from the true END (`first(intersections)`, the detector-side point).
-The neutrino's column depth comes from `compute_density_prem` (PREM density per
-Earth shell); the charged lepton's transport comes from `_run_proposal_segments`
-(PREM shell density in rock, nominal density in air). END is computed once by the
-caller and threaded to every function so all stopping/vertex logic references the
-same point.
+The neutrino's column depth uses the PREM density per Earth shell
+(`compute_density_prem`) in rock and the nominal density in air; the charged
+lepton's transport comes from `_run_proposal_segments` (PREM shell density in
+rock, nominal density in air). END is computed once by the caller and threaded
+to every function so all stopping/vertex logic references the same point.
 """
 
 # Needed at load time: `TR.Particle` appears in a method signature below, and
@@ -146,9 +146,18 @@ struct _ColumnDepthProfile
     Xcd_total::typeof(1.0u"g/cm^2")
 end
 
-function _build_column_depth_profile(intersections, earth, prem)
+function _build_column_depth_profile(intersections, earth, prem, revd)
     N = length(intersections)
     ρ = compute_density_prem(intersections, earth, prem)
+    # PREM has no air: segments that `compute_density` reads as air (a valley
+    # between two ridges crossed by the ray) get the air density, as in
+    # `_run_proposal_segments` for the charged lepton.
+    rock_or_air = compute_density(intersections, revd)
+    for k in 2:N
+        if rock_or_air[k] == AIR_DENSITY
+            ρ[k] = AIR_DENSITY
+        end
+    end
     end_dist = intersections[1].distance
     e_bkpt = [uconvert(u"m", intersections[k].distance - end_dist) for k in 1:N]
     Xcd = Vector{typeof(1.0u"g/cm^2")}(undef, N)
@@ -362,7 +371,7 @@ function propagate_through_the_earth!(
     PP.set_random_seed(isnothing(seed) ? rand(Int32) : Int32(mod(seed, typemax(Int32))))
 
     revd = reverse(particle.direction)
-    prof = _build_column_depth_profile(intersections, earth, prem)
+    prof = _build_column_depth_profile(intersections, earth, prem, revd)
 
     stack = Particle{T}[particle]
     finals = Particle{T}[]

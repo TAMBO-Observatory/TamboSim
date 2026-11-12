@@ -59,6 +59,8 @@ reset_propagation_anomalies!() = (empty!(_propagation_anomalies); nothing)
 # useful life:
 #   - decay-driven (tau)              -> a length          (`endcap_decay_length`)
 #   - interaction/loss-driven (mu, nu)-> a column depth    (`endcap_column_depth`)
+# except that a tau neutrino stops at the tau box (`_neutrino_endcap`), so its
+# natural interactions and the forced vertex never cover the same stretch of rock.
 # =============================================================================
 
 """
@@ -186,6 +188,30 @@ function _regenerated_tau_neutrino(secondaries)
     return argmax(s -> ustrip(u"GeV", s.energy), nus)
 end
 
+"""
+    _neutrino_endcap(p, tr_p, prof) -> Quantity{grammage}
+
+Column depth from END below which a neutrino is no longer followed and is handed
+to `force_interaction_vertex`.
+
+  - ν_τ -> the tau box: the tau decay range for 0.1% survival at the full neutrino
+    energy (the largest tau box this neutrino can make), turned into a column
+    depth along this ray;
+  - other flavours -> 1/1000 of the mean free path, as before.
+
+`force_interaction_vertex` draws the forced vertex over the same tau box, so the
+natural and the forced interactions never cover the same rock.
+"""
+function _neutrino_endcap(p::Particle, tr_p, prof)
+    a = abs(Int(p.pdg))
+    s = Int(p.pdg) > 0 ? 1 : -1
+    if a == 16
+        return _Xcd_of_e(prof, particle_vacuum_range(ParticleType(15s), p.energy, 1e-3))
+    else
+        return endcap_column_depth(tr_p)
+    end
+end
+
 # =============================================================================
 # Per-particle macro-steps
 # =============================================================================
@@ -204,7 +230,7 @@ function _neutrino_macrostep(p::Particle{T}, prof, end_point, revd, xs, rng) whe
     tr_p = TR.Particle(TR.ParticleType(Int(p.pdg)), ustrip(u"eV", p.energy), 0.0, xs)
     e_p = _dist_from_end(end_point, p.position)
     Xrem = _Xcd_of_e(prof, e_p)
-    endcap = endcap_column_depth(tr_p)
+    endcap = _neutrino_endcap(p, tr_p, prof)
 
     # 1. already in box -> exit as neutrino
     Xrem <= endcap && return (final = p, pushes = Particle{T}[])

@@ -15,7 +15,7 @@ Two things here are regression tests rather than plain unit tests:
   floating-point drift between two traces of the same geometry.
 """
 
-import TamboSim: _ColumnDepthProfile, _e_of_Xcd, _Xcd_of_e, _neutrino_endcap, particle_vacuum_range,
+import TamboSim: _ColumnDepthProfile, _e_of_Xcd, _Xcd_of_e, _neutrino_endcap, particle_vacuum_range, particle_rock_range,
               _run_proposal_segments, _prem_segment_densities, _SEGMENT_CAP_TOL,
               deep_propagator, generate_config,
               _build_column_depth_profile, compute_density_prem, AIR_DENSITY,
@@ -228,6 +228,18 @@ function run_propagate_through_earth_tests()
         end
         # A tau box longer than the track puts the whole track inside the box.
         nu = Particle(ParticleType(16), 1e9u"GeV", entry.position, entry.direction)
+        @test _neutrino_endcap(nu, nothing, prof) == prof.Xcd_total
+    end
+
+    @testset "A muon neutrino stops at the muon box, not at its own box" begin
+        prof = _synthetic_profile()
+        for E in (1e5u"GeV", 1e6u"GeV", 1e7u"GeV"), pdg in (14, -14)
+            nu = Particle(ParticleType(pdg), E, entry.position, entry.direction)
+            box = uconvert(u"g/cm^2", particle_rock_range(E, ParticleType(sign(pdg) * 13)))
+            @test _neutrino_endcap(nu, nothing, prof) ≈ box rtol=1e-12
+        end
+        # A muon box longer than the track puts the whole track inside the box.
+        nu = Particle(ParticleType(14), 1e9u"GeV", entry.position, entry.direction)
         @test _neutrino_endcap(nu, nothing, prof) == prof.Xcd_total
     end
 

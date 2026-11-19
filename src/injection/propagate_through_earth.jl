@@ -59,8 +59,9 @@ reset_propagation_anomalies!() = (empty!(_propagation_anomalies); nothing)
 # useful life:
 #   - decay-driven (tau)              -> a length          (`endcap_decay_length`)
 #   - interaction/loss-driven (mu, nu)-> a column depth    (`endcap_column_depth`)
-# except that a tau neutrino stops at the tau box (`_neutrino_endcap`), so its
-# natural interactions and the forced vertex never cover the same stretch of rock.
+# except that a tau (muon) neutrino stops at the tau (muon) box
+# (`_neutrino_endcap`), so its natural interactions and the forced vertex never
+# cover the same stretch of rock.
 # =============================================================================
 
 """
@@ -206,16 +207,23 @@ to `force_interaction_vertex`.
   - ν_τ -> the tau box: the tau decay range for 0.1% survival at the full neutrino
     energy (the largest tau box this neutrino can make), turned into a column
     depth along this ray;
+  - ν_μ -> the muon box: the muon range in rock at the full neutrino energy (the
+    largest muon box this neutrino can make), already a column depth, capped at
+    the track;
   - other flavours -> 1/1000 of the mean free path, as before.
 
-`force_interaction_vertex` draws the forced vertex over the same tau box, so the
-natural and the forced interactions never cover the same rock.
+`force_interaction_vertex` draws the forced vertex over the same lepton box (tau
+box for ν_τ, muon box for ν_μ), so the natural and the forced interactions never
+cover the same rock.
 """
 function _neutrino_endcap(p::Particle, tr_p, prof)
     a = abs(Int(p.pdg))
     s = Int(p.pdg) > 0 ? 1 : -1
     if a == 16
         return _Xcd_of_e(prof, particle_vacuum_range(ParticleType(15s), p.energy, 1e-3))
+    elseif a == 14
+        return min(uconvert(u"g/cm^2", particle_rock_range(p.energy, ParticleType(13s))),
+                   prof.Xcd_total)
     else
         return endcap_column_depth(tr_p)
     end

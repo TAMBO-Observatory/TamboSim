@@ -92,7 +92,7 @@ Loads frames from a single JLD2 file.
 function load_frames(paths::Vector{String}; prefixes=("injection",))
     raw = Tuple{Char,Dict{String,Any}}[]
     for path in paths
-        jldopen(path, "r") do file
+        jldopen(path, "r"; typemap = _FRAMES_TYPEMAP) do file
             n = file["nframes"]
             for i in 1:n
                 stream = only(file["frames/$i/stream"])

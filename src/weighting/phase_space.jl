@@ -25,7 +25,20 @@ struct ForcedNeutrinoInteractionPoint <: PhaseSpacePoint
     rho      :: Quantity{Float64, mdim/ldim^3, typeof(u"g/cm^3")}
     sigma    :: Quantity{Float64, ldim^2, typeof(u"cm^2")}
     dsigma   :: Quantity{Float64, ldim^2, typeof(u"cm^2")}
+    sigma_tot :: Quantity{Float64, ldim^2, typeof(u"cm^2")}   # CC + NC; 0 = linear interaction probability
 end
+
+# Without `sigma_tot`, the interaction probability is the linear one, as before.
+ForcedNeutrinoInteractionPoint(E, theta, phi, area, cd, rho, sigma, dsigma) =
+    ForcedNeutrinoInteractionPoint(E, theta, phi, area, cd, rho, sigma, dsigma, 0.0u"cm^2")
+
+# Files written before `sigma_tot` existed hold 8 fields: `load_frames` reads them
+# back with sigma_tot = 0, the linear probability they were weighted with.
+JLD2.rconvert(::Type{ForcedNeutrinoInteractionPoint}, nt::NamedTuple) =
+    ForcedNeutrinoInteractionPoint(nt.E, nt.theta, nt.phi, nt.area, nt.cd, nt.rho,
+                                   nt.sigma, nt.dsigma, get(nt, :sigma_tot, 0.0u"cm^2"))
+const _FRAMES_TYPEMAP = Dict("TamboSim.ForcedNeutrinoInteractionPoint" =>
+                             JLD2.Upgrade(ForcedNeutrinoInteractionPoint))
 
 struct UpstreamNeutrinoInteractionPoint <: PhaseSpacePoint
     E        :: Quantity{Float64, edim, typeof(u"GeV")}
@@ -117,9 +130,14 @@ function (ps::NeutrinoInjectionPS)(pt::ForcedNeutrinoInteractionPoint)
     mc  *= pt.rho / pt.cd
     mc  *= pt.dsigma / pt.sigma
 
-    # Physical interaction probability density along the trajectory
+    # Physical interaction probability density along the trajectory. The
+    # probability of a CC interaction in a box of column depth cd is
+    # (σ_CC/σ_tot)(1 − exp(−σ_tot cd/m)): the neutrino is absorbed as it crosses
+    # the box. Its first-order term, σ_CC cd/m, is what σ_tot = 0 gives.
     miso = speedoflight^(-2) * (938.27208816u"MeV" + 939.5654133u"MeV") / 2
+    τtot = uconvert(NoUnits, pt.cd * pt.sigma_tot / miso)
     phys  = pt.cd / miso
+    phys *= τtot > 0 ? -expm1(-τtot) / τtot : 1.0
     phys *= pt.rho / pt.cd
     phys *= pt.dsigma
 

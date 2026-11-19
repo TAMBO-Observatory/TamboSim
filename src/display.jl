@@ -482,7 +482,8 @@ function Base.show(io::IO, ::MIME"text/plain", pt::ForcedNeutrinoInteractionPoin
     println(io, "  cd:     $(round(ustrip(u"g/cm^2", pt.cd),    digits=2)) g/cm²")
     println(io, "  rho:    $(round(ustrip(u"g/cm^3", pt.rho),   digits=3)) g/cm³")
     println(io, "  sigma:  $(@sprintf("%.3g", ustrip(u"cm^2", pt.sigma))) cm²")
-    print(io,   "  dsigma: $(@sprintf("%.3g", ustrip(u"cm^2", pt.dsigma))) cm²")
+    println(io, "  dsigma: $(@sprintf("%.3g", ustrip(u"cm^2", pt.dsigma))) cm²")
+    print(io,   "  sigma_tot: $(@sprintf("%.3g", ustrip(u"cm^2", pt.sigma_tot))) cm²")
 end
 
 # ============================================================================

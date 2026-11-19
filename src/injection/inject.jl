@@ -223,6 +223,19 @@ function _cc_interaction(close_state::Particle, trxs = _tr_xs[])
 end
 
 """
+    _total_cross_section(nu, trxs = _tr_xs[]) -> Quantity{cm^2}
+
+CC + NC cross section of the neutrino `nu` from TauRunner's cross sections, the
+one that sets how fast the propagation absorbs it.
+"""
+function _total_cross_section(nu::Particle, trxs = _tr_xs[])
+    E = ustrip(u"eV", nu.energy)
+    nutype = Int(nu.pdg) < 0 ? "nubar" : "nu"
+    sigma = TR.total_cross_section(trxs, E, nutype, :CC) + TR.total_cross_section(trxs, E, nutype, :NC)
+    return sigma / TR.units.cm^2 * u"cm^2"
+end
+
+"""
 Internal implementation of inject_neutrino_event containing the core logic.
 """
 function _inject_neutrino_event_impl(
@@ -317,7 +330,7 @@ function _inject_neutrino_event_impl(
 
         point = ForcedNeutrinoInteractionPoint(
             initial_energy, theta, phi, area,
-            cd |> u"g/cm^2", density, sigma, dsigma,
+            cd |> u"g/cm^2", density, sigma, dsigma, _total_cross_section(close_state),
         )
     catch e
         @warn "Runtime error during event injection, returning null result" exception=(e, catch_backtrace())

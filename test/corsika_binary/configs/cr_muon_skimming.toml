@@ -2,12 +2,11 @@
 #
 # A muon sweeping the Earth-skimming / grazing regime — successive showers
 # enter and exit the terrain-rock volume at many different points and
-# grazing angles. This is the case that exercises the bespoke terrain-rock
-# code in tambo_shower.cpp — RockExitRelocator, RockEMAbsorber,
-# RockInterfaceTripwire — which exists to fix a class of CORSIKA
-# tracker / rock-air-boundary edge cases. A pinned single angle would test
-# only one rock traverse; the broad zenith/azimuth spread here is meant to
-# trip those edge cases. The run must complete with no tripwire abort.
+# grazing angles. This is the case that exercises the rock/air interface:
+# mesh crossings classified by face normal, CORSIKA's post-crossing placement
+# and boundary-desync backstop, and RockEMAbsorber. A pinned single angle would
+# test only one rock traverse; the broad zenith/azimuth spread here is meant to
+# trip edge cases. The run must complete with no abort and no unexpected warning.
 
 name = "cr_muon_skimming"
 description = "Terrain-traversal fuzzer: muon, 10 TeV, grazing the terrain over a broad zenith/azimuth spread."

@@ -9,17 +9,19 @@
 > `/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika/README.md`,
 > then continue with Step 3 below.
 
-`tambo_shower` requires the `mesh-bvh-geometry-framework` branch of CORSIKA 8
-developed by Jeff Lazar, which provides `TriangularMesh`, `ObservationMesh`,
-and PLY mesh loading. These features are not yet in the CORSIKA 8 mainline.
+`tambo_shower` requires the `tambo/mesh` branch of CORSIKA 8. It is the mesh
+geometry developed by Jeff Lazar for TAMBO (`ClosedMesh`, `ObservationMesh`,
+PLY mesh loading; CORSIKA MR !753), plus fixes and speedups that are under
+review upstream separately. These features are not yet in the CORSIKA 8
+mainline.
 
 The general instructions for installing CORSIKA 8 [can be found here](https://gitlab.iap.kit.edu/AirShowerPhysics/corsika);
 the steps below are based on that resource and use CORSIKA 8's own
 `conan-install.sh` and `corsika-cmake.sh` wrappers.
 
-1. Clone the `mesh-bvh-geometry-framework` branch of CORSIKA:
+1. Clone the `tambo/mesh` branch of CORSIKA:
     ```shell
-    git clone --recursive --branch mesh-bvh-geometry-framework \
+    git clone --recursive --branch tambo/mesh \
       https://gitlab.iap.kit.edu/AirShowerPhysics/corsika.git corsika
     ```
 
@@ -218,7 +220,8 @@ The terrain mesh can be large (~90k vertices, ~180k triangles for the Colca
 Valley site); building its BVH takes a few seconds at startup. It is
 registered as a `HomogeneousMedium` standard-rock volume (2.65 g/cm³):
 particles propagate *through* it with rock physics rather than being absorbed
-at the surface, and no readout is attached. Dedicated boundary-crossing
-processes — `RockExitRelocator`, `RockEMAbsorber`, `RockInterfaceTripwire` —
-handle the rock/air interface. Omit `--terrain-mesh` to disable the rock
-volume.
+at the surface, and no readout is attached. It is loaded as a `ClosedMesh`,
+which requires a closed, consistently oriented, outward-facing mesh and stops
+the run otherwise. CORSIKA places particles crossing the rock/air interface;
+`RockEMAbsorber` discards the EM cascade inside the rock. Omit
+`--terrain-mesh` to disable the rock volume.

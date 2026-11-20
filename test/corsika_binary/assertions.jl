@@ -448,10 +448,16 @@ const _WARN_ALLOWLIST = (
     # SIBYLL is queried for target types it does not model during setup; the
     # framework handles the fallback. Emitted a few times on every shower.
     "Invalid target type nucleus for hadron interaction model",
-    # VMD photonuclear path: a near-threshold photon loss is handed to SIBYLL
-    # as a Rho0 projectile it cannot process at that energy, so those (small)
-    # secondaries are dropped. A known CORSIKA limitation, not a fault.
-    "HE interaction model cannot handle configuration in photo-hadronic interaction",
+    # VMD photonuclear path: a near-threshold photon loss is handed to the HE
+    # (SIBYLL) or LE (FLUKA) hadronic model as a projectile it cannot process
+    # at that energy, so those (small) secondaries are dropped. A known CORSIKA
+    # limitation, not a fault.
+    "interaction model cannot handle configuration in photo-hadronic interaction",
+    # CORSIKA 8 >= 1.0 (c44fd96d5): the dE/dX Xmax parabola fit fails for a
+    # profile without a clear interior maximum (e.g. a shower that reaches the
+    # ground or rock before its maximum), and the writer now skips Xmax
+    # instead of writing an undefined value.
+    "Xmax estimation failed. Skipping Xmax.",
 )
 
 """

@@ -18,6 +18,7 @@ Two things here are regression tests rather than plain unit tests:
 import TamboSim: _ColumnDepthProfile, _e_of_Xcd, _Xcd_of_e, _neutrino_endcap, particle_vacuum_range,
               _run_proposal_segments, _prem_segment_densities, _SEGMENT_CAP_TOL,
               deep_propagator, generate_config,
+              _build_column_depth_profile, compute_density_prem, AIR_DENSITY,
               propagation_anomalies, reset_propagation_anomalies!,
               precompute_detector_properties, inject_neutrino_event, CrossSection,
               init_proposal, ParticleType
@@ -76,6 +77,31 @@ function run_propagate_through_earth_tests()
             @test _Xcd_of_e(uniform, f * L) ≈ f * X0 rtol=1e-12
             @test _e_of_Xcd(uniform, f * X0) ≈ f * L rtol=1e-12
         end
+    end
+
+    @testset "Neutrino profile reads air segments as air" begin
+        # Ridge, valley, ridge along a ray at the top of the Earth model. PREM alone
+        # gives all three segments the crust density; in the neutrino's profile the
+        # valley gets the air density and the ridges keep PREM. Segment k is read
+        # from intersections[k]: a normal along the ray is rock, one against it air.
+        earth = TamboSim.TR.construct_earth(layers = [(1, 2.6)])
+        R = TamboSim.TR.radius(earth) / TamboSim.TR.units.meter * u"m"
+        cs = CoordinateSystem(SVector{3}([0.0u"m", 0.0u"m", 0.0u"m"]),
+                              SMatrix{3, 3, Float64, 9}([1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0]))
+        prem = [(center = Coordinate(0.0u"m", 0.0u"m", 0.0u"m", cs),)]
+        revd = Direction([1.0, 0.0, 0.0], cs)
+        ix(x, nx) = TriangleIntersection(Coordinate(x, 0.0u"m", R, cs), Direction([nx, 0.0, 0.0], cs),
+                                         x, 0.0, 0.0, true, 1)
+        ixs = Intersection{Float64}[ix(0.0u"m", 1.0), ix(2000.0u"m", 1.0),
+                                    ix(5000.0u"m", -1.0), ix(9000.0u"m", 1.0)]
+
+        prem_only = compute_density_prem(ixs, earth, prem)
+        prof = _build_column_depth_profile(ixs, earth, prem, revd)
+        @test all(prem_only[2:end] .> 2.0u"g/cm^3")
+        @test prof.ρ[3] == AIR_DENSITY
+        @test prof.ρ[[1, 2, 4]] == prem_only[[1, 2, 4]]
+        # The 3 km valley adds only 3 km of air to the column depth.
+        @test prof.Xcd[3] - prof.Xcd[2] ≈ uconvert(u"g/cm^2", AIR_DENSITY * 3000.0u"m") rtol=1e-12
     end
 
     @testset "Anomaly counters" begin

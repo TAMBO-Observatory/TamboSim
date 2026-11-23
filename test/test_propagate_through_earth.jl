@@ -15,7 +15,7 @@ Two things here are regression tests rather than plain unit tests:
   floating-point drift between two traces of the same geometry.
 """
 
-import TamboSim: _ColumnDepthProfile, _e_of_Xcd, _Xcd_of_e,
+import TamboSim: _ColumnDepthProfile, _e_of_Xcd, _Xcd_of_e, _neutrino_endcap, particle_vacuum_range,
               _run_proposal_segments, _prem_segment_densities, _SEGMENT_CAP_TOL,
               deep_propagator, generate_config,
               propagation_anomalies, reset_propagation_anomalies!,
@@ -174,6 +174,18 @@ function run_propagate_through_earth_tests()
     end
     @test entry !== nothing
     entry === nothing && return
+
+    @testset "A tau neutrino stops at the tau box, not at its own box" begin
+        prof = _synthetic_profile()
+        for E in (1e5u"GeV", 1e6u"GeV", 1e7u"GeV")
+            nu = Particle(ParticleType(16), E, entry.position, entry.direction)
+            box = particle_vacuum_range(ParticleType(15), E, 1e-3)
+            @test _neutrino_endcap(nu, nothing, prof) ≈ _Xcd_of_e(prof, box) rtol=1e-12
+        end
+        # A tau box longer than the track puts the whole track inside the box.
+        nu = Particle(ParticleType(16), 1e9u"GeV", entry.position, entry.direction)
+        @test _neutrino_endcap(nu, nothing, prof) == prof.Xcd_total
+    end
 
     @testset "Deep leg sees PREM densities, not nominal rock" begin
         muon = Particle(ParticleType(13), 1e6u"GeV", entry.position, entry.direction)

@@ -213,8 +213,12 @@ function run_injection_regression_tests()
     @testset "Post-propagation in-air fraction" begin
         # Baselined 2026-09-03 against TauRunner main (>= icecube/TauRunner#72, 2026-07-22),
         # which fixed a bug in TR's detection of tau decays.
+        # gamma = 1 re-baselined 2026-11-23 (nu_tau stopped at the tau box): the upstream taus of
+        # the double-counted zone are gone, so fewer final states start next to the rock face.
+        # 0.200 covers this fix (0.188 on CI) and the fixes stacked on it (up to 0.210); with
+        # ~830 taus the statistical error of this fraction is ~0.014.
         for (gamma, fstates, expected_frac) in [
-            (1.0, fstates_g1, 0.240),  
+            (1.0, fstates_g1, 0.200),  
             (2.0, fstates_g2, 0.205)   
         ]
             n_prop_air = 0

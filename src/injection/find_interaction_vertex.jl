@@ -1,6 +1,25 @@
 const AIR_DENSITY = 1.205e-3 * u"g"/u"cm"^3
 const ROCK_DENSITY = 2.65 * u"g"/u"cm"^3
 
+"""Isoscalar nucleon mass, (m_p + m_n)/2, as in the forced-event weight."""
+const ISOSCALAR_NUCLEON_MASS = speedoflight^(-2) * (938.27208816u"MeV" + 939.5654133u"MeV") / 2
+
+"""
+    _vertex_column_depth(X, λ) -> Quantity{g/cm^2}
+
+Column depth from END of a forced vertex in a box of column depth `X`. With an
+infinite attenuation depth `λ`, uniform in [0, X]. Otherwise as in nature: the
+neutrino enters the box at its far end and is absorbed as it crosses it, so the
+vertex lies at depth s into the box with density ∝ exp(−s/λ) on [0, X].
+"""
+function _vertex_column_depth(X, λ)
+    x = ustrip(u"g/cm^2", X)
+    isinf(λ) && return rand(Uniform(0, x)) * u"g/cm^2"
+    l = ustrip(u"g/cm^2", λ)
+    s = -l * log1p(rand() * expm1(-x / l))
+    return clamp(x - s, 0.0, x) * u"g/cm^2"
+end
+
 """
     find_vertex_distance_by_distance(
         direction::Direction{T},
@@ -14,7 +33,8 @@ considering varying material densities from `intersections`.
 
 This function simulates a particle traveling through different media layers (defined by `intersections`).
 It calculates the total column depth encountered and then randomly selects an interaction point
-based on that column depth.
+based on that column depth: uniformly, or, with a finite `attenuation_depth` (keyword, g/cm²),
+attenuated from the far end of the box as in nature (see `_vertex_column_depth`).
 
 # Arguments
 - `direction::Direction{T}`: The direction of particle travel.
@@ -33,7 +53,8 @@ function find_vertex_distance_by_distance(
     direction::Direction{T},
     distance::Quantity{T},
     intersections::I,
-    epsilon::Float64=1e-3
+    epsilon::Float64=1e-3;
+    attenuation_depth = Inf * u"g/cm^2"
 ) where {T<:Real, I<:AbstractVector{Intersection{T}}}
 
     densities = @views compute_density(intersections, direction)[2:end]
@@ -51,7 +72,7 @@ function find_vertex_distance_by_distance(
         d += dist
     end
 
-    target_column_depth = rand(Uniform(0, ustrip(cd |> u"g/cm^2"))) * u"g/cm^2"
+    target_column_depth = _vertex_column_depth(cd, attenuation_depth)
     accrued_cd = 0.0u"g/cm^2"
     accrued_d = 0u"m"
     for (dist, dens) in zip(distances, densities)
@@ -80,7 +101,9 @@ considering varying material densities from `intersections`.
 
 This function simulates a particle traveling through different media layers (defined by `intersections`).
 It calculates the available column depth and then randomly selects an interaction point
-based on the specified and available column depth.
+based on the specified and available column depth: uniformly, or, with a finite
+`attenuation_depth` (keyword, g/cm²), attenuated from the far end of the box as in nature
+(see `_vertex_column_depth`).
 
 # Arguments
 - `direction::Direction{T}`: The direction of particle travel.
@@ -99,7 +122,8 @@ function find_vertex_distance_by_cd(
     direction::Direction{T},
     cd::Quantity{T},
     intersections::I,
-    epsilon::Float64=1e-3
+    epsilon::Float64=1e-3;
+    attenuation_depth = Inf * u"g/cm^2"
 ) where {T<:Real, I<:AbstractVector{Intersection{T}}}
 
     
@@ -113,7 +137,7 @@ function find_vertex_distance_by_cd(
         cd = available_cd
     end
 
-    target_column_depth = rand(Uniform(0, ustrip(cd |> u"g/cm^2"))) * u"g/cm^2"
+    target_column_depth = _vertex_column_depth(cd, attenuation_depth)
     accrued_cd = 0.0u"g/cm^2"
     accrued_d = 0u"m"
     for (dist, dens) in zip(distances, densities)

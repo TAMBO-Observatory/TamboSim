@@ -169,7 +169,10 @@ end
     ) where {T<:Real}
 
 Computes the final particle state after forcing an interaction. The outgoing
-lepton energy is `eout` if given, else drawn from `xs`.
+lepton energy is `eout` if given, else drawn from `xs`. With `sigma_tot` (the
+neutrino's CC + NC cross section) the vertex is placed as the neutrino is
+absorbed across the lepton box, more often near its far end; with the default
+`sigma_tot = 0`, uniformly in column depth.
 
 # Returns
 - `(final_state, eout, cd, density)` tuple with the interaction results.
@@ -180,18 +183,22 @@ function force_interaction_vertex(
     intersections,
     cs::CoordinateSystem,
     d::Direction{T};
-    eout = rand(xs, close_state.energy)
+    eout = rand(xs, close_state.energy),
+    sigma_tot = 0.0u"cm^2"
 ) where {T<:Real}
     revd = reverse(d)
+    λ = sigma_tot > 0.0u"cm^2" ? uconvert(u"g/cm^2", ISOSCALAR_NUCLEON_MASS / sigma_tot) : Inf * u"g/cm^2"
     pdg_in = Int(close_state.pdg)
     pdg_out = pdg_in > 0 ? ParticleType(pdg_in - 1) : ParticleType(pdg_in + 1)
 
     if abs(Int(pdg_out)) == 15
         range = particle_vacuum_range(pdg_out, eout)
-        distance, cd, density = find_vertex_distance_by_distance(revd, range, intersections)
+        distance, cd, density = find_vertex_distance_by_distance(revd, range, intersections;
+                                                                  attenuation_depth = λ)
     else
         range = particle_rock_range(eout, pdg_out)
-        distance, cd, density = find_vertex_distance_by_cd(revd, range, intersections)
+        distance, cd, density = find_vertex_distance_by_cd(revd, range, intersections;
+                                                            attenuation_depth = λ)
     end
 
     pout = Coordinate(first(intersections).point.point + revd.point * distance, cs)
@@ -324,13 +331,14 @@ function _inject_neutrino_event_impl(
         # now uses the same end point, for consistency. The CC cross section and the
         # lepton energy come from the cross sections the through-Earth step used.
         sigma, eout, dsigma = _cc_interaction(close_state)
+        sigma_tot = _total_cross_section(close_state)
         final_state, eout, cd, density = force_interaction_vertex(
-            close_state, xs, intersections, cs, d; eout
+            close_state, xs, intersections, cs, d; eout, sigma_tot
         )
 
         point = ForcedNeutrinoInteractionPoint(
             initial_energy, theta, phi, area,
-            cd |> u"g/cm^2", density, sigma, dsigma, _total_cross_section(close_state),
+            cd |> u"g/cm^2", density, sigma, dsigma, sigma_tot,
         )
     catch e
         @warn "Runtime error during event injection, returning null result" exception=(e, catch_backtrace())

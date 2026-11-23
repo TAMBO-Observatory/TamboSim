@@ -21,7 +21,7 @@ import TamboSim: _ColumnDepthProfile, _e_of_Xcd, _Xcd_of_e, _neutrino_endcap, pa
               _build_column_depth_profile, compute_density_prem, AIR_DENSITY,
               propagation_anomalies, reset_propagation_anomalies!,
               precompute_detector_properties, inject_neutrino_event, CrossSection,
-              init_proposal, ParticleType, _cc_interaction
+              init_proposal, ParticleType, _cc_interaction, _vertex_column_depth
 
 const PP = TamboSim.PP
 const JSON3 = TamboSim.JSON3
@@ -76,6 +76,24 @@ function run_propagate_through_earth_tests()
         for f in (0.05, 0.3, 0.8)
             @test _Xcd_of_e(uniform, f * L) ≈ f * X0 rtol=1e-12
             @test _e_of_Xcd(uniform, f * X0) ≈ f * L rtol=1e-12
+        end
+    end
+
+    @testset "Forced vertex: uniform, or attenuated across the box" begin
+        Random.seed!(7)
+        X = 1e6u"g/cm^2"
+        x = ustrip(u"g/cm^2", X)
+        # infinite attenuation depth: uniform in [0, X], as before
+        u = [ustrip(u"g/cm^2", _vertex_column_depth(X, Inf * u"g/cm^2")) for _ in 1:20_000]
+        @test all(0 .<= u .<= x)
+        @test sum(u) / length(u) ≈ x / 2 rtol=0.02
+        # finite: the depth s = X − (column depth from END) into the box, counted from its
+        # far end where the neutrino enters, follows exp(−s/λ) truncated to [0, X]
+        for λ in (2e6u"g/cm^2", 5e5u"g/cm^2")
+            l = ustrip(u"g/cm^2", λ)
+            s = [x - ustrip(u"g/cm^2", _vertex_column_depth(X, λ)) for _ in 1:20_000]
+            @test all(0 .<= s .<= x)
+            @test sum(s) / length(s) ≈ l - x * exp(-x / l) / (-expm1(-x / l)) rtol=0.02
         end
     end
 

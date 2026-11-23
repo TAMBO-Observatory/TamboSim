@@ -168,7 +168,8 @@ end
         d::Direction{T}
     ) where {T<:Real}
 
-Computes the final particle state after forcing an interaction.
+Computes the final particle state after forcing an interaction. The outgoing
+lepton energy is `eout` if given, else drawn from `xs`.
 
 # Returns
 - `(final_state, eout, cd, density)` tuple with the interaction results.
@@ -178,10 +179,10 @@ function force_interaction_vertex(
     xs::CrossSection,
     intersections,
     cs::CoordinateSystem,
-    d::Direction{T}
+    d::Direction{T};
+    eout = rand(xs, close_state.energy)
 ) where {T<:Real}
     revd = reverse(d)
-    eout = rand(xs, close_state.energy)
     pdg_in = Int(close_state.pdg)
     pdg_out = pdg_in > 0 ? ParticleType(pdg_in - 1) : ParticleType(pdg_in + 1)
 
@@ -197,6 +198,28 @@ function force_interaction_vertex(
     final_state = Particle(pdg_out, eout, pout, d)
 
     return final_state, eout, cd, density
+end
+
+"""
+    _cc_interaction(close_state, trxs = _tr_xs[]) -> (sigma, eout, dsigma)
+
+Charged-current cross section `sigma` of `close_state`, an outgoing-lepton
+energy `eout` drawn from its differential cross section, and that differential
+cross section `dsigma` (dσ/dz at the drawn z = E_out/E_in), all from TauRunner's
+cross sections: the ones `propagate_through_the_earth!` uses to move the
+neutrino, so that the forced interaction and the natural ones share one cross
+section. The weight uses `dsigma` only through `dsigma / sigma`, the density
+`eout` was drawn from.
+"""
+function _cc_interaction(close_state::Particle, trxs = _tr_xs[])
+    E = ustrip(u"eV", close_state.energy)
+    tr_p = TR.Particle(TR.ParticleType(Int(close_state.pdg)), E, 0.0, trxs)
+    nutype = TR.Particles.nutype(tr_p)
+    sigma = TR.total_cross_section(trxs, E, nutype, :CC) / TR.units.cm^2 * u"cm^2"
+    TR.interact!(tr_p, :CC)
+    z = (tr_p.energy - TR.Particles.EMIN) / (E - TR.Particles.EMIN)      # as interact! sets the energy
+    dsigma = TR.differential_cross_section(trxs, E, z, nutype, :CC) / TR.units.cm^2 * u"cm^2"
+    return sigma, tr_p.energy / TR.units.GeV * u"GeV", dsigma
 end
 
 """
@@ -284,14 +307,14 @@ function _inject_neutrino_event_impl(
         end
 
         # Force interaction for neutrino output. force_interaction_vertex derives
-        # END internally as first(intersections).point — the through-Earth step above 
-        # now uses the same end point, for consistency.
+        # END internally as first(intersections).point — the through-Earth step above
+        # now uses the same end point, for consistency. The CC cross section and the
+        # lepton energy come from the cross sections the through-Earth step used.
+        sigma, eout, dsigma = _cc_interaction(close_state)
         final_state, eout, cd, density = force_interaction_vertex(
-            close_state, xs, intersections, cs, d
+            close_state, xs, intersections, cs, d; eout
         )
 
-        sigma  = xs(close_state.energy)
-        dsigma = xs(close_state.energy, eout)
         point = ForcedNeutrinoInteractionPoint(
             initial_energy, theta, phi, area,
             cd |> u"g/cm^2", density, sigma, dsigma,

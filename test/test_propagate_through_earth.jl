@@ -21,7 +21,7 @@ import TamboSim: _ColumnDepthProfile, _e_of_Xcd, _Xcd_of_e, _neutrino_endcap, pa
               _build_column_depth_profile, compute_density_prem, AIR_DENSITY,
               propagation_anomalies, reset_propagation_anomalies!,
               precompute_detector_properties, inject_neutrino_event, CrossSection,
-              init_proposal, ParticleType
+              init_proposal, ParticleType, _cc_interaction
 
 const PP = TamboSim.PP
 const JSON3 = TamboSim.JSON3
@@ -211,6 +211,20 @@ function run_propagate_through_earth_tests()
         # A tau box longer than the track puts the whole track inside the box.
         nu = Particle(ParticleType(16), 1e9u"GeV", entry.position, entry.direction)
         @test _neutrino_endcap(nu, nothing, prof) == prof.Xcd_total
+    end
+
+    @testset "The forced interaction uses the propagation's cross sections" begin
+        TR = TamboSim.TR
+        trxs = TamboSim._tr_xs[]
+        for E in (1e6u"GeV", 1e8u"GeV"), pdg in (16, -16)
+            nu = Particle(ParticleType(pdg), E, entry.position, entry.direction)
+            sigma, eout, dsigma = _cc_interaction(nu)
+            # the CC interaction depth the through-Earth step samples its steps from
+            λcc = TR.get_interaction_depth(TR.Particle(TR.ParticleType(pdg), ustrip(u"eV", E), 0.0, trxs), :CC)
+            @test sigma ≈ TR.Particles.ISOSCALAR_MASS / λcc / TR.units.cm^2 * u"cm^2" rtol=1e-10
+            @test 0.0u"GeV" < eout < E
+            @test dsigma > 0.0u"cm^2"
+        end
     end
 
     @testset "Deep leg sees PREM densities, not nominal rock" begin

@@ -52,6 +52,7 @@ end
 function run_weighting_tests()
     @testset "PhaseSpace functors" begin
         test_forced_neutrino_functor_matches_old_formula()
+        test_forced_neutrino_exact_interaction_probability()
         test_upstream_neutrino_functor_matches_old_formula()
         test_cr_functor_matches_old_formula()
         test_compatibility_energy_out_of_bounds()
@@ -115,6 +116,26 @@ function test_forced_neutrino_functor_matches_old_formula()
     expected = uconvert(u"GeV^-1 * m^-2 * sr^-1", mc / phys)
 
     @test ustrip(u"GeV^-1 * m^-2 * sr^-1", result) ≈ ustrip(u"GeV^-1 * m^-2 * sr^-1", expected)
+end
+
+function test_forced_neutrino_exact_interaction_probability()
+    # The weight of a forced event is the probability that the neutrino interacts
+    # (CC) in the box: (σ_CC/σ_tot)(1 − exp(−σ_tot X/m)), not its linear term.
+    ps = _test_neutrino_ps()
+    σcc, σtot, dσ = 4e-33u"cm^2", 6e-33u"cm^2", 7e-35u"cm^2"
+    miso = TamboSim.speedoflight^(-2) * (938.27208816u"MeV" + 939.5654133u"MeV") / 2
+    point(X, σt) = ForcedNeutrinoInteractionPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2",
+                                                  X, 2.65u"g/cm^3", σcc, dσ, σt)
+    for X in (1e3u"g/cm^2", 1e6u"g/cm^2", 1e8u"g/cm^2")      # thin box to ~0.4 interaction lengths
+        lin, ex = ps(point(X, 0.0u"cm^2")), ps(point(X, σtot))
+        τ = uconvert(NoUnits, X * σtot / miso)
+        # the weight is 1 / the functor, so the ratio is P_exact / P_linear
+        @test lin / ex ≈ (-expm1(-τ) / τ) rtol=1e-10
+    end
+    # σ_tot = 0 is the linear probability, as with the 8-field constructor
+    pt8 = ForcedNeutrinoInteractionPoint(1e4u"GeV", π/4, 1.0, 500.0u"m^2",
+                                         1e6u"g/cm^2", 2.65u"g/cm^3", σcc, dσ)
+    @test ps(pt8) == ps(point(1e6u"g/cm^2", 0.0u"cm^2"))
 end
 
 function test_upstream_neutrino_functor_matches_old_formula()

@@ -767,6 +767,11 @@ int main(int argc, char** argv) {
       ->default_val(10.0)
       ->check(CLI::Range(1e-6, 1.e13))
       ->group("Config");
+  app.add_option("--gammacut",
+                 "Min. kin. energy of photons (GeV); overrides --emcut for photons only. "
+                 "Default: same as --emcut")
+      ->check(CLI::Range(1e-6, 1.e13))
+      ->group("Config");
   app.add_option("--hadcut", "Min. kin. energy of hadrons (GeV)")
       ->default_val(1.0)
       ->check(CLI::Range(0.02, 1.e13))
@@ -1157,10 +1162,15 @@ int main(int argc, char** argv) {
   corsika::sophia::InteractionModel sophia;
 
   HEPEnergyType const emcut = 1_GeV * app["--emcut"]->as<double>();
+  HEPEnergyType const gammacut =
+      app["--gammacut"]->count() ? 1_GeV * app["--gammacut"]->as<double>() : emcut;
   HEPEnergyType const hadcut = 1_GeV * app["--hadcut"]->as<double>();
   HEPEnergyType const mucut = 1_GeV * app["--mucut"]->as<double>();
   HEPEnergyType const taucut = 1_GeV * app["--taucut"]->as<double>();
-  ParticleCut<SubWriter<decltype(dEdX)>> cut(emcut, emcut, hadcut, mucut, taucut,
+  // Photons below gammacut are removed (their energy goes to the dE/dX profile); electrons
+  // and positrons keep emcut. Production thresholds stay at the lowest cut, so photons are
+  // still produced and then discarded by the cut.
+  ParticleCut<SubWriter<decltype(dEdX)>> cut(emcut, gammacut, hadcut, mucut, taucut,
                                              !track_neutrinos, dEdX);
 
   auto const prod_threshold = std::min({emcut, hadcut, mucut, taucut});

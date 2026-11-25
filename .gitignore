@@ -13,6 +13,7 @@ src/corsika/tambo_shower/src/build/
 resources/proposal_tables/*.json
 resources/proposal_tables/*.dat
 examples/output/
+tools/output/
 
 *.pdf
 *.png

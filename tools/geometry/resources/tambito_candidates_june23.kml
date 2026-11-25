@@ -1,0 +1,586 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+<Document id="root_doc">
+	<name>final_candidate_areas.kml</name>
+	<open>1</open>
+	<atom:link rel="app" href="https://www.google.com/earth/about/versions/#earth-pro" title="Google Earth Pro 7.3.7.1155"></atom:link>
+	<Schema name="final_candidate_areas" id="final_candidate_areas">
+		<SimpleField type="float" name="fid">
+		</SimpleField>
+		<SimpleField type="float" name="Area_km2">
+		</SimpleField>
+		<SimpleField type="string" name="Valid">
+		</SimpleField>
+		<SimpleField type="string" name="Comments">
+		</SimpleField>
+		<SimpleField type="float" name="Distance_to_opposite_slope_or_ridge_estimated_in_Km">
+		</SimpleField>
+		<SimpleField type="float" name="Valley_width_from_array_midpoint_estimated_in_Km">
+		</SimpleField>
+		<SimpleField type="string" name="Peasant_communities">
+		</SimpleField>
+		<SimpleField type="string" name="Archeological_sites">
+		</SimpleField>
+		<SimpleField type="string" name="Districts">
+		</SimpleField>
+		<SimpleField type="string" name="Mining_Concessions">
+		</SimpleField>
+		<SimpleField type="string" name="Mining_concessions_register">
+		</SimpleField>
+		<SimpleField type="string" name="Natural_hazard">
+		</SimpleField>
+		<SimpleField type="string" name="Natural_hazard_degree">
+		</SimpleField>
+		<SimpleField type="string" name="Ecosystems">
+		</SimpleField>
+		<SimpleField type="string" name="Protected_areas">
+		</SimpleField>
+		<SimpleField type="string" name="Socioecological_conflicts">
+		</SimpleField>
+	</Schema>
+	<StyleMap id="m_ylw-pushpin">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#s_ylw-pushpin</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#s_ylw-pushpin_hl</styleUrl>
+		</Pair>
+	</StyleMap>
+	<StyleMap id="m_ylw-pushpin3">
+		<Pair>
+			<key>normal</key>
+			<styleUrl>#s_ylw-pushpin3</styleUrl>
+		</Pair>
+		<Pair>
+			<key>highlight</key>
+			<styleUrl>#s_ylw-pushpin_hl1</styleUrl>
+		</Pair>
+	</StyleMap>
+	<Style id="s_ylw-pushpin">
+		<IconStyle>
+			<scale>1.1</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<Style id="s_ylw-pushpin3">
+		<IconStyle>
+			<scale>1.1</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<Style id="s_ylw-pushpin_hl">
+		<IconStyle>
+			<scale>1.3</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<Style id="s_ylw-pushpin_hl1">
+		<IconStyle>
+			<scale>1.3</scale>
+			<Icon>
+				<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+			</Icon>
+			<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+		</IconStyle>
+	</Style>
+	<Document id="root_doc">
+		<name>extra_sites.kml</name>
+		<open>1</open>
+		<Schema name="extra_sites" id="extra_sites">
+			<SimpleField type="float" name="fid">
+			</SimpleField>
+			<SimpleField type="float" name="Area_Km2">
+			</SimpleField>
+			<SimpleField type="float" name="Distance_to_opposite_slope_or_ridge_estimated_in_Km">
+			</SimpleField>
+			<SimpleField type="float" name="Valley_width_from_array_midpoint_estimated_in_Km">
+			</SimpleField>
+			<SimpleField type="string" name="Valid">
+			</SimpleField>
+			<SimpleField type="string" name="Comments">
+			</SimpleField>
+			<SimpleField type="string" name="Site">
+			</SimpleField>
+			<SimpleField type="string" name="Archeological_sites">
+			</SimpleField>
+			<SimpleField type="string" name="Peasant_communities">
+			</SimpleField>
+			<SimpleField type="string" name="Districts">
+			</SimpleField>
+			<SimpleField type="string" name="Ecosystems">
+			</SimpleField>
+		</Schema>
+		<StyleMap id="m_ylw-pushpin1">
+			<Pair>
+				<key>normal</key>
+				<styleUrl>#s_ylw-pushpin1</styleUrl>
+			</Pair>
+			<Pair>
+				<key>highlight</key>
+				<styleUrl>#s_ylw-pushpin_hl10</styleUrl>
+			</Pair>
+		</StyleMap>
+		<Style id="s_ylw-pushpin1">
+			<IconStyle>
+				<scale>1.1</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+		</Style>
+		<Style id="s_ylw-pushpin_hl10">
+			<IconStyle>
+				<scale>1.3</scale>
+				<Icon>
+					<href>http://maps.google.com/mapfiles/kml/pushpin/ylw-pushpin.png</href>
+				</Icon>
+				<hotSpot x="20" y="2" xunits="pixels" yunits="pixels"/>
+			</IconStyle>
+		</Style>
+		<Folder>
+			<name>extra_sites</name>
+			<open>1</open>
+			<Placemark>
+				<name>North of Pinchollo (x2)</name>
+				<snippet></snippet>
+				<LookAt>
+					<longitude>-71.82871942304456</longitude>
+					<latitude>-15.57226559384467</latitude>
+					<altitude>0</altitude>
+					<heading>-0.08234883311299894</heading>
+					<tilt>56.38989514966286</tilt>
+					<range>13013.75844138503</range>
+					<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+				</LookAt>
+				<styleUrl>#m_ylw-pushpin1</styleUrl>
+				<Point>
+					<gx:drawOrder>1</gx:drawOrder>
+					<coordinates>-71.82871942304456,-15.57226559384467,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark>
+				<name>South of Pinchollo</name>
+				<snippet></snippet>
+				<LookAt>
+					<longitude>-71.82871942304456</longitude>
+					<latitude>-15.57226559384467</latitude>
+					<altitude>0</altitude>
+					<heading>-0.08234883311299894</heading>
+					<tilt>56.38989514966286</tilt>
+					<range>13013.75844138503</range>
+					<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+				</LookAt>
+				<styleUrl>#m_ylw-pushpin1</styleUrl>
+				<Point>
+					<gx:drawOrder>1</gx:drawOrder>
+					<coordinates>-71.84748435053513,-15.63604325603975,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark>
+				<name>East of Coporaque (x3)</name>
+				<snippet></snippet>
+				<LookAt>
+					<longitude>-71.82871942304456</longitude>
+					<latitude>-15.57226559384467</latitude>
+					<altitude>0</altitude>
+					<heading>-0.08234883311299894</heading>
+					<tilt>56.38989514966286</tilt>
+					<range>13013.75844138503</range>
+					<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+				</LookAt>
+				<styleUrl>#m_ylw-pushpin1</styleUrl>
+				<Point>
+					<gx:drawOrder>1</gx:drawOrder>
+					<coordinates>-71.62865926717555,-15.63222993899358,0</coordinates>
+				</Point>
+			</Placemark>
+			<Placemark id="extra_sites.1">
+				<name>East of Coporaque (East)</name>
+				<Style>
+					<LineStyle>
+						<color>ff0000ff</color>
+					</LineStyle>
+					<PolyStyle>
+						<fill>0</fill>
+					</PolyStyle>
+				</Style>
+				<ExtendedData>
+					<SchemaData schemaUrl="#extra_sites">
+						<SimpleData name="fid">6</SimpleData>
+						<SimpleData name="Area_Km2">3.40787746253617</SimpleData>
+						<SimpleData name="Distance_to_opposite_slope_or_ridge_estimated_in_Km">4.7</SimpleData>
+						<SimpleData name="Valley_width_from_array_midpoint_estimated_in_Km">2.5</SimpleData>
+						<SimpleData name="Valid">yes</SimpleData>
+						<SimpleData name="Comments">Valley width a bit narrow but still ok.</SimpleData>
+						<SimpleData name="Site">Potential 3</SimpleData>
+						<SimpleData name="Peasant_communities">Coporaque</SimpleData>
+						<SimpleData name="Districts">COPORAQUE</SimpleData>
+						<SimpleData name="Ecosystems">Matorral andino, pajonal de puna seca</SimpleData>
+					</SchemaData>
+				</ExtendedData>
+				<Polygon>
+					<outerBoundaryIs>
+						<LinearRing>
+							<coordinates>
+								-71.621575378918,-15.6373867931779,0 -71.6218656886724,-15.6372326161547,0 -71.6221249424228,-15.6370066704087,0 -71.6223520298964,-15.6367099236076,0 -71.62254597864489,-15.6363436465773,0 -71.62270595820929,-15.6359094078574,0 -71.6228312836748,-15.6354090669835,0 -71.62292141860171,-15.6348447665231,0 -71.6229759773184,-15.6342189229005,0 -71.6229947265676,-15.6335342160491,0 -71.6229775864993,-15.6327935779358,0 -71.62292463100469,-15.6320001800071,0 -71.6228360873916,-15.6311574196096,0 -71.6227123354014,-15.6302689054441,0 -71.6225539055737,-15.6293384421145,0 -71.62236147696279,-15.6283700138386,0 -71.62213587422021,-15.6273677673899,0 -71.6218780640515,-15.626335994344,0 -71.6215891510662,-15.6252791127042,0 -71.62127037303679,-15.6242016479871,0 -71.6209230955881,-15.6231082138467,0 -71.6205488063398,-15.6220034923224,0 -71.6201491085272,-15.6208922137926,0 -71.6197257141279,-15.6197791367229,0 -71.61928043652379,-15.6186690272924,0 -71.6188151827301,-15.617566638988,0 -71.6183319452247,-15.6164766922513,0 -71.6178327934126,-15.6154038542687,0 -71.61731986476281,-15.6143527189871,0 -71.616795355655,-15.6133277874443,0 -71.6162615119749,-15.6123334484961,0 -71.61572061950029,-15.611373960024,0 -71.6151749941158,-15.6104534307018,0 -71.614626971902,-15.6095758024028,0 -71.6140788991376,-15.6087448333191,0 -71.61353312226019,-15.6079640818674,0 -71.61299197782679,-15.6072368914503,0 -71.61245778251769,-15.6065663761373,0 -71.6119328232258,-15.6059554073279,0 -71.6114193472747,-15.605406601453,0 -71.6109195528058,-15.6049223087682,0 -71.6104355793766,-15.6045046032864,0 -71.60996949880951,-15.6041552738933,0 -71.6095233063313,-15.6038758166836,0 -71.6090989120385,-15.6036674285507,0 -71.608698132729,-15.6035310020579,0 -71.6083226841301,-15.6034671216125,0 -71.60797417356009,-15.6034760609599,0 -71.6076540930525,-15.6035577820079,0 -71.60736381297269,-15.6037119349867,0 -71.6071045761542,-15.6039378599434,0 -71.6068774925804,-15.6042345895659,0 -71.60668353463289,-15.6046008533224,0 -71.60652353292789,-15.6050350829003,0 -71.6063981727591,-15.6055354189204,0 -71.60630799116009,-15.6060997188983,0 -71.6062533746009,-15.6067255664179,0 -71.60623455732851,-15.6074102814793,0 -71.606251620357,-15.608150931975,0 -71.60630449111321,-15.6089443462466,0 -71.60639294373939,-15.6097871266678,0 -71.6065166000506,-15.6106756641953,0 -71.60667493114479,-15.6116061538256,0 -71.6068672596566,-15.6125746108907,0 -71.6070927626475,-15.6135768881244,0 -71.60735047511859,-15.6146086934247,0 -71.6076392941321,-15.6156656082362,0 -71.60795798352331,-15.6167431064747,0 -71.608305179184,-15.6178365739127,0 -71.6086793948941,-15.6189413279412,0 -71.60907902867631,-15.6200526376253,0 -71.60950236964869,-15.6211657439667,0 -71.60994760534361,-15.6222758802852,0 -71.6104128294628,-15.6233782926341,0 -71.6108960500362,-15.62446826016,0 -71.6113951979485,-15.6255411153212,0 -71.61190813579729,-15.6265922638767,0 -71.61243266704579,-15.6276172045615,0 -71.6129665454291,-15.6286115483634,0 -71.6135074845759,-15.6295710373181,0 -71.61405316780279,-15.6304915627432,0 -71.6146012580398,-15.6313691828322,0 -71.615149407844,-15.6322001395336,0 -71.61569526945981,-15.6329808746424,0 -71.61623650488021,-15.6337080450357,0 -71.61677079586821,-15.6343785369866,0 -71.61729585389369,-15.6349894794954,0 -71.6178094299438,-15.6355382565811,0 -71.6183093241644,-15.6360225184808,0 -71.61879339529121,-15.6364401917083,0 -71.61925956983011,-15.6367894879297,0 -71.6197058509466,-15.637068911618,0 -71.6201303270273,-15.6372772664532,0 -71.6205311798751,-15.637413660442,0 -71.62090669250441,-15.637477509733,0 -71.6212552565013,-15.637468541114,0 -71.621575378918,-15.6373867931779,0 
+							</coordinates>
+						</LinearRing>
+					</outerBoundaryIs>
+				</Polygon>
+			</Placemark>
+			<Placemark id="extra_sites.2">
+				<name>East of Coporaue (South)</name>
+				<Style>
+					<LineStyle>
+						<color>ff0000ff</color>
+					</LineStyle>
+					<PolyStyle>
+						<fill>0</fill>
+					</PolyStyle>
+				</Style>
+				<ExtendedData>
+					<SchemaData schemaUrl="#extra_sites">
+						<SimpleData name="fid">7</SimpleData>
+						<SimpleData name="Area_Km2">1.40969717798313</SimpleData>
+						<SimpleData name="Distance_to_opposite_slope_or_ridge_estimated_in_Km">8.2</SimpleData>
+						<SimpleData name="Valley_width_from_array_midpoint_estimated_in_Km">3</SimpleData>
+						<SimpleData name="Valid">yes</SimpleData>
+						<SimpleData name="Site">Potential 3</SimpleData>
+						<SimpleData name="Peasant_communities">Coporaque</SimpleData>
+						<SimpleData name="Districts">COPORAQUE</SimpleData>
+						<SimpleData name="Ecosystems">Matorral andino, pajonal de puna seca</SimpleData>
+					</SchemaData>
+				</ExtendedData>
+				<Polygon>
+					<outerBoundaryIs>
+						<LinearRing>
+							<coordinates>
+								-71.6328717135643,-15.6269550106402,0 -71.6230326689826,-15.6313004400989,0 -71.6237618582968,-15.6395506725539,0 -71.6373538543456,-15.6327847981703,0 -71.6416118212359,-15.6285714251589,0 -71.6328717135643,-15.6269550106402,0 
+							</coordinates>
+						</LinearRing>
+					</outerBoundaryIs>
+				</Polygon>
+			</Placemark>
+			<Placemark id="extra_sites.3">
+				<name>East of Coporaque (West)</name>
+				<Style>
+					<LineStyle>
+						<color>ff0000ff</color>
+					</LineStyle>
+					<PolyStyle>
+						<fill>0</fill>
+					</PolyStyle>
+				</Style>
+				<ExtendedData>
+					<SchemaData schemaUrl="#extra_sites">
+						<SimpleData name="fid">8</SimpleData>
+						<SimpleData name="Area_Km2">1.77856844956271</SimpleData>
+						<SimpleData name="Distance_to_opposite_slope_or_ridge_estimated_in_Km">4.4</SimpleData>
+						<SimpleData name="Valley_width_from_array_midpoint_estimated_in_Km">3.2</SimpleData>
+						<SimpleData name="Valid">yes</SimpleData>
+						<SimpleData name="Comments">Opposite mountain slope is as high as array highest point.</SimpleData>
+						<SimpleData name="Site">Potential 3</SimpleData>
+						<SimpleData name="Peasant_communities">Coporaque</SimpleData>
+						<SimpleData name="Districts">COPORAQUE</SimpleData>
+						<SimpleData name="Ecosystems">Matorral andino, pajonal de puna seca</SimpleData>
+					</SchemaData>
+				</ExtendedData>
+				<Polygon>
+					<outerBoundaryIs>
+						<LinearRing>
+							<coordinates>
+								-71.630315444115,-15.6134314508843,0 -71.63061666047631,-15.6264590759414,0 -71.64138561884189,-15.6280293699461,0 -71.6399621460654,-15.611703092607,0 -71.630315444115,-15.6134314508843,0 
+							</coordinates>
+						</LinearRing>
+					</outerBoundaryIs>
+				</Polygon>
+			</Placemark>
+			<Placemark id="extra_sites.4">
+				<name>North of Pinchollo (West)</name>
+				<Style>
+					<LineStyle>
+						<color>ff0000ff</color>
+					</LineStyle>
+					<PolyStyle>
+						<fill>0</fill>
+					</PolyStyle>
+				</Style>
+				<ExtendedData>
+					<SchemaData schemaUrl="#extra_sites">
+						<SimpleData name="fid">9</SimpleData>
+						<SimpleData name="Area_Km2">1.34407015901893</SimpleData>
+						<SimpleData name="Distance_to_opposite_slope_or_ridge_estimated_in_Km">3.4</SimpleData>
+						<SimpleData name="Valley_width_from_array_midpoint_estimated_in_Km">2</SimpleData>
+						<SimpleData name="Valid">?</SimpleData>
+						<SimpleData name="Comments">Valley widht might be too narrow.</SimpleData>
+						<SimpleData name="Site">Potential 1</SimpleData>
+						<SimpleData name="Districts">MADRIGAL</SimpleData>
+						<SimpleData name="Ecosystems">Matorral andino, pajonal de puna seca</SimpleData>
+					</SchemaData>
+				</ExtendedData>
+				<Polygon>
+					<outerBoundaryIs>
+						<LinearRing>
+							<coordinates>
+								-71.8230449212157,-15.5670248377769,0 -71.8300498737337,-15.5795720927422,0 -71.8394503090507,-15.5798866796889,0 -71.8367661858215,-15.5710317325219,0 -71.8230449212157,-15.5670248377769,0 
+							</coordinates>
+						</LinearRing>
+					</outerBoundaryIs>
+				</Polygon>
+			</Placemark>
+			<Placemark id="extra_sites.5">
+				<name>North of Pinchollo (East)</name>
+				<Style>
+					<LineStyle>
+						<color>ff0000ff</color>
+					</LineStyle>
+					<PolyStyle>
+						<fill>0</fill>
+					</PolyStyle>
+				</Style>
+				<ExtendedData>
+					<SchemaData schemaUrl="#extra_sites">
+						<SimpleData name="fid">10</SimpleData>
+						<SimpleData name="Area_Km2">2.28898742378106</SimpleData>
+						<SimpleData name="Distance_to_opposite_slope_or_ridge_estimated_in_Km">2.5</SimpleData>
+						<SimpleData name="Valley_width_from_array_midpoint_estimated_in_Km">1.4</SimpleData>
+						<SimpleData name="Valid">?</SimpleData>
+						<SimpleData name="Comments">Valley widht might be too narrow. Opposite mountain slope might be too low.</SimpleData>
+						<SimpleData name="Site">Potential 1</SimpleData>
+						<SimpleData name="Districts">MADRIGAL</SimpleData>
+						<SimpleData name="Ecosystems">Matorral andino, pajonal de puna seca</SimpleData>
+					</SchemaData>
+				</ExtendedData>
+				<Polygon>
+					<outerBoundaryIs>
+						<LinearRing>
+							<coordinates>
+								-71.8204334649574,-15.5670784930981,0 -71.8201638493706,-15.5671786983132,0 -71.8199112139598,-15.5673364052226,0 -71.81967664041299,-15.5675509385874,0 -71.8194611331173,-15.5678213798214,0 -71.8192656148601,-15.5681465709235,0 -71.8190909228781,-15.5685251194351,0 -71.8189378052723,-15.5689554044019,0 -71.8188069178035,-15.5694355833143,0 -71.818698821083,-15.5699635999962,0 -71.81861397816991,-15.5705371934102,0 -71.81855275258479,-15.571153907339,0 -71.8185154067498,-15.5718111009036,0 -71.8185021008607,-15.5725059598718,0 -71.8185128921961,-15.5732355087103,0 -71.81854773486729,-15.5739966233266,0 -71.8186064800088,-15.5747860444478,0 -71.8186888764106,-15.5756003915786,0 -71.8187945715874,-15.5764361774781,0 -71.81892311328269,-15.5772898230942,0 -71.81907395139891,-15.5781576728913,0 -71.8192464403475,-15.5790360105053,0 -71.81943984180801,-15.5799210746591,0 -71.8196533278841,-15.5808090752713,0 -71.8198859846445,-15.581696209687,0 -71.8201368160319,-15.5825786789635,0 -71.8204047481246,-15.5834527041394,0 -71.8206886337324,-15.5843145424183,0 -71.8209872573066,-15.5851605031975,0 -71.8212993401435,-15.5859869638732,0 -71.8216235458591,-15.586790385354,0 -71.8219584861119,-15.5875673272173,0 -71.8223027265486,-15.5883144624419,0 -71.8226547929477,-15.5890285916561,0 -71.82301317753441,-15.5897066568379,0 -71.82337634544049,-15.5903457544101,0 -71.8237427412802,-15.5909431476743,0 -71.8241107958147,-15.591496278529,0 -71.8244789326768,-15.5920027784235,0 -71.8248455751263,-15.5924604785002,0 -71.8252091528072,-15.5928674188801,0 -71.825568108478,-15.5932218570551,0 -71.8259209046861,-15.5935222753482,0 -71.8262660303571,-15.5937673874106,0 -71.826602007272,-15.5939561437292,0 -71.8269273964023,-15.5940877361187,0 -71.8272408040778,-15.5941616011808,0 -71.8275408879601,-15.5941774227151,0 -71.82782636279519,-15.5941351330714,0 -71.8280960059214,-15.5940349134375,0 -71.8283486625086,-15.5938771930618,0 -71.8285832505066,-15.5936626474138,0 -71.82879876528079,-15.5933921952897,0 -71.8289942839159,-15.5930669948769,0 -71.8291689691688,-15.5926884387933,0 -71.8293220730538,-15.5922581481228,0 -71.8294529400446,-15.5917779654728,0 -71.82956100988029,-15.591249947083,0 -71.8296458199619,-15.5906763540203,0 -71.8297070073307,-15.5900596424958,0 -71.8297443102182,-15.5894024533475,0 -71.8297575691636,-15.5887076007319,0 -71.8297467276915,-15.5879780600738,0 -71.8297118325484,-15.5872169553256,0 -71.82965303349771,-15.5864275455913,0 -71.82957058267191,-15.5856132111715,0 -71.82946483348719,-15.5847774390895,0 -71.8293362391244,-15.5839238081609,0 -71.82918535058219,-15.5830559736702,0 -71.82901281431189,-15.5821776517197,0 -71.82881936944381,-15.5812926033181,0 -71.8286058446167,-15.5804046182776,0 -71.82837315442519,-15.5795174989865,0 -71.8281222954984,-15.5786350441287,0 -71.8278543422293,-15.5777610324191,0 -71.8275704421703,-15.5768992064235,0 -71.8272718111176,-15.5760532565345,0 -71.8269597279028,-15.5752268051695,0 -71.8266355289162,-15.5744233912606,0 -71.82630060238429,-15.5736464551009,0 -71.8259563824256,-15.572899323614,0 -71.8256043429113,-15.5721851961076,0 -71.825245991156,-15.5715071305746,0 -71.82488286146631,-15.570868030598,0 -71.82451650857411,-15.5702706329176,0 -71.8241485009833,-15.5697174957103,0 -71.8237804142579,-15.5692109876353,0 -71.82341382428019,-15.5687532776907,0 -71.8230503005085,-15.5683463259238,0 -71.8226913992618,-15.5679918750379,0 -71.82233865706159,-15.5676914429273,0 -71.82199358405811,-15.5674463161773,0 -71.8216576575692,-15.5672575445522,0 -71.8213323157606,-15.5671259364993,0 -71.8210189514927,-15.567052055685,0 -71.82071890636129,-15.567036218579,0 -71.8204334649574,-15.5670784930981,0 
+							</coordinates>
+						</LinearRing>
+					</outerBoundaryIs>
+				</Polygon>
+			</Placemark>
+			<Placemark id="extra_sites.6">
+				<name>South of Pinchollo</name>
+				<Style>
+					<LineStyle>
+						<color>ff0000ff</color>
+					</LineStyle>
+					<PolyStyle>
+						<fill>0</fill>
+					</PolyStyle>
+				</Style>
+				<ExtendedData>
+					<SchemaData schemaUrl="#extra_sites">
+						<SimpleData name="fid">11</SimpleData>
+						<SimpleData name="Area_Km2">1.42832658669918</SimpleData>
+						<SimpleData name="Distance_to_opposite_slope_or_ridge_estimated_in_Km">6.2</SimpleData>
+						<SimpleData name="Valley_width_from_array_midpoint_estimated_in_Km">5.2</SimpleData>
+						<SimpleData name="Valid">?</SimpleData>
+						<SimpleData name="Comments">Quite flat relief (max 10° slope).Hilly landscape.</SimpleData>
+						<SimpleData name="Site">Potential 2</SimpleData>
+						<SimpleData name="Peasant_communities">Cabanaconde y anexos Pinchollo y Accpi</SimpleData>
+						<SimpleData name="Districts">CABANACONDE</SimpleData>
+						<SimpleData name="Ecosystems">Matorral andino, pajonal de puna seca</SimpleData>
+					</SchemaData>
+				</ExtendedData>
+				<Polygon>
+					<outerBoundaryIs>
+						<LinearRing>
+							<coordinates>
+								-71.8461919305183,-15.6380520883166,0 -71.85390471570901,-15.6380418383824,0 -71.8538824392501,-15.6224338279557,0 -71.8461702392988,-15.6224439795371,0 -71.8461919305183,-15.6380520883166,0 
+							</coordinates>
+						</LinearRing>
+					</outerBoundaryIs>
+				</Polygon>
+			</Placemark>
+		</Folder>
+	</Document>
+	<Folder>
+		<name>final_candidate_areas</name>
+		<open>1</open>
+		<Placemark id="final_candidate_areas.2">
+			<name>North of Malata</name>
+			<Style>
+				<LineStyle>
+					<color>ff0000ff</color>
+				</LineStyle>
+				<PolyStyle>
+					<fill>0</fill>
+				</PolyStyle>
+			</Style>
+			<ExtendedData>
+				<SchemaData schemaUrl="#final_candidate_areas">
+					<SimpleData name="fid">2</SimpleData>
+					<SimpleData name="Area_km2">1.16164152690363</SimpleData>
+					<SimpleData name="Valid">yes</SimpleData>
+					<SimpleData name="Comments">&quot;North of Malata&quot; site.</SimpleData>
+					<SimpleData name="Distance_to_opposite_slope_or_ridge_estimated_in_Km">4.2</SimpleData>
+					<SimpleData name="Valley_width_from_array_midpoint_estimated_in_Km">2.7</SimpleData>
+					<SimpleData name="Peasant_communities">Colca Peral</SimpleData>
+					<SimpleData name="Districts">TAPAY</SimpleData>
+					<SimpleData name="Mining_Concessions">Registered concession</SimpleData>
+					<SimpleData name="Mining_concessions_register">COMPAÑIA DE MINAS BUENAVENTURA S.A.A.</SimpleData>
+					<SimpleData name="Natural_hazard">Complex mass movement</SimpleData>
+					<SimpleData name="Natural_hazard_degree">very-high</SimpleData>
+					<SimpleData name="Ecosystems">Matorral andino</SimpleData>
+				</SchemaData>
+			</ExtendedData>
+			<Polygon>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-71.97393242409071,-15.5732327740852,0 -71.96828531955749,-15.570564818274,0 -71.96120159239091,-15.5831905999423,0 -71.968081168243,-15.5861009464269,0 -71.97393242409071,-15.5732327740852,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+		<Placemark id="final_candidate_areas.16">
+			<name>West of Huambo</name>
+			<Style>
+				<LineStyle>
+					<color>ff0000ff</color>
+				</LineStyle>
+				<PolyStyle>
+					<fill>0</fill>
+				</PolyStyle>
+			</Style>
+			<ExtendedData>
+				<SchemaData schemaUrl="#final_candidate_areas">
+					<SimpleData name="fid">16</SimpleData>
+					<SimpleData name="Area_km2">1.47144438982916</SimpleData>
+					<SimpleData name="Valid">yes</SimpleData>
+					<SimpleData name="Distance_to_opposite_slope_or_ridge_estimated_in_Km">5.6</SimpleData>
+					<SimpleData name="Valley_width_from_array_midpoint_estimated_in_Km">3.6</SimpleData>
+					<SimpleData name="Peasant_communities">Huambo</SimpleData>
+					<SimpleData name="Districts">HUAMBO</SimpleData>
+					<SimpleData name="Mining_Concessions">Registered concession</SimpleData>
+					<SimpleData name="Mining_concessions_register">YURA S.A.</SimpleData>
+					<SimpleData name="Ecosystems">Pajonal de puna seca; Matorral andino</SimpleData>
+				</SchemaData>
+			</ExtendedData>
+			<Polygon>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-72.1227034428515,-15.7569985264343,0 -72.13836633855411,-15.7454148889101,0 -72.13423653191811,-15.740477242032,0 -72.1187132107692,-15.7520507646074,0 -72.1227034428515,-15.7569985264343,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+		<Placemark id="final_candidate_areas.20">
+			<name>NW of Soro</name>
+			<Style>
+				<LineStyle>
+					<color>ff0000ff</color>
+				</LineStyle>
+				<PolyStyle>
+					<fill>0</fill>
+				</PolyStyle>
+			</Style>
+			<ExtendedData>
+				<SchemaData schemaUrl="#final_candidate_areas">
+					<SimpleData name="fid">20</SimpleData>
+					<SimpleData name="Area_km2">2.82133019818652</SimpleData>
+					<SimpleData name="Valid">?</SimpleData>
+					<SimpleData name="Comments">&quot;North of Soro&quot; site. Opposite mountain-slope/ridge is far (~12km)</SimpleData>
+					<SimpleData name="Distance_to_opposite_slope_or_ridge_estimated_in_Km">12</SimpleData>
+					<SimpleData name="Valley_width_from_array_midpoint_estimated_in_Km">3.7</SimpleData>
+					<SimpleData name="Districts">CHOCO</SimpleData>
+					<SimpleData name="Mining_Concessions">Registered concession</SimpleData>
+					<SimpleData name="Mining_concessions_register">S.M.R.L. PROSPERIDAD BA 7; MIGUEL ANGEL LEYVA LUQUE</SimpleData>
+					<SimpleData name="Natural_hazard">Translational landslide</SimpleData>
+					<SimpleData name="Natural_hazard_degree">moderate</SimpleData>
+					<SimpleData name="Ecosystems">Matorral andino; Zona agrícola</SimpleData>
+				</SchemaData>
+			</ExtendedData>
+			<Polygon>
+				<outerBoundaryIs>
+					<LinearRing>
+						<coordinates>
+							-72.05556360867141,-15.5729317724082,0 -72.05239871992249,-15.5633626143287,0 -72.0315795090907,-15.5724722981309,0 -72.03699377783219,-15.5828900834159,0 -72.05556360867141,-15.5729317724082,0 
+						</coordinates>
+					</LinearRing>
+				</outerBoundaryIs>
+			</Polygon>
+		</Placemark>
+		<Placemark>
+			<name>West of Huambo</name>
+			<Camera>
+				<longitude>-71.99849294695572</longitude>
+				<latitude>-15.67332441769546</latitude>
+				<altitude>41203.51278770171</altitude>
+				<heading>-49.75145075338274</heading>
+				<tilt>0.3008559931588656</tilt>
+				<roll>-49.26676706008946</roll>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</Camera>
+			<styleUrl>#m_ylw-pushpin</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>-72.12798252885223,-15.74787714264192,0</coordinates>
+			</Point>
+		</Placemark>
+		<Placemark>
+			<name>North of Malata</name>
+			<Camera>
+				<longitude>-71.96086234164574</longitude>
+				<latitude>-15.6095049033488</latitude>
+				<altitude>42134.30030223564</altitude>
+				<heading>-49.76156979139341</heading>
+				<tilt>0.3008559931552313</tilt>
+				<roll>-49.26676706009165</roll>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</Camera>
+			<styleUrl>#m_ylw-pushpin</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>-71.96785927222444,-15.57944536335805,0</coordinates>
+			</Point>
+		</Placemark>
+		<Placemark>
+			<name>North of Soro</name>
+			<Camera>
+				<longitude>-72.02039986351981</longitude>
+				<latitude>-15.56674511265212</latitude>
+				<altitude>21481.39603227649</altitude>
+				<heading>-49.74552627251802</heading>
+				<tilt>0.3008558156986517</tilt>
+				<roll>-49.26669274530828</roll>
+				<gx:altitudeMode>relativeToSeaFloor</gx:altitudeMode>
+			</Camera>
+			<styleUrl>#m_ylw-pushpin</styleUrl>
+			<Point>
+				<gx:drawOrder>1</gx:drawOrder>
+				<coordinates>-72.0455733617046,-15.57409971328309,0</coordinates>
+			</Point>
+		</Placemark>
+	</Folder>
+	<Placemark>
+		<name>Untitled Path</name>
+		<visibility>0</visibility>
+		<styleUrl>#m_ylw-pushpin3</styleUrl>
+		<LineString>
+			<tessellate>1</tessellate>
+			<coordinates>
+				-71.63015670475089,-15.55797289459615,0 -71.56831427488839,-15.61897780668738,0 
+			</coordinates>
+		</LineString>
+	</Placemark>
+</Document>
+</kml>

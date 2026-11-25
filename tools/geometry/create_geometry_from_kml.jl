@@ -4,10 +4,16 @@
 # Earth Pro or web, QGIS, …). Rotates a north-pole-centred base triangulation onto the outline's
 # area centroid, gives it DEM heights (Copernicus GLO-30 by default), and writes:
 #
-#   <name>.h5                  HDF5 source (same schema as examples/templates/1_create_geometry.jl)
-#   <name>.jld2                Self-contained G, C, D bundle (D = detector region inside the outline)
-#   <name>_terrain.ply         Binary PLY for CORSIKA tambo_shower (full closed mesh, as run_corsika writes it)
-#   <name>_obs_surface.ply     Binary PLY for the CORSIKA observation surface
+#   <name>.jld2                Self-contained G, C, D bundle (D = detector region inside the outline);
+#                              all the simulation needs
+#
+# and, on request:
+#
+#   --h5:  <name>.h5           The same geometry as plain arrays (schema of
+#                              examples/templates/1_create_geometry.jl), to rebuild the .jld2 with
+#                              build_gcd_bundle if a TamboSim type change makes it unloadable
+#   --ply: <name>_terrain.ply, <name>_obs_surface.ply
+#                              CORSIKA meshes, for inspection; run_corsika writes its own from the .jld2
 #
 #   julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml my_site.kmz [--placemark NAME]
 #   julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml my_site.kml --list
@@ -82,6 +88,14 @@ function parse_commandline()
         "--view"
             help     = "After building, open an interactive 3D window (GLMakie, via TamboMakie) of the terrain " *
                        "and detector region; the script ends when it is closed"
+            action   = :store_true
+        "--h5"
+            help     = "Also write <name>.h5: the geometry as plain arrays, to rebuild the .jld2 if a TamboSim " *
+                       "type change makes it unloadable"
+            action   = :store_true
+        "--ply"
+            help     = "Also write the CORSIKA terrain and observation-surface PLYs (run_corsika makes its own " *
+                       "from the .jld2; these are for inspection)"
             action   = :store_true
         "--triangulation"
             help     = "path.h5:group of the north-pole-centred base triangulation " *
@@ -275,22 +289,26 @@ println("  Reloaded — PREM layers: $(length(frames2.g_frames[end]["prem"]))  "
 g_frame = frames.g_frames[end]
 d_frame = frames.d_frames[end]
 
-# --- 6. HDF5 export (derived) ---
-TamboSim.dump_to_h5(g_frame, d_frame, h5_path, groupname)
-println("HDF5: wrote $h5_path:$groupname")
+# --- 6. Optional HDF5 export (plain arrays; rebuilds the .jld2 via build_gcd_bundle) ---
+if args["h5"]
+    TamboSim.dump_to_h5(g_frame, d_frame, h5_path, groupname)
+    println("HDF5: wrote $h5_path:$groupname")
+end
 
-# --- 7. Binary PLYs for CORSIKA ---
+# --- 7. Optional binary PLYs for CORSIKA ---
 # The terrain PLY is the full closed mesh, as run_corsika writes it by default (no
 # max_radius_km). A radius crop + watertight skirt is fragile here: dump_to_ply keeps faces by
 # centroid distance, and a crop near the triangulation's ring edge (~50 km), where long fan
 # triangles join the far field, can leave pinch vertices that make_watertight rejects.
-println("\nWriting CORSIKA PLY files...")
-TamboSim.dump_to_ply(g_frame, terrain_ply)
-println("Terrain PLY (full closed mesh): wrote $terrain_ply")
-TamboSim.dump_to_ply(d_frame, obs_ply)
-println("Obs surface PLY: wrote $obs_ply")
+if args["ply"]
+    println("\nWriting CORSIKA PLY files...")
+    TamboSim.dump_to_ply(g_frame, terrain_ply)
+    println("Terrain PLY (full closed mesh): wrote $terrain_ply")
+    TamboSim.dump_to_ply(d_frame, obs_ply)
+    println("Obs surface PLY: wrote $obs_ply")
+end
 
-println("\nAll geometry files written to $(abspath(outdir))")
+println("\nGeometry written to $(abspath(outdir))")
 if !isempty(run_warnings)
     println("\n", "="^80, "\n$(length(run_warnings)) WARNING(S) for \"$(outline.label)\" — check before using this geometry:")
     foreach(((k, w),) -> println("  $k. ", w), enumerate(run_warnings))

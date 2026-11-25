@@ -13,7 +13,7 @@ TamboMakie (for `--view`) comes from the TAMBO-Observatory GitHub over SSH, bran
 
 | Path | What it is |
 |---|---|
-| `create_geometry_from_kml.jl` | New site: rotate a base triangulation onto the outline's centroid (KML or `--corners`), elevate it from a DEM, write `<name>.jld2` (G, C, D), `.h5` and CORSIKA PLYs |
+| `create_geometry_from_kml.jl` | New site: rotate a base triangulation onto the outline's centroid (KML or `--corners`), elevate it from a DEM, write `<name>.jld2` (G, C, D); optionally a `.h5` copy and CORSIKA PLYs |
 | `src_jl/kml_outline.jl` | Functions only: the outline — from a KML/KMZ placemark or corner points; polygons with holes, area centroid |
 | `src_jl/site_mesh.jl` | Functions only: rotate the base triangulation onto the site and apply DEM heights |
 | `src_jl/copernicus_dem.jl` | Functions only: Copernicus GLO-30 tiles from AWS, or an HDF5 grid, as a bilinear interpolator |
@@ -42,6 +42,18 @@ julia --project=tools tools/geometry/create_geometry_from_kml.jl \
 
 The outline is required: pass either `--kml` or `--corners`. Files are written to the directory
 the script is run from unless `--outdir` is given.
+
+**Outputs.** By default only `<name>.jld2`, the G/C/D bundle, which is all the simulation
+needs (`load_frames`, or `gc_path`/`d_path` in the pipeline). Two extras are opt-in:
+
+- `--h5` writes `<name>.h5`: the same geometry as plain arrays (`location`, `radii`,
+  `vertices`, `faces`, `detector1`; the `examples/templates/1_create_geometry.jl` schema), about
+  4% of the `.jld2`'s size. JLD2 stores Julia type names, so a TamboSim change that renames or
+  restructures a frame type can leave a `.jld2` unloadable; the `.h5` rebuilds it with
+  `build_gcd_bundle` (as `examples/_internal/rebuild_geometry_jld2.jl` does). Worth keeping for
+  geometries you will use long-term.
+- `--ply` writes `<name>_terrain.ply` and `<name>_obs_surface.ply`, the CORSIKA meshes, for
+  inspection in other tools. `run_corsika` writes its own from the `.jld2`.
 
 **Viewing the result.** Add `--view` to open an interactive 3D window once the files are written,
 as in TamboMakie's `examples/1_viz3D.jl`: the terrain around the site coloured by elevation
@@ -82,7 +94,7 @@ a summary at the end of the run. The builder stops if no triangle centre falls i
 outline (outline smaller than the triangles), and stops before any work for sites the DEM can't
 serve: Copernicus tiles above 50° latitude, or a terrain circle crossing ±180°.
 
-The terrain PLY is the full closed mesh, which is also what `run_corsika` writes by default.
+The `--ply` terrain mesh is the full closed mesh, which is also what `run_corsika` writes by default.
 `dump_to_ply` with `max_radius_km` keeps faces by centroid distance and then adds a skirt; with a
 radius near 50 km (the triangulation's ring edge, where long fan triangles join the far field)
 the crop can leave pinch vertices that `make_watertight` rejects, depending on the terrain.

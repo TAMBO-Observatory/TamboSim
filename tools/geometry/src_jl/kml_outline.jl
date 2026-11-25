@@ -1,4 +1,4 @@
-# kml_outline.jl — read a detector outline from a KML or KMZ file (functions only; included by
+# kml_outline.jl — the detector outline, from a KML/KMZ file or from corner points (functions only; included by
 # create_geometry_from_kml.jl).
 #
 # A placemark is selected by its `id` attribute, its <name>, or its "Comments" field
@@ -139,6 +139,42 @@ function select_outline(doc, key::AbstractString)
         maximum(lons) - minimum(lons) > 180 && error("outline crosses the ±180° meridian, which is not supported")
     end
     Outline(label(p), polys)
+end
+
+orient(a, b, c) = sign((b[1] - a[1]) * (c[2] - a[2]) - (b[2] - a[2]) * (c[1] - a[1]))
+"Do segments p1–p2 and q1–q2 cross (properly, not just touch)?"
+segments_cross(p1, p2, q1, q2) = orient(p1, p2, q1) * orient(p1, p2, q2) < 0 && orient(q1, q2, p1) * orient(q1, q2, p2) < 0
+
+"""
+    outline_from_corners(latlons, label) -> Outline
+
+Outline from corner points given as (lat, lon) pairs in degrees, in order around the boundary
+(either direction) — e.g. the four corners of a box. Rejects out-of-range values, repeated or
+collinear corners, and corners listed diagonally (a self-crossing "bow-tie").
+"""
+function outline_from_corners(latlons, label::AbstractString)
+    length(latlons) >= 3 || error("need at least 3 corners")
+    for (lat, lon) in latlons
+        -90 <= lat <= 90   || error("latitude $lat is out of range (corners are LAT LON pairs)")
+        -180 <= lon <= 180 || error("longitude $lon is out of range (corners are LAT LON pairs)")
+    end
+    ring = LonLat[(Float64(lon), Float64(lat)) for (lat, lon) in latlons]
+    length(unique(ring)) == length(ring) || error("corners must be distinct")
+    maximum(first.(ring)) - minimum(first.(ring)) > 180 && error("the box crosses the ±180° meridian, which is not supported")
+    n = length(ring)
+    # collinear first (relative to the box's size), so near-zero orientations don't read as crossings
+    lon0, lat0 = ring[1]
+    twice_area = sum((ring[i][1] - lon0) * (ring[mod1(i + 1, n)][2] - lat0) -
+                     (ring[mod1(i + 1, n)][1] - lon0) * (ring[i][2] - lat0) for i in 1:n)
+    span2 = (maximum(first.(ring)) - minimum(first.(ring)))^2 + (maximum(last.(ring)) - minimum(last.(ring)))^2
+    abs(twice_area) > 1e-9 * span2 || error("the corners lie on a line (the box has no area)")
+    for i in 1:n, j in i+2:n
+        (i == 1 && j == n) && continue                       # adjacent through the wrap-around
+        segments_cross(ring[i], ring[mod1(i + 1, n)], ring[j], ring[mod1(j + 1, n)]) &&
+            error("corner edges $(i)–$(mod1(i + 1, n)) and $(j)–$(mod1(j + 1, n)) cross: give the corners in order " *
+                  "around the box, not diagonally")
+    end
+    Outline(label, [[ring]])
 end
 
 "Ray-casting point-in-ring test in degree lon/lat space (ring without closing duplicate)."

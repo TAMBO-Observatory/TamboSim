@@ -11,11 +11,13 @@
 #
 #   julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml my_site.kmz [--placemark NAME]
 #   julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml my_site.kml --list
+#   julia --project=tools tools/geometry/create_geometry_from_kml.jl --corners LAT1 LON1 LAT2 LON2 LAT3 LON3 LAT4 LON4
 #
-# The outline is a placemark selected by its name, id or "Comments" field; it may be omitted when
-# the file has a single polygon placemark. All its Polygons form the outline (holes excluded).
-# Defaults come from resources/: tambito_candidates_june23.kml and
-# triangulation.h5:base_triangulation_100000 (the base triangulation of the TAMBITO bundles).
+# The outline is either a KML placemark, selected by its name, id or "Comments" field (optional
+# when the file has a single polygon placemark; all its Polygons form the outline, holes
+# excluded), or a box given by --corners: four lat/lon points in order around the box.
+# Defaults come from resources/: tambito_candidates_june23.kml (when neither --kml nor --corners
+# is given) and triangulation.h5:base_triangulation_100000 (the TAMBITO base triangulation).
 #
 # Triangle sizes come entirely from the base triangulation (see README.md); the DEM only sets
 # vertex heights. Vertices within --terrain-radius-km (great-circle distance, default 50 km =
@@ -50,12 +52,20 @@ const PREM_RADII_KM = [1221.5, 3480.0, 3630.0, 5600.0, 5701.0, 5771.0,
 const COPERNICUS_MAX_LAT = 50.0   # GLO-30 tiles change longitude spacing above 50°
 
 function parse_commandline()
-    s = ArgParseSettings(description = "Build a TamboSim geometry bundle from a KML/KMZ outline + DEM + base triangulation")
+    s = ArgParseSettings(description = "Build a TamboSim geometry bundle from a KML/KMZ outline (or four corner " *
+                                       "points) + DEM + base triangulation")
     @add_arg_table! s begin
         "--kml"
-            help     = "KML or KMZ file with the site outline(s)"
+            help     = "KML or KMZ file with the site outline(s) (default: resources/tambito_candidates_june23.kml)"
             arg_type = String
-            default  = joinpath(RESOURCES, "tambito_candidates_june23.kml")
+            default  = ""
+        "--corners"
+            help     = "Instead of a KML: four corners of the detector box as LAT LON pairs in degrees, " *
+                       "in order around the box (either direction), e.g. --corners -15.757 -72.123 " *
+                       "-15.745 -72.138 -15.740 -72.134 -15.752 -72.119"
+            nargs    = 8
+            arg_type = Float64
+            metavar  = "LAT/LON"
         "--placemark"
             help     = "Name, id or Comments of the placemark to use as the detector outline " *
                        "(optional if the file has a single polygon placemark)"
@@ -84,7 +94,7 @@ function parse_commandline()
             arg_type = String
             default  = ""
         "--name", "-n"
-            help     = "Output file stem (default: the placemark's name/id)"
+            help     = "Output file stem (default: the placemark's name/id, or box_<lat>_<lon> of the centre for --corners)"
             arg_type = String
             default  = ""
         "--outdir", "-o"
@@ -103,17 +113,27 @@ end
 
 args = parse_commandline()
 
-# --- 1. Read the outline ---
-println("\nReading KML: $(args["kml"])")
-doc = read_kml(args["kml"])
-if args["list"]
-    list_placemarks(stdout, doc)
-    exit(0)
+# --- 1. The outline: four corner points, or a KML/KMZ placemark ---
+corners = args["corners"]
+if !isempty(corners)
+    (!isempty(args["kml"]) || !isempty(args["placemark"]) || args["list"]) &&
+        error("--corners replaces --kml, --placemark and --list; give one or the other")
+    latlons = [(corners[2k - 1], corners[2k]) for k in 1:4]
+    println("\nOutline from --corners (lat, lon): ", join(("($la, $lo)" for (la, lo) in latlons), " → "))
+    outline = outline_from_corners(latlons, "box")
+else
+    kml_path = isempty(args["kml"]) ? joinpath(RESOURCES, "tambito_candidates_june23.kml") : args["kml"]
+    println("\nReading KML: $kml_path")
+    doc = read_kml(kml_path)
+    if args["list"]
+        list_placemarks(stdout, doc)
+        exit(0)
+    end
+    outline = select_outline(doc, args["placemark"])
 end
-outline = select_outline(doc, args["placemark"])
 nverts = sum(length(p[1]) for p in outline.polygons)
 nholes = sum(length(p) - 1 for p in outline.polygons)
-println("  Placemark: \"$(outline.label)\" — $(length(outline.polygons)) polygon(s), $nverts outer vertices, $nholes hole(s)")
+println("  Outline \"$(outline.label)\": $(length(outline.polygons)) polygon(s), $nverts outer vertices, $nholes hole(s)")
 longlat0_deg = area_centroid(outline)
 println("  Centre (area centroid): lon=$(longlat0_deg[1])°  lat=$(longlat0_deg[2])°")
 
@@ -122,9 +142,12 @@ lon_min, lon_max, lat_min, lat_max = circle_extent_deg(longlat0_deg, terrain_r_k
 (lon_min < -180 || lon_max > 180) && error("the $(terrain_r_km) km terrain circle crosses the ±180° meridian, which is not supported")
 args["dem"] == "copernicus" && max(abs(lat_min), abs(lat_max)) > COPERNICUS_MAX_LAT &&
     error("the $(terrain_r_km) km terrain circle reaches latitude $(round(max(abs(lat_min), abs(lat_max)), digits=2))°; " *
-          "Copernicus tiles above $(COPERNICUS_MAX_LAT)° are not supported (use --dem with an HDF5 grid)")
+          "Copernicus tiles above $(COPERNICUS_MAX_LAT)° are not supported (use --dem with an HDF5 grid)" *
+          (isempty(corners) ? "" : ". Check that --corners was given as LAT LON pairs, not LON LAT"))
 
-groupname = isempty(args["name"]) ? replace(outline.label, r"[^A-Za-z0-9_.-]+" => "_") : args["name"]
+groupname = !isempty(args["name"]) ? args["name"] :
+            !isempty(corners) ? "box_$(round(longlat0_deg[2], digits=4))_$(round(longlat0_deg[1], digits=4))" :
+            replace(outline.label, r"[^A-Za-z0-9_.-]+" => "_")
 outdir = args["outdir"]; mkpath(outdir)
 h5_path     = joinpath(outdir, "$(groupname).h5")
 g_path      = joinpath(outdir, "$(groupname).jld2")

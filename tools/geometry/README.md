@@ -1,8 +1,8 @@
 # Geometry tools
 
 Build TamboSim geometry bundles (the G/C/D frames consumed by `load_frames`) for any site
-outlined in a KML or KMZ file — drawn in Google Earth (Pro or web), QGIS, etc. Everything runs
-in the `tools/` environment:
+outlined in a KML or KMZ file — drawn in Google Earth (Pro or web), QGIS, etc. — or given as the
+four corners of a box. Everything runs in the `tools/` environment:
 
 ```bash
 julia --project=tools -e 'using Pkg; Pkg.instantiate()'
@@ -10,8 +10,8 @@ julia --project=tools -e 'using Pkg; Pkg.instantiate()'
 
 | Path | What it is |
 |---|---|
-| `create_geometry_from_kml.jl` | New site: rotate a base triangulation onto a KML outline's centroid, elevate it from a DEM, write `<name>.jld2` (G, C, D), `.h5` and CORSIKA PLYs |
-| `src_jl/kml_outline.jl` | Functions only: read a KML/KMZ, select a placemark, polygons with holes, area centroid |
+| `create_geometry_from_kml.jl` | New site: rotate a base triangulation onto the outline's centroid (KML or `--corners`), elevate it from a DEM, write `<name>.jld2` (G, C, D), `.h5` and CORSIKA PLYs |
+| `src_jl/kml_outline.jl` | Functions only: the outline — from a KML/KMZ placemark or corner points; polygons with holes, area centroid |
 | `src_jl/site_mesh.jl` | Functions only: rotate the base triangulation onto the site and apply DEM heights |
 | `src_jl/copernicus_dem.jl` | Functions only: Copernicus GLO-30 tiles from AWS, or an HDF5 grid, as a bilinear interpolator |
 | `resources/triangulation.h5` | Base triangulations `base_triangulation_N` (65 MB; made by Kiara Carloni). `_100000` is the TAMBITO bundles' and `_30000` the TAMBO-4 one, both verified vertex for vertex against the official bundles |
@@ -27,10 +27,20 @@ julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml my_site.k
 julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml sites.kml --list
 julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml sites.kml --placemark "My site"
 
+# no KML: four corners of a box as LAT LON pairs (degrees), in order around the box
+julia --project=tools tools/geometry/create_geometry_from_kml.jl \
+    --corners -15.757 -72.123  -15.745 -72.138  -15.740 -72.134  -15.752 -72.119
+
 # a TAMBITO candidate (defaults: --kml resources/tambito_candidates_june23.kml,
 #                       --triangulation resources/triangulation.h5:base_triangulation_100000)
 julia --project=tools tools/geometry/create_geometry_from_kml.jl --placemark final_candidate_areas.16
 ```
+
+**Corners.** `--corners` takes exactly four latitude/longitude pairs — latitude first, unlike
+KML's lon,lat — listed in order around the box, clockwise or anticlockwise; the box need not be
+a rectangle. Corners listed diagonally (so the edges cross), repeated or lying on a line are
+rejected, and a lon/lat mix-up is caught by the latitude check below. It cannot be combined with
+`--kml`, `--placemark` or `--list`. Output files default to `box_<lat>_<lon>` of the centre.
 
 **The outline.** A placemark is matched by its `<name>`, its `id` attribute, or a "Comments"
 field (ExtendedData, including Google Earth web exports where the field is renamed but keeps

@@ -33,8 +33,11 @@ function read_kml(path::AbstractString)
     end
 end
 
-xpfind(path, node) = EzXML.findall(path, node)
-xpfirst(path, node) = EzXML.findfirst(path, node)
+# All queries match on local-name(), so no namespaces are registered. (EzXML's default registers
+# the node's in-scope ones, and warns on every query about KML's empty-prefix default namespace.)
+const NO_NAMESPACES = Pair{String,String}[]
+xpfind(path, node) = EzXML.findall(path, node, NO_NAMESPACES)
+xpfirst(path, node) = EzXML.findfirst(path, node, NO_NAMESPACES)
 child_text(node, name) = (c = xpfirst("./*[local-name()='$name']", node); c === nothing ? "" : strip(EzXML.nodecontent(c)))
 
 "Schema field name → displayName (Google Earth web renames fields, e.g. COL5B9A… → Comments)."

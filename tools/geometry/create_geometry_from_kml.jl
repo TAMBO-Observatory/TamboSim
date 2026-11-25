@@ -13,11 +13,14 @@
 #   julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml my_site.kml --list
 #   julia --project=tools tools/geometry/create_geometry_from_kml.jl --corners LAT1 LON1 LAT2 LON2 LAT3 LON3 LAT4 LON4
 #
+# Add --view to look at the result in an interactive 3D window (TamboMakie + GLMakie) at the end.
+#
 # The outline is either a KML placemark, selected by its name, id or "Comments" field (optional
 # when the file has a single polygon placemark; all its Polygons form the outline, holes
-# excluded), or a box given by --corners: four lat/lon points in order around the box.
-# Defaults come from resources/: tambito_candidates_june23.kml (when neither --kml nor --corners
-# is given) and triangulation.h5:base_triangulation_100000 (the TAMBITO base triangulation).
+# excluded), or a box given by --corners: four lat/lon points in order around the box. One of
+# --kml or --corners is required. The default base triangulation is
+# resources/triangulation.h5:base_triangulation_100000 (the TAMBITO one); the TAMBITO candidate
+# outlines are in resources/tambito_candidates_june23.kml.
 #
 # Triangle sizes come entirely from the base triangulation (see README.md); the DEM only sets
 # vertex heights. Vertices within --terrain-radius-km (great-circle distance, default 50 km =
@@ -32,8 +35,6 @@
 #      sampling replaces the Dierckx spline (impractical on a 1″ grid).
 #   3. Site centre. The old vertex mean counted the KML ring's closing vertex twice (~220 m bias
 #      for west of Huambo); the centre is now the polygon's area centroid.
-#
-# Note: EzXML emits a benign "ignored the empty prefix" warning for KML's default namespace.
 
 using Pkg; Pkg.activate(joinpath(@__DIR__, ".."))
 using ArgParse
@@ -56,7 +57,7 @@ function parse_commandline()
                                        "points) + DEM + base triangulation")
     @add_arg_table! s begin
         "--kml"
-            help     = "KML or KMZ file with the site outline(s) (default: resources/tambito_candidates_june23.kml)"
+            help     = "KML or KMZ file with the site outline(s); this or --corners is required"
             arg_type = String
             default  = ""
         "--corners"
@@ -78,6 +79,10 @@ function parse_commandline()
             help     = "Build without asking when the outline extends beyond the base triangulation's " *
                        "fine-mesh zone (otherwise the builder asks for confirmation, and stops if it cannot ask)"
             action   = :store_true
+        "--view"
+            help     = "After building, open an interactive 3D window (GLMakie, via TamboMakie) of the terrain " *
+                       "and detector region; the script ends when it is closed"
+            action   = :store_true
         "--triangulation"
             help     = "path.h5:group of the north-pole-centred base triangulation " *
                        "(vertices [N, 2] lon/lat in degrees, faces [M, 3]); groups base_triangulation_N " *
@@ -98,9 +103,9 @@ function parse_commandline()
             arg_type = String
             default  = ""
         "--outdir", "-o"
-            help     = "Output directory"
+            help     = "Output directory (default: the directory the script is run from)"
             arg_type = String
-            default  = joinpath(@__DIR__, "..", "output", "geometry")
+            default  = "."
         "--terrain-radius-km"
             help     = "Vertices within this great-circle distance (km) of the site centre get DEM heights; " *
                        "the rest stay at 0 m. 50 km = the edge of triangulation.h5's ring zone; larger values also " *
@@ -122,7 +127,8 @@ if !isempty(corners)
     println("\nOutline from --corners (lat, lon): ", join(("($la, $lo)" for (la, lo) in latlons), " → "))
     outline = outline_from_corners(latlons, "box")
 else
-    kml_path = isempty(args["kml"]) ? joinpath(RESOURCES, "tambito_candidates_june23.kml") : args["kml"]
+    kml_path = args["kml"]
+    isempty(kml_path) && error("no outline given: pass --kml FILE (KML or KMZ) or --corners LAT1 LON1 … LAT4 LON4")
     println("\nReading KML: $kml_path")
     doc = read_kml(kml_path)
     if args["list"]
@@ -284,9 +290,18 @@ println("Terrain PLY (full closed mesh): wrote $terrain_ply")
 TamboSim.dump_to_ply(d_frame, obs_ply)
 println("Obs surface PLY: wrote $obs_ply")
 
-println("\nAll geometry files written to $outdir")
+println("\nAll geometry files written to $(abspath(outdir))")
 if !isempty(run_warnings)
     println("\n", "="^80, "\n$(length(run_warnings)) WARNING(S) for \"$(outline.label)\" — check before using this geometry:")
     foreach(((k, w),) -> println("  $k. ", w), enumerate(run_warnings))
     println("="^80)
+end
+
+# --- 8. Optional interactive view (loads GLMakie + TamboMakie only when asked) ---
+if args["view"]
+    println("\nLoading the 3D viewer (GLMakie)...")
+    include(joinpath(@__DIR__, "src_jl", "view_geometry.jl"))
+    view_side_km = max(10.0, ceil(2.5 * extent))         # the outline plus some surroundings
+    Base.invokelatest(view_geometry, frames2.d_frames[end];
+                      side_km = view_side_km, title = "$(outline.label): $(basename(g_path))")
 end

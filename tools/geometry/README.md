@@ -5,8 +5,11 @@ outlined in a KML or KMZ file — drawn in Google Earth (Pro or web), QGIS, etc.
 four corners of a box. Everything runs in the `tools/` environment:
 
 ```bash
-julia --project=tools -e 'using Pkg; Pkg.instantiate()'
+JULIA_PKG_USE_CLI_GIT=true julia --project=tools -e 'using Pkg; Pkg.instantiate()'
 ```
+
+TamboMakie (for `--view`) comes from the TAMBO-Observatory GitHub over SSH, branch `main`;
+`JULIA_PKG_USE_CLI_GIT=true` lets Pkg clone it with your `git`/ssh-agent setup.
 
 | Path | What it is |
 |---|---|
@@ -14,8 +17,9 @@ julia --project=tools -e 'using Pkg; Pkg.instantiate()'
 | `src_jl/kml_outline.jl` | Functions only: the outline — from a KML/KMZ placemark or corner points; polygons with holes, area centroid |
 | `src_jl/site_mesh.jl` | Functions only: rotate the base triangulation onto the site and apply DEM heights |
 | `src_jl/copernicus_dem.jl` | Functions only: Copernicus GLO-30 tiles from AWS, or an HDF5 grid, as a bilinear interpolator |
+| `src_jl/view_geometry.jl` | Functions only: the `--view` window (TamboMakie + GLMakie); loaded only when `--view` is given |
 | `resources/triangulation.h5` | Base triangulations `base_triangulation_N` (65 MB; made by Kiara Carloni). `_100000` is the TAMBITO bundles' and `_30000` the TAMBO-4 one, both verified vertex for vertex against the official bundles |
-| `resources/tambito_candidates_june23.kml` | TAMBITO candidate outlines; placemark ids `final_candidate_areas.N` / `extra_sites.N` (West of Huambo = `final_candidate_areas.16`) |
+| `resources/tambito_candidates_june23.kml` | TAMBITO candidate outlines, for `--kml`; placemark ids `final_candidate_areas.N` / `extra_sites.N` (West of Huambo = `final_candidate_areas.16`) |
 
 ## Usage
 
@@ -31,10 +35,20 @@ julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml sites.kml
 julia --project=tools tools/geometry/create_geometry_from_kml.jl \
     --corners -15.757 -72.123  -15.745 -72.138  -15.740 -72.134  -15.752 -72.119
 
-# a TAMBITO candidate (defaults: --kml resources/tambito_candidates_june23.kml,
-#                       --triangulation resources/triangulation.h5:base_triangulation_100000)
-julia --project=tools tools/geometry/create_geometry_from_kml.jl --placemark final_candidate_areas.16
+# a TAMBITO candidate (the default --triangulation is resources/triangulation.h5:base_triangulation_100000)
+julia --project=tools tools/geometry/create_geometry_from_kml.jl \
+    --kml tools/geometry/resources/tambito_candidates_june23.kml --placemark final_candidate_areas.16
 ```
+
+The outline is required: pass either `--kml` or `--corners`. Files are written to the directory
+the script is run from unless `--outdir` is given.
+
+**Viewing the result.** Add `--view` to open an interactive 3D window once the files are written,
+as in TamboMakie's `examples/1_viz3D.jl`: the terrain around the site coloured by elevation
+(a square 2.5× the outline's reach, at least 10 km), the detector region in blue, and detector
+units if any. Drag to rotate and scroll to zoom; W/S A/D R/F move the camera, J/L I/K Q/E turn
+it, B/N change the field of view. The script ends when the window is closed. This needs a
+display; GLMakie and TamboMakie are loaded only for `--view`.
 
 **Corners.** `--corners` takes exactly four latitude/longitude pairs — latitude first, unlike
 KML's lon,lat — listed in order around the box, clockwise or anticlockwise; the box need not be

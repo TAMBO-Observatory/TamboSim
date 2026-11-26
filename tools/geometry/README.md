@@ -13,7 +13,7 @@ TamboMakie (for `--view`) comes from the TAMBO-Observatory GitHub over SSH, bran
 
 | Path | What it is |
 |---|---|
-| `create_geometry_from_kml.jl` | New site: rotate a base triangulation onto the outline's centroid (KML or `--corners`), elevate it from a DEM, write `<name>.jld2` (G, C, D); optionally a `.h5` copy and CORSIKA PLYs |
+| `create_geometry.jl` | New site: rotate a base triangulation onto the outline's centroid (KML or `--corners`), elevate it from a DEM, write `<name>.jld2` (G, C, D); optionally a `.h5` copy and CORSIKA PLYs |
 | `src_jl/kml_outline.jl` | Functions only: the outline — from a KML/KMZ placemark or corner points; polygons with holes, area centroid |
 | `src_jl/site_mesh.jl` | Functions only: rotate the base triangulation onto the site and apply DEM heights |
 | `src_jl/copernicus_dem.jl` | Functions only: Copernicus GLO-30 tiles from AWS, or an HDF5 grid, as a bilinear interpolator |
@@ -25,18 +25,18 @@ TamboMakie (for `--view`) comes from the TAMBO-Observatory GitHub over SSH, bran
 
 ```bash
 # your own outline: a KML/KMZ with one polygon needs no --placemark
-julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml my_site.kmz --outdir out/
+julia --project=tools tools/geometry/create_geometry.jl --kml my_site.kmz --outdir out/
 
 # a file with several placemarks: list them, then pick one by name, id or Comments
-julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml sites.kml --list
-julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml sites.kml --placemark "My site"
+julia --project=tools tools/geometry/create_geometry.jl --kml sites.kml --list
+julia --project=tools tools/geometry/create_geometry.jl --kml sites.kml --placemark "My site"
 
 # no KML: four corners of a box as LAT LON pairs (degrees), in order around the box
-julia --project=tools tools/geometry/create_geometry_from_kml.jl \
+julia --project=tools tools/geometry/create_geometry.jl \
     --corners -15.757 -72.123  -15.745 -72.138  -15.740 -72.134  -15.752 -72.119
 
 # a TAMBITO candidate (the default --triangulation is resources/triangulation.h5:base_triangulation_100000)
-julia --project=tools tools/geometry/create_geometry_from_kml.jl \
+julia --project=tools tools/geometry/create_geometry.jl \
     --kml tools/geometry/resources/tambito_candidates_june23.kml --placemark final_candidate_areas.16
 ```
 
@@ -170,8 +170,8 @@ visible as metre-scale structure in Lima. SRTM15+ is only preferable if sea-floo
 
 ## History: bundles built before 2026-11
 
-The earlier version of `create_geometry_from_kml.jl` (used for `tambito_sites/*` and
-`prototypes/TAMBO-4`) read SRTM15+ from an HDF5 written by GMT.jl. GMT.jl returns n+1 cell
+The earlier builder, `create_geometry_from_kml.jl` (used for `tambito_sites/*` and
+`prototypes/TAMBO-4`), read SRTM15+ from an HDF5 written by GMT.jl. GMT.jl returns n+1 cell
 edges for pixel-registered grids (`range(west, east, length = nx + registration)`); the
 script kept the first n, putting every 15″ cell at its SW corner. Together with SRTM15+'s own
 1.4–1.8″ offset, all terrain was drawn ≈ 6″ (≈ 180 m S and 175 m W, ~250 m) from its true

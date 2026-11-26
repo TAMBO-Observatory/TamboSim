@@ -1,4 +1,4 @@
-# create_geometry_from_kml.jl
+# create_geometry.jl
 #
 # Build a TamboSim geometry bundle for a site outlined in a KML/KMZ file (any source: Google
 # Earth Pro or web, QGIS, …). Rotates a north-pole-centred base triangulation onto the outline's
@@ -15,9 +15,9 @@
 #   --ply: <name>_terrain.ply, <name>_obs_surface.ply
 #                              CORSIKA meshes, for inspection; run_corsika writes its own from the .jld2
 #
-#   julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml my_site.kmz [--placemark NAME]
-#   julia --project=tools tools/geometry/create_geometry_from_kml.jl --kml my_site.kml --list
-#   julia --project=tools tools/geometry/create_geometry_from_kml.jl --corners LAT1 LON1 LAT2 LON2 LAT3 LON3 LAT4 LON4
+#   julia --project=tools tools/geometry/create_geometry.jl --kml my_site.kmz [--placemark NAME]
+#   julia --project=tools tools/geometry/create_geometry.jl --kml my_site.kml --list
+#   julia --project=tools tools/geometry/create_geometry.jl --corners LAT1 LON1 LAT2 LON2 LAT3 LON3 LAT4 LON4
 #
 # Add --view to look at the result in an interactive 3D window (TamboMakie + GLMakie) at the end.
 #

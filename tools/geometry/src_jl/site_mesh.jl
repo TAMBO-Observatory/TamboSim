@@ -1,5 +1,5 @@
 # site_mesh.jl — place the base triangulation on a site and give it DEM heights (functions only;
-# included by create_geometry_from_kml.jl, which also includes copernicus_dem.jl).
+# included by create_geometry.jl, which also includes copernicus_dem.jl).
 
 using LinearAlgebra
 using Rotations

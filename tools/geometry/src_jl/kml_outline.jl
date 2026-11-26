@@ -1,5 +1,5 @@
 # kml_outline.jl — the detector outline, from a KML/KMZ file or from corner points (functions only; included by
-# create_geometry_from_kml.jl).
+# create_geometry.jl).
 #
 # A placemark is selected by its `id` attribute, its <name>, or its "Comments" field
 # (ExtendedData SimpleData/Data named "Comments", or whose Schema displayName is "Comments", as

@@ -1,5 +1,5 @@
 # view_geometry.jl — interactive 3D view of a built bundle with TamboMakie (functions only;
-# included by create_geometry_from_kml.jl only for --view, so plain builds never load GLMakie).
+# included by create_geometry.jl only for --view, so plain builds never load GLMakie).
 
 using GLMakie
 using TamboMakie.Viz3D

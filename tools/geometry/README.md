@@ -18,6 +18,7 @@ TamboMakie (for `--view`) comes from the TAMBO-Observatory GitHub over SSH, bran
 | `src_jl/kml_outline.jl` | Functions only: the outline — from a KML/KMZ placemark or corner points; polygons with holes, area centroid |
 | `src_jl/site_mesh.jl` | Functions only: rotate the base triangulation onto the site and apply DEM heights |
 | `src_jl/copernicus_dem.jl` | Functions only: Copernicus GLO-30 tiles from AWS, or an HDF5 grid, as a bilinear interpolator |
+| `src_jl/adaptive_mesh.jl` | Functions only: the `--fine-border-km` site-adaptive triangulation (fine points around the outline, spherical Delaunay) |
 | `src_jl/view_geometry.jl` | Functions only: the `--view` window (TamboMakie + GLMakie); loaded only when `--view` is given |
 | `src_jl/oroscope_sites.jl` | Functions only: `--point` search — writes the search DEM, runs oroscope, traces each site's mask into an outline, writes `<name>_sites.kml` |
 | `src_jl/select_sites.jl` | Functions only: the `--point` site map (GLMakie) for picking candidates; loaded only when it opens |
@@ -51,6 +52,9 @@ julia --project=tools tools/geometry/create_geometry.jl \
 julia --project=tools tools/geometry/create_geometry.jl --point -15.749 -72.129 --radius-km 10 \
     --oroscope-config tools/geometry/oroscope_configs/tambo_colca_config.json
 
+# two sites 26 km apart in one bundle: --point's site-adaptive mesh is fine within the ray range of them
+julia --project=tools tools/geometry/create_geometry.jl --point -15.652 -72.155 --radius-km 20 \
+    --oroscope-config tools/geometry/oroscope_configs/tambo_colca_config.json --sites A,C --combine --view
 ```
 
 The outline is required: pass `--kml`, `--corners` or `--point`. Files are written to the
@@ -69,11 +73,17 @@ needs (`load_frames`, or `gc_path`/`d_path` in the pipeline). Two extras are opt
   inspection in other tools. `run_corsika` writes its own from the `.jld2`.
 
 **Viewing the result.** Add `--view` to open an interactive 3D window once the files are written,
-as in TamboMakie's `examples/1_viz3D.jl`: the terrain around the site coloured by elevation
-(a square 2.5× the outline's reach, at least 10 km), the detector region in blue, and detector
-units if any. Drag to rotate and scroll to zoom; W/S A/D R/F move the camera, J/L I/K Q/E turn
-it, B/N change the field of view. The script ends when the window is closed. This needs a
-display; GLMakie and TamboMakie are loaded only for `--view`.
+as in TamboMakie's `examples/1_viz3D.jl`. It shows:
+
+- the terrain around the site coloured by elevation, in a square at least 2.5× the outline's reach
+  and wide enough to show the whole fine-mesh region;
+- the detector region in blue, and detector units if any;
+- the fine-mesh region (~60 m triangles) tinted gold with its edge in orange.
+
+Toggles under the scene switch the fine-mesh tint and the triangle edges on and off, so the fine
+and coarse triangles can be compared directly. Drag to rotate and scroll to zoom; W/S A/D R/F move
+the camera, J/L I/K Q/E turn it, B/N change the field of view. The script ends when the window is
+closed. This needs a display; GLMakie and TamboMakie are loaded only for `--view`.
 
 **Corners.** `--corners` takes exactly four latitude/longitude pairs — latitude first, unlike
 KML's lon,lat — listed in order around the box, clockwise or anticlockwise; the box need not be
@@ -109,9 +119,10 @@ runs it within `--radius-km` (default 10) of the point:
    map, or pass `--combine` with `--sites`, e.g. `--sites B,D --combine`. The bundle is centred on
    all of them, and its one detector region covers every chosen site. In the simulation they
    are one detector: injection samples points on all of the sites by visible area, so rates add
-   up. The map shows how far the chosen sites reach from their combined centre. They must fit in
-   one fine-mesh zone (10 km), or part of the detector sits on ~300 m triangles; the usual check
-   and warning apply. The bundle is `<name>_<letters>.jld2` (e.g. `_BD`), and its outline is added
+   up. The map shows how far the chosen sites reach from their combined centre. `--point`'s
+   site-adaptive mesh (below) puts fine triangles around each of them, so they can be anywhere
+   within the 50 km ring; with `--fine-border-km cap` they must fit in one 10 km fine-mesh zone,
+   or part of the detector sits on ~300 m triangles. The bundle is `<name>_<letters>.jld2` (e.g. `_BD`), and its outline is added
    to `<name>_sites.kml` as placemark `BD` for rebuilding.
 
 Nothing has to be installed by hand. oroscope runs in its own Python, which
@@ -148,7 +159,8 @@ Google Earth Pro cannot draw these, but GIS tools (QGIS etc.) write them. Points
 rejected. The site centre is the outline's area centroid.
 
 **Checks.** The detector region must lie inside the triangulation's fine-mesh zone (10 km
-from the centre for `triangulation.h5`; beyond it triangles are ~5× larger, ~300 m). If any
+from the centre for `triangulation.h5`; beyond it triangles are ~5× larger, ~300 m; with
+`--fine-border-km`, anywhere up to 1 km inside the 50 km ring). If any
 outline vertex is farther than that, the builder warns and asks `Continue anyway? [y/N]`
 before doing any work; anything but `y` stops it, and so does running without interactive
 input (batch jobs, stdin from `/dev/null`), unless `--allow-outside-fine-mesh` is given. After
@@ -222,6 +234,44 @@ ridges narrower than ~100 m. Bilinear point sampling beat box means sized to the
 spacing both near the array (5.4 vs 5.9 m robust σ vs a drone survey) and in the 10–50 km ring
 (24.6 vs 29.9 m vs full-resolution Copernicus).
 
+### Site-adaptive mesh (`--fine-border-km`)
+
+With `--fine-border-km B` the fine triangles follow the detector instead of a 10 km cap around the
+centre. **`--point` uses it by default,** with `B` = the oroscope scan's ray range (`max_dist_km`,
+or `max_range_km` if set): e.g. 8 km.
+`--fine-border-km cap` gives the default cap instead, and a number sets the border; `--kml` and
+`--corners` use the cap unless a border is given. The builder makes a new triangulation for each
+bundle (`src_jl/adaptive_mesh.jl`) from the
+`--triangulation` group:
+
+- **Fine region:** the outline(s) plus `B` km, rasterized at 50 m and clipped 1 km inside the ring
+  edge. It gets random points at the base's cap density (~320/km² for `_100000`: ~60 m triangles).
+- **Rest of the ring:** the base's own ring points, plus new points at ring density where its cap
+  was (~13/km²: ~300 m).
+- **Beyond the ring:** the base's far-field points, unchanged.
+
+The points are joined by a spherical Delaunay triangulation: the planar Delaunay triangulation
+(DelaunayTriangulation.jl, exact predicates) of their stereographic projection from the antipode.
+That reproduces Kiara's GMT `sphtriangulate` faces of `base_triangulation_100000` exactly, except
+the 7 around the antipode, where a fan to an extra vertex closes the mesh instead. A fixed random
+seed makes the same outline and border give the same mesh. It takes 10–20 s.
+
+So sites can be anywhere within the ring and share one bundle. For example, sites 26 km apart
+with an 8 km border gave 226k fine points over 708 km² (590 MB). The mesh is also smaller when
+the border is small: west of Huambo with a 5 km border gives 237k vertices and 329 MB, against
+300k and 417 MB with the default cap. Within 4 km of west of Huambo its terrain matches the
+default mesh:
+
+| | median edge | median min angle | angles < 10° | centroid − Copernicus RMS (robust σ) |
+|---|---|---|---|---|
+| default cap | 64.2 m | 30.8° | 5.8% | 3.75 m (1.78 m) |
+| adaptive, 5 km border | 64.1 m | 30.7° | 6.4% | 3.66 m (1.79 m) |
+
+**Choose the border to cover what the array sees,** not just the array: the far canyon wall the
+taus exit from is 2–8 km away (`min/max_dist_km` in the oroscope config), which is why `--point`
+defaults to that range. The default cap covers it within 10 km of the centre; with a 1 km
+border it would be on ~300 m triangles. The density steps from fine to
+ring at the region's edge, as it does at the default cap's 10 km edge.
 
 ## DEM choice: Copernicus GLO-30
 

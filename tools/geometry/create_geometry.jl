@@ -38,9 +38,11 @@
 # outlines are in resources/tambito_candidates_june23.kml.
 #
 # Triangle sizes come entirely from the base triangulation (see README.md); the DEM only sets
-# vertex heights. Vertices within --terrain-radius-km (great-circle distance, default 50 km =
-# the triangulation's ring edge) of the centre get DEM heights; the rest stay on the 6371 km
-# sphere at 0 m.
+# vertex heights. Its fine triangles fill a 10 km cap around the centre; with --fine-border-km B a
+# site-adaptive triangulation puts them within B km of the outline(s) instead, anywhere in the 50 km
+# ring (src_jl/adaptive_mesh.jl). --point does this by default, with B = the oroscope ray range.
+# Vertices within --terrain-radius-km (great-circle distance, default 50 km = the triangulation's
+# ring edge) of the centre get DEM heights; the rest stay on the 6371 km sphere at 0 m.
 #
 # Fixes relative to the pre-2026-11 version of this script (bundles built before then are affected):
 #   1. DEM registration. Pixel-registered GMT grids come out of GMT.jl with n+1 cell EDGES; the
@@ -62,6 +64,7 @@ include(joinpath(@__DIR__, "src_jl", "copernicus_dem.jl"))
 include(joinpath(@__DIR__, "src_jl", "kml_outline.jl"))
 include(joinpath(@__DIR__, "src_jl", "site_mesh.jl"))
 include(joinpath(@__DIR__, "src_jl", "oroscope_sites.jl"))
+include(joinpath(@__DIR__, "src_jl", "adaptive_mesh.jl"))
 
 const RESOURCES = joinpath(@__DIR__, "resources")
 const PREM_RADII_KM = [1221.5, 3480.0, 3630.0, 5600.0, 5701.0, 5771.0,
@@ -159,6 +162,14 @@ function parse_commandline()
             help     = "Output directory (default: the directory the script is run from)"
             arg_type = String
             default  = "."
+        "--fine-border-km"
+            help     = "Site-adaptive mesh: fine triangles (the base triangulation's cap density, ~60 m for _100000) " *
+                       "within this distance (km) of the outline(s) wherever they are in the 50 km ring, its ring " *
+                       "density (~300 m) elsewhere; \"cap\" for the base's own 10 km fine cap around the centre. " *
+                       "Default: with --point, the oroscope scan's ray range (e.g. max_dist_km), so the fine " *
+                       "mesh covers the far wall the array looks at; otherwise the cap"
+            arg_type = String
+            default  = ""
         "--terrain-radius-km"
             help     = "Vertices within this great-circle distance (km) of the site centre get DEM heights; " *
                        "the rest stay at 0 m. 50 km = the edge of triangulation.h5's ring zone; larger values also " *
@@ -168,6 +179,36 @@ function parse_commandline()
     end
     return parse_args(s)
 end
+
+"""
+    fine_border_km(args; walk_km=nothing) -> Float64 or nothing
+
+The site-adaptive mesh's border (km) around the outline, or `nothing` for the base triangulation's fine cap:
+--fine-border-km as given ("cap" → nothing); by default the oroscope scan's ray range `walk_km` with
+--point, else the cap.
+"""
+function fine_border_km(args; walk_km=nothing)
+    s = strip(args["fine-border-km"])
+    s == "cap" && return nothing
+    isempty(s) && return walk_km
+    b = tryparse(Float64, s)
+    (b === nothing || b < 0) && error("--fine-border-km takes a distance in km (≥ 0) or \"cap\", not \"$s\"")
+    b
+end
+
+"""
+How far (km) from a bundle's centre its detector outline can reach on fine triangles: the base triangulation's cap
+radius, or for a site-adaptive mesh (`border` in km) 1 km inside its ring's edge.
+"""
+fine_limit_km(tri, border) = border === nothing ? tri.r_cap : tri.r_ring - 1.0
+
+"Short description of that limit, for the site listing and map."
+fine_limit_desc(tri, border) = (border === nothing ? "fine mesh" : "site-adaptive fine mesh") *
+                               " < $(round(fine_limit_km(tri, border), digits=2)) km"
+
+"What the fine mesh covers, for the site map and 3D view."
+fine_mesh_desc(tri, border) = border === nothing ? "within $(round(tri.r_cap, digits=1)) km of the bundle centre" :
+                                                   "within $(round(border, digits=1)) km of the sites"
 
 "Base triangulation from path.h5:group, with its fine-zone and ring radii (km)."
 function load_triangulation(spec)
@@ -184,13 +225,13 @@ function load_triangulation(spec)
 end
 
 """
-    build_site(outline, groupname, tri, args; outdir, tile_dir, confirmed=false) -> NamedTuple or nothing
+    build_site(outline, groupname, tri, args; outdir, tile_dir, border=nothing, confirmed=false) -> NamedTuple or nothing
 
 Build and save the bundle for one outline. Returns `(; label, g_path, d_frame, extent, warnings)`, or `nothing`
 when the outline leaves the fine-mesh zone and the build is not confirmed (`confirmed` = already confirmed,
 e.g. in the site picker).
 """
-function build_site(outline, groupname, tri, args; outdir, tile_dir, confirmed=false)
+function build_site(outline, groupname, tri, args; outdir, tile_dir, border=nothing, confirmed=false)
     println("\n", "─"^80, "\nBuilding \"$(outline.label)\" → $(groupname).jld2")
     nverts = sum(length(p[1]) for p in outline.polygons)
     nholes = sum(length(p) - 1 for p in outline.polygons)
@@ -211,19 +252,23 @@ function build_site(outline, groupname, tri, args; outdir, tile_dir, confirmed=f
     terrain_ply = joinpath(outdir, "$(groupname)_terrain.ply")
     obs_ply     = joinpath(outdir, "$(groupname)_obs_surface.ply")
 
-    # --- Check the outline fits the base triangulation's fine zone ---
+    # --- Check the outline fits where the mesh can be fine: the base's cap, or (site-adaptive) the ring ---
     r_cap, r_ring = tri.r_cap, tri.r_ring
+    adaptive = border !== nothing
+    fine_limit = fine_limit_km(tri, border)
+    zone = adaptive ? "the part of the ring where the site-adaptive fine mesh can go (r < $(round(fine_limit, digits=1)) km)" :
+                      "the fine-mesh zone (r < $(round(r_cap, digits=1)) km)"
     extent = outline_extent_km(outline, longlat0_deg)
     println("  Outline reaches $(round(extent, digits=2)) km from its centre")
 
     # Warnings are shown when raised and repeated at the end of the run, so they are not lost in the output.
     run_warnings = String[]
     warn!(msg) = (push!(run_warnings, msg); @warn msg)
-    extent > r_cap && warn!("The outline reaches $(round(extent, digits=1)) km from its centre, beyond the fine-mesh " *
-        "zone (r < $(round(r_cap, digits=1)) km). Part of the detector region will sit on coarser triangles " *
+    extent > fine_limit && warn!("The outline reaches $(round(extent, digits=1)) km from its centre, beyond $zone. " *
+        "Part of the detector region will sit on coarser triangles " *
         "(~$(round(sqrt((r_ring^2 - r_cap^2) / r_cap^2), digits=1))× larger); the detector-region check below gives the " *
-        "affected area. To avoid it, keep every point of the outline within $(round(r_cap, digits=1)) km of its centre " *
-        "(e.g. split it into smaller sites).")
+        "affected area. To avoid it, keep every point of the outline within $(round(fine_limit, digits=1)) km of its centre " *
+        "(e.g. split it into smaller sites" * (adaptive ? ")." : ", or use --fine-border-km)."))
     extent > r_ring && warn!("The outline extends past $(round(r_ring, digits=1)) km, where the base triangulation " *
         "has essentially no terrain (vertices tens of km apart).")
     extent > terrain_r_km && warn!("The outline extends past --terrain-radius-km = $terrain_r_km km; vertices beyond it " *
@@ -231,12 +276,11 @@ function build_site(outline, groupname, tri, args; outdir, tile_dir, confirmed=f
 
     # Outside the fine-mesh zone needs an explicit go-ahead: ask, or stop when no one can answer
     # (batch jobs, stdin from /dev/null) unless --allow-outside-fine-mesh was given.
-    if extent > r_cap
+    if extent > fine_limit
         if args["allow-outside-fine-mesh"] || confirmed
-            println("  Continuing outside the fine-mesh zone ($(confirmed ? "picked in the site map" : "--allow-outside-fine-mesh"))")
+            println("  Continuing outside $zone ($(confirmed ? "picked in the site map" : "--allow-outside-fine-mesh"))")
         else
-            print("\nThe detector outline extends outside the fine-mesh zone (r < $(round(r_cap, digits=1)) km). " *
-                  "Continue anyway? [y/N]: ")
+            print("\nThe detector outline extends outside $zone. Continue anyway? [y/N]: ")
             flush(stdout)
             answer = eof(stdin) ? "" : lowercase(strip(readline(stdin)))
             if answer in ("y", "yes")
@@ -244,23 +288,39 @@ function build_site(outline, groupname, tri, args; outdir, tile_dir, confirmed=f
             else
                 println(isempty(answer) ? "\nNo answer (no interactive input)." : "Stopped.")
                 println("\"$(outline.label)\" was not built. Shrink or split the outline so it stays within " *
-                        "$(round(r_cap, digits=1)) km of its centre, or re-run with --allow-outside-fine-mesh to build it anyway.")
+                        "$(round(fine_limit, digits=1)) km of its centre" * (adaptive ? "" : " (or use --fine-border-km)") *
+                        ", or re-run with --allow-outside-fine-mesh to build it anyway.")
                 return nothing
             end
         end
     end
 
+    # --- The mesh: the base triangulation, or a site-adaptive one with its fine points around the outline ---
+    if adaptive
+        println("\nBuilding a site-adaptive triangulation: fine within $(border) km of the outline...")
+        t = @elapsed m = adaptive_triangulation(tri, outline, longlat0_deg, border)
+        println("  Fine region $(round(m.fine_area_km2, digits=1)) km²: $(m.n_fine) fine points " *
+                "($(round(m.ρ_fine, digits=1))/km², ring $(round(m.ρ_ring, digits=2))/km²); " *
+                "$(size(m.verts_deg, 1)) vertices, $(size(m.faces, 1)) faces ($(round(t, digits=1)) s)")
+        m.clipped && warn!("The fine region (outline + $(border) km) reaches past $(round(fine_limit, digits=1)) km from " *
+                           "the centre, 1 km inside the ring's edge; it was cut there.")
+        verts_deg, faces, fine_vertex = m.verts_deg, m.faces, m.fine
+    else
+        verts_deg, faces = tri.verts_deg, tri.faces
+        fine_vertex = pole_distance_km(verts_deg) .<= r_cap
+    end
+
     # --- Rotate and apply elevation ---
     println("\nRotating triangulation and applying DEM elevation ($(args["dem"]))...")
     R = PREM_RADII_KM[end] * 1000.0
-    ecef, n_dem = build_ecef_vertices(tri.verts_deg, longlat0_deg, terrain_r_km, args["dem"], R; tile_dir=tile_dir)
+    ecef, n_dem = build_ecef_vertices(verts_deg, longlat0_deg, terrain_r_km, args["dem"], R; tile_dir=tile_dir)
     println("  Vertices with DEM elevation: $n_dem / $(size(ecef, 1))")
 
     # --- Fix face orientation and build the detector region ---
     println("\nFixing mesh orientation and computing detector region...")
     # All face normals must point away from the Earth's centre (validate_triangle); flip the
     # winding of any that do not rather than dropping them, so the full global mesh is kept.
-    fixed_faces = copy(tri.faces); n_flipped = 0
+    fixed_faces = copy(faces); n_flipped = 0
     for i in axes(fixed_faces, 1)
         v0, v1, v2 = (ecef[fixed_faces[i, k], :] for k in 1:3)
         if dot(cross(v1 - v0, v2 - v0), (v0 + v1 + v2) / 3) < 0
@@ -284,21 +344,20 @@ function build_site(outline, groupname, tri, args; outdir, tile_dir, confirmed=f
             "(median edge $(round(median(reduce(vcat, face_edges.(detector_indices))), digits=1)) m, " *
             "surface area $(round(sum(face_area, detector_indices) / 1e6, digits=3)) km²)")
 
-    # Fine-zone check on the actual detector triangles: a face is outside the fine mesh if any of its
-    # vertices lies beyond r_cap (great-circle distance from the site centre).
-    centre_u = longlat_to_cart(deg2rad.(longlat0_deg)...)
-    vertex_km(v) = 6371.0 * acos(clamp(dot(ecef[v, :] ./ norm(ecef[v, :]), centre_u), -1.0, 1.0))
-    coarse = filter(i -> any(vertex_km(fixed_faces[i, k]) > r_cap for k in 1:3), detector_indices)
+    # Fine-mesh check on the actual detector triangles: a face is coarse if any of its vertices is not a fine
+    # point (beyond r_cap of the centre for the base triangulation; outside the fine region for an adaptive one).
+    coarse = filter(i -> !all(fine_vertex[fixed_faces[i, k]] for k in 1:3), detector_indices)
     if !isempty(coarse)
         fine = setdiff(detector_indices, coarse)
         a_coarse = sum(face_area, coarse); a_all = sum(face_area, detector_indices)
         edge_fine = isempty(fine) ? NaN : median(reduce(vcat, face_edges.(fine)))
         warn!("$(length(coarse)) of $(length(detector_indices)) detector triangles " *
               "($(round(100 * a_coarse / a_all, digits=1))% of the detector surface area, $(round(a_coarse / 1e6, digits=3)) km²) " *
-              "lie outside the fine-mesh zone (r < $(round(r_cap, digits=1)) km). Median edge there: " *
+              "have a vertex outside $(adaptive ? "the site-adaptive fine region" : "the fine-mesh zone (r < $(round(r_cap, digits=1)) km)"). Median edge there: " *
               "$(round(median(reduce(vcat, face_edges.(coarse))), digits=0)) m, vs $(round(edge_fine, digits=0)) m inside.")
     else
-        println("  Detector region lies entirely inside the fine-mesh zone (r < $(round(r_cap, digits=1)) km)")
+        println("  Detector region lies entirely in the fine mesh" *
+                (adaptive ? " (site-adaptive, $(border) km border)" : " (r < $(round(r_cap, digits=1)) km)"))
     end
 
     # --- Build GCD bundle and save JLD2 (full outward-facing mesh, no radius crop) ---
@@ -335,12 +394,15 @@ function build_site(outline, groupname, tri, args; outdir, tile_dir, confirmed=f
         TamboSim.dump_to_ply(d_frame, obs_ply)
         println("Obs surface PLY: wrote $obs_ply")
     end
-    (; label=outline.label, g_path, d_frame=frames2.d_frames[end], extent, warnings=run_warnings)
+    fine_faces = findall(i -> all(fine_vertex[fixed_faces[i, k]] for k in 1:3), axes(fixed_faces, 1))
+    (; label=outline.label, g_path, d_frame=frames2.d_frames[end], extent, warnings=run_warnings, fine_faces,
+     fine_reach=adaptive ? extent + border : r_cap, fine_desc=fine_mesh_desc(tri, border))
 end
 
 """
 Candidate sites from an oroscope search around --point, and the ones to build: picked in the site map, or
-listed with --sites. Returns a vector of (outline, groupname, confirmed).
+listed with --sites. Returns a vector of (outline, groupname, confirmed) and the fine-mesh border (km, or nothing
+for the base's cap), which by default follows the oroscope scan's ray range.
 """
 function oroscope_targets(args, tri; outdir, tile_dir)
     lat, lon = args["point"]
@@ -361,14 +423,19 @@ function oroscope_targets(args, tri; outdir, tile_dir)
         exit(1)
     end
     extents = [outline_extent_km(o, area_centroid(o)) for o in search.outlines]
+    border = fine_border_km(args; walk_km=search.walk_km)
+    limit, limit_desc = fine_limit_km(tri, border), fine_limit_desc(tri, border)
     println("\n", "="^80, "\noroscope found $(length(search.outlines)) candidate site(s) within $(radius_km) km " *
             "(outlines in $(search.kml); oroscope's outputs in $(search.rundir)):")
     for (k, o) in enumerate(search.outlines)
-        far = extents[k] > tri.r_cap ? "  ⚠ beyond the fine mesh (< $(round(tri.r_cap, digits=2)) km)" : ""
+        far = extents[k] > limit ? "  ⚠ beyond the $limit_desc" : ""
         println("  $(rpad(o.label, 3)) $(site_summary(search.sites[k])); reaches $(round(extents[k], digits=2)) km from its centre$far")
     end
     search.n_unselected > 0 && println("  ($(search.n_unselected) more qualified but were not selected by oroscope, " *
                                        "e.g. because of stop_at_target)")
+    println("Fine mesh: ", border === nothing ? "the base triangulation's cap, $(fine_mesh_desc(tri, border)) (--fine-border-km cap)" :
+            "site-adaptive, $(fine_mesh_desc(tri, border))" *
+            (isempty(strip(args["fine-border-km"])) ? " (oroscope's ray range; set it with --fine-border-km)" : ""))
     println("="^80)
 
     letters = [o.label for o in search.outlines]
@@ -382,8 +449,9 @@ function oroscope_targets(args, tri; outdir, tile_dir)
     else
         println("\nOpening the site map (GLMakie): select the sites to build, then press \"Build selected\" or Enter...")
         include(joinpath(@__DIR__, "src_jl", "select_sites.jl"))
-        chosen, combine = Base.invokelatest(pick_sites, search, (lon, lat), radius_km, extents, tri.r_cap;
-                                            combine=args["combine"])
+        chosen, combine = Base.invokelatest(pick_sites, search, (lon, lat), radius_km, extents, limit;
+                                            combine=args["combine"], limit_desc=limit_desc,
+                                            mesh_desc=fine_mesh_desc(tri, border))
         confirmed = true
     end
     if isempty(chosen)
@@ -400,10 +468,10 @@ function oroscope_targets(args, tri; outdir, tile_dir)
         write_sites_kml(search.kml, outlines, [site_summary.(search.sites); combined_summary(letters[chosen], search.sites[chosen])];
                         title=sites_kml_title(radius_km, lat, lon))
         println("\nBuilding sites $(join(letters[chosen], ", ")) as one bundle (\"$(o.label)\", added to $(search.kml))")
-        return [(o, "$(stem)_$(o.label)", confirmed)]
+        return [(o, "$(stem)_$(o.label)", confirmed)], border
     end
     println("\nBuilding site(s) $(join(letters[chosen], ", "))")
-    [(search.outlines[k], "$(stem)_$(letters[k])", confirmed) for k in chosen]
+    [(search.outlines[k], "$(stem)_$(letters[k])", confirmed) for k in chosen], border
 end
 
 function main()
@@ -427,8 +495,9 @@ function main()
     isempty(args["tile-dir"]) && tile_dir !== nothing && atexit(() -> rm(tile_dir; recursive=true, force=true))
     tri = load_triangulation(args["triangulation"])
 
+    border = fine_border_km(args)                      # --point: replaced by the search's default below
     if !isempty(args["point"])
-        targets = oroscope_targets(args, tri; outdir=outdir, tile_dir=tile_dir)
+        targets, border = oroscope_targets(args, tri; outdir=outdir, tile_dir=tile_dir)
     elseif !isempty(args["corners"])
         corners = args["corners"]
         latlons = [(corners[2k - 1], corners[2k]) for k in 1:4]
@@ -446,7 +515,7 @@ function main()
 
     built = []
     for (outline, name, confirmed) in targets
-        b = build_site(outline, name, tri, args; outdir=outdir, tile_dir=tile_dir, confirmed=confirmed)
+        b = build_site(outline, name, tri, args; outdir=outdir, tile_dir=tile_dir, border=border, confirmed=confirmed)
         b === nothing || push!(built, b)
     end
 
@@ -466,9 +535,10 @@ function main()
         println("\nLoading the 3D viewer (GLMakie)...")
         include(joinpath(@__DIR__, "src_jl", "view_geometry.jl"))
         for b in built
-            view_side_km = max(10.0, ceil(2.5 * b.extent))         # the outline plus some surroundings
+            # the outline plus some surroundings, and the whole fine-mesh region
+            view_side_km = max(10.0, ceil(2.5 * b.extent), ceil(2 * b.fine_reach + 1))
             Base.invokelatest(view_geometry, b.d_frame; side_km=view_side_km,
-                              title="$(b.label): $(basename(b.g_path))")
+                              title="$(b.label): $(basename(b.g_path))", fine_faces=b.fine_faces, fine_desc=b.fine_desc)
         end
     end
 end

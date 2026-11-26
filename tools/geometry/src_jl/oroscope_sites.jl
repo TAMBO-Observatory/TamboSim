@@ -215,9 +215,8 @@ end
 
 Run oroscope (with `python`, or the tools' own environment if empty) with `config` (JSON) for detector sites within `radius_km` of `centre` = (lon, lat), on Copernicus
 GLO-30. Its outputs go to `<outdir>/<stem>_oroscope/`; the candidates are written to `<outdir>/<stem>_sites.kml`.
-Returns `(; sites, outlines, anchors, dem, kml, rundir, n_unselected)`: oroscope's records (best first), the
-matching Outlines (labelled A, B, …), a point inside each site, the search DEM, and how many qualifying sites oroscope
-did not select.
+Returns `(; sites, outlines, anchors, dem, kml, rundir, n_unselected, walk_km)`: oroscope's records (best first),
+the matching Outlines (labelled A, B, …), a point inside each site, the search DEM, and how far the scan traces rays.
 """
 function oroscope_search(python, config, centre, radius_km; outdir, stem, tile_dir)
     lon, lat = centre
@@ -273,5 +272,5 @@ function oroscope_search(python, config, centre, radius_km; outdir, stem, tile_d
     rm(joinpath(rundir, "site_labels.bin"))                     # read; the sites KML keeps the exact outlines
     kml = joinpath(outdir, "$(stem)_sites.kml")
     isempty(outlines) || write_sites_kml(kml, outlines, site_summary.(sites); title=sites_kml_title(radius_km, lat, lon))
-    (; sites, outlines, anchors, dem, kml, rundir, n_unselected=Int(info.n_qualifying_unselected))
+    (; sites, outlines, anchors, dem, kml, rundir, n_unselected=Int(info.n_qualifying_unselected), walk_km)
 end

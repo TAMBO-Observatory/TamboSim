@@ -37,7 +37,8 @@ The picker figure: shaded relief of the search area, the search circle, each can
 a list of the sites with a checkbox each, and a "one bundle" checkbox. Sites reaching beyond the fine-mesh zone
 (`extents_km[k] > r_cap_km`) are flagged in the list; with "one bundle" on, so is the combined selection.
 """
-function site_picker(search, centre, radius_km, extents_km, r_cap_km; preselect=Int[], combine=false)
+function site_picker(search, centre, radius_km, extents_km, r_cap_km; preselect=Int[], combine=false,
+                     limit_desc="fine mesh < $(round(r_cap_km, digits=2)) km", mesh_desc="")
     lon0, lat0 = centre; kx = KM_PER_DEG * cosd(lat0)
     km(p) = Point2f((p[1] - lon0) * kx, (p[2] - lat0) * KM_PER_DEG)
     n = length(search.outlines)
@@ -69,7 +70,7 @@ function site_picker(search, centre, radius_km, extents_km, r_cap_km; preselect=
         push!(cbs, cb)
         far = extents_km[k] > r_cap_km
         Label(list[k, 2], "$(o.label)   $(s.area_km2) km²  ·  $(s.capacity_exact) units  ·  faces $(s.facing_direction)" *
-              (far ? "   ⚠ reaches $(round(extents_km[k], digits=2)) km; fine mesh < $(round(r_cap_km, digits=2)) km" : "");
+              (far ? "   ⚠ reaches $(round(extents_km[k], digits=2)) km; $limit_desc" : "");
               halign=:left, fontsize=14, color=far ? :darkorange3 : :black)
         sel = cb.checked
         polys = [Makie.GeometryBasics.Polygon([km(q) for q in p[1]], [[km(q) for q in h] for h in p[2:end]]) for p in o.polygons]
@@ -96,7 +97,7 @@ function site_picker(search, centre, radius_km, extents_km, r_cap_km; preselect=
         (on && length(sel) > 1) || return ("", false)
         o = combine_outlines(search.outlines[sel]); e = outline_extent_km(o, area_centroid(o))
         ("$(o.label) reaches $(round(e, digits=2)) km from its centre" *
-         (e > r_cap_km ? "  ⚠ fine mesh < $(round(r_cap_km, digits=2)) km" : "  (fine mesh < $(round(r_cap_km, digits=2)) km)"),
+         (e > r_cap_km ? "  ⚠ $limit_desc" : "  ($limit_desc)"),
          e > r_cap_km)
     end
     Label(one[2, 2], @lift($reach[1]); halign=:left, fontsize=13, color=@lift($reach[2] ? :darkorange3 : :gray30))
@@ -109,7 +110,7 @@ function site_picker(search, centre, radius_km, extents_km, r_cap_km; preselect=
     b_cancel = Button(buttons[1, 4]; label="Cancel")
     Label(panel[5, 1], "Click a site or press its letter to select it.\nEnter builds the selection; Esc or closing " *
           "the window cancels.\n\nEach selected site becomes its own bundle, centred on it,\nunless they are built " *
-          "as one bundle, centred on all of them.";
+          "as one bundle, centred on all of them." * (isempty(mesh_desc) ? "" : "\nFine mesh (~60 m triangles): $mesh_desc.");
           halign=:left, fontsize=13, color=:gray30, justification=:left)
     fig, ax, cbs, cb_one, (; build=b_build, all=b_all, none=b_none, cancel=b_cancel)
 end
@@ -121,9 +122,11 @@ Open the picker and wait. Returns the indices of the sites selected when "Build 
 or an empty vector if the window is cancelled or closed, and whether to build them as one bundle (the checkbox,
 which starts at `combine`).
 """
-function pick_sites(search, centre, radius_km, extents_km, r_cap_km; combine=false)
+function pick_sites(search, centre, radius_km, extents_km, r_cap_km; combine=false,
+                    limit_desc="fine mesh < $(round(r_cap_km, digits=2)) km", mesh_desc="")
     GLMakie.activate!(; title="Pick TAMBO sites")
-    fig, ax, cbs, cb_one, b = site_picker(search, centre, radius_km, extents_km, r_cap_km; combine=combine)
+    fig, ax, cbs, cb_one, b = site_picker(search, centre, radius_km, extents_km, r_cap_km; combine=combine,
+                                          limit_desc=limit_desc, mesh_desc=mesh_desc)
     lon0, lat0 = centre; kx = KM_PER_DEG * cosd(lat0)
     toggle!(k) = (cbs[k].checked[] = !cbs[k].checked[])
     chosen = Ref{Union{Nothing,Vector{Int}}}(nothing)

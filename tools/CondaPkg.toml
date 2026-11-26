@@ -1,0 +1,9 @@
+# Python dependencies of the tools, managed by CondaPkg.jl. Installed on first use of
+# create_geometry.jl --point (not by Pkg.instantiate), into the shared environment
+# ~/.julia/conda_environments/tambosim_tools (see src_jl/oroscope_sites.jl).
+
+[deps]
+python = ">=3.10,<3.14"
+
+[pip.deps]
+oroscope = ">=0.5,<0.6"

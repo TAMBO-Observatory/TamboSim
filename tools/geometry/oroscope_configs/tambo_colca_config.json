@@ -1,0 +1,43 @@
+{
+    "_comment": "oroscope site criteria for TAMBO (particle detectors on one canyon wall, looking across at the far wall), for create_geometry.jl --point. Only settings that differ from oroscope's defaults are listed; the DEM, origin and region name come from --point. Values marked ASSUMPTION are the ones to check against the collaboration before quoting results.",
+    "_source": "Trimmed from oroscope's config/tambo_colca_config.json (https://github.com/mbustama/oroscope, commit 0fc9270, v0.5.0): radio (GRAND) Fresnel settings, keys create_geometry.jl replaces (DEM, origin, region name, road map, KML/map/resume outputs), num_cores/tile_size and keys equal to oroscope's defaults removed. Local changes (oroscope's value in brackets): near-wall slope 20-36 deg (20-60), max_dist_km 8 (5), elevation window +/-40 deg in 40 bins (+/-20 in 20), far-wall slope floor 10 deg (25), and TAMBO's 300 TeV - 1 EeV range (3 PeV - 1 EeV): decay_energy_min_pev 0.3 (3.0), grammage band 202-1287 g/cm2 (236-1287).",
+
+    "_comment_slope": "Slope band of the near wall the array stands on. ASSUMPTION.",
+    "min_slope_deg": 20.0,
+    "max_slope_deg": 36.0,
+
+    "_comment_geometry": "Across the canyon: ~4.5 km rim to rim, ~1.5 km deep, tau range in the valley 50 m - 5 km. The far wall subtends roughly +/-20 deg from a detector on the near wall. min_dist is 2 km so the target is the opposite wall rather than the slope underfoot; energy_min/max_pev are deliberately NOT set here, because they would override this window with the tau decay length (15 m - 52 km for 300 TeV - 1 EeV), which is not the canyon.",
+    "min_dist_km": 2.0,
+    "max_dist_km": 8.0,
+    "elev_min_deg": -40.0,
+    "elev_max_deg": 40.0,
+    "n_elev_bins": 40,
+
+    "_comment_far_wall": "The per-role half of the slope criterion. min_slope/max_slope above describe the NEAR wall the array stands on; this describes the FAR wall the tau exits, measured along the arrival azimuth at the point the ray strikes it. Without it the scan asks only that rock is present at the right range, which is true almost everywhere in the Andes. The floor is deliberately permissive against Colca's ~40 deg walls -- ASSUMPTION, and the knob most worth checking.",
+    "min_target_slope_deg": 10.0,
+
+    "_comment_physics": "Particle detection: no geomagnetic weighting, and grammage scored as a band because particle content dies after shower maximum.",
+    "use_geomagnetic": false,
+    "grammage_mode": "particle",
+    "_comment_shower_band": "= physics.grammage_band_from_energy(0.3, 1000.0, fraction=0.1) = (202.3, 1287.3), i.e. TAMBO's 300 TeV - 1 EeV range, taken as the depth range where the charged-particle content stays above a tenth of its own maximum. Stated explicitly rather than via energy_min/max_pev only because those also override the distance window. oroscope's default band rejects every canyon.",
+    "grammage_band_gcm2": [202.0, 1287.0],
+
+    "_comment_decay": "Folded over the spectrum rather than evaluated at one energy. The decay probability runs over nearly four decades across TAMBO's 300 TeV - 1 EeV range, so a single representative energy chooses the answer rather than approximating it: the sensitivity sweep gave 10878 detector positions at 3 PeV and zero at 100. decay_spectral_index may be a single value to pin the spectrum, or a [low, high] pair to marginalise uniformly over the range when the index is not known -- e.g. [1.5, 2.7]. 2.0 is the canonical slope and is an ASSUMPTION worth the same scrutiny as any other. shower_development_m is 0 because the grammage band already carries the requirement that enough air was traversed.",
+    "decay_energy_min_pev": 0.3,
+    "decay_energy_max_pev": 1000.0,
+    "decay_spectral_index": 2.0,
+    "shower_development_m": 0.0,
+
+    "_comment_scoring": "solid_angle_half_fraction is the fraction of the accepted sky that scores 0.5; oroscope's default saturates the term to ~1 across a canyon (accepted 0.07-0.5 sr), so it stops discriminating. min_score is the cut that turns the score into an actual filter - with 0.0 the score is computed and then ignored, which is why an earlier run accepted 91.7% of candidates.",
+    "solid_angle_half_fraction": 0.186135,
+    "min_score": 0.35,
+
+    "_comment_layout": "5000 units at 150 m on a triangular grid, in sub-arrays of at least 250 (sites of a few km^2 or more; lower min_sub_array_size for smaller sites). min_width_km is 0 because the array is a strip along a wall, not a blob, and the opening would delete it.",
+    "target_antennas": 5000,
+    "min_sub_array_size": 250,
+    "antenna_spacing_km": 0.15,
+    "min_width_km": 0.0,
+
+    "_comment_downsample": "1, not 4: area is measured on the downsampled mask while capacity is measured at full resolution, so a canyon strip only a few pixels wide loses ~30% of its area to downsampling while keeping its detectors. At 1 the two agree.",
+    "downsample_factor": 1
+}

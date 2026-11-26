@@ -1,8 +1,9 @@
 # Geometry tools
 
 Build TamboSim geometry bundles (the G/C/D frames consumed by `load_frames`) for any site
-outlined in a KML or KMZ file — drawn in Google Earth (Pro or web), QGIS, etc. — or given as the
-four corners of a box. Everything runs in the `tools/` environment:
+outlined in a KML or KMZ file — drawn in Google Earth (Pro or web), QGIS, etc. — given as the
+four corners of a box, or found by an [oroscope](https://github.com/mbustama/oroscope) site
+search around a point. Everything runs in the `tools/` environment:
 
 ```bash
 JULIA_PKG_USE_CLI_GIT=true julia --project=tools -e 'using Pkg; Pkg.instantiate()'
@@ -13,11 +14,16 @@ TamboMakie (for `--view`) comes from the TAMBO-Observatory GitHub over SSH, bran
 
 | Path | What it is |
 |---|---|
-| `create_geometry.jl` | New site: rotate a base triangulation onto the outline's centroid (KML or `--corners`), elevate it from a DEM, write `<name>.jld2` (G, C, D); optionally a `.h5` copy and CORSIKA PLYs |
+| `create_geometry.jl` | New site: rotate a base triangulation onto the outline's centroid (KML, `--corners`, or sites picked from an oroscope search with `--point`), elevate it from a DEM, write `<name>.jld2` (G, C, D); optionally a `.h5` copy and CORSIKA PLYs |
 | `src_jl/kml_outline.jl` | Functions only: the outline — from a KML/KMZ placemark or corner points; polygons with holes, area centroid |
 | `src_jl/site_mesh.jl` | Functions only: rotate the base triangulation onto the site and apply DEM heights |
 | `src_jl/copernicus_dem.jl` | Functions only: Copernicus GLO-30 tiles from AWS, or an HDF5 grid, as a bilinear interpolator |
 | `src_jl/view_geometry.jl` | Functions only: the `--view` window (TamboMakie + GLMakie); loaded only when `--view` is given |
+| `src_jl/oroscope_sites.jl` | Functions only: `--point` search — writes the search DEM, runs oroscope, traces each site's mask into an outline, writes `<name>_sites.kml` |
+| `src_jl/select_sites.jl` | Functions only: the `--point` site map (GLMakie) for picking candidates; loaded only when it opens |
+| `oroscope_configs/` | oroscope site-criteria configurations for `--point` (`tambo_colca_config.json`: TAMBO, trimmed from oroscope's own) |
+| `src_py/oroscope_search.py` | The Python side of `--point`: runs oroscope on the search DEM with candidates kept inside the circle, and exports its sites |
+| `../CondaPkg.toml` | The Python environment for `--point` (Python + oroscope), created by CondaPkg on first use |
 | `resources/triangulation.h5` | Base triangulations `base_triangulation_N` (65 MB; made by Kiara Carloni). `_100000` is the TAMBITO bundles' and `_30000` the TAMBO-4 one, both verified vertex for vertex against the official bundles |
 | `resources/tambito_candidates_june23.kml` | TAMBITO candidate outlines, for `--kml`; placemark ids `final_candidate_areas.N` / `extra_sites.N` (West of Huambo = `final_candidate_areas.16`) |
 
@@ -40,8 +46,15 @@ julia --project=tools tools/geometry/create_geometry.jl \
     --kml tools/geometry/resources/tambito_candidates_june23.kml --placemark final_candidate_areas.16
 ```
 
-The outline is required: pass either `--kml` or `--corners`. Files are written to the directory
-the script is run from unless `--outdir` is given.
+```bash
+# no outline: let oroscope find sites within 10 km of a point, pick from them in a map, build each one picked
+julia --project=tools tools/geometry/create_geometry.jl --point -15.749 -72.129 --radius-km 10 \
+    --oroscope-config tools/geometry/oroscope_configs/tambo_colca_config.json
+
+```
+
+The outline is required: pass `--kml`, `--corners` or `--point`. Files are written to the
+directory the script is run from unless `--outdir` is given.
 
 **Outputs.** By default only `<name>.jld2`, the G/C/D bundle, which is all the simulation
 needs (`load_frames`, or `gc_path`/`d_path` in the pipeline). Two extras are opt-in:
@@ -67,6 +80,62 @@ KML's lon,lat — listed in order around the box, clockwise or anticlockwise; th
 a rectangle. Corners listed diagonally (so the edges cross), repeated or lying on a line are
 rejected, and a lon/lat mix-up is caught by the latitude check below. It cannot be combined with
 `--kml`, `--placemark` or `--list`. Output files default to `box_<lat>_<lon>` of the centre.
+
+**Searching around a point (`--point`).** [oroscope](https://github.com/mbustama/oroscope)
+(Mauricio Bustamante; Python) screens a DEM for ground that can host a detector array, using a
+JSON configuration of criteria: near-wall slope, a far wall at the right distance and slope,
+the shower's grammage band, detector spacing and the minimum sub-array size. `--point LAT LON`
+runs it within `--radius-km` (default 10) of the point:
+
+1. Copernicus GLO-30 is written as a GeoTIFF covering the circle plus the scan's ray range
+   (`max_dist_km`, `max_range_km`, or the range implied by `energy_min/max_pev`), so rays from
+   sites near the edge still see the terrain around them. An exclusion zone keeps candidate
+   detector pixels inside the circle.
+2. oroscope runs with `--oroscope-config` as given, except that the DEM, its origin and any
+   `road_map_path` (aligned to another DEM) are replaced, and `generate_kml` is off. Its outputs
+   (results JSON, explanation, map, mask) go to `<name>_oroscope/`.
+3. Each site oroscope selects becomes an outline tracing its mask pixels exactly, holes
+   included. The sites are labelled A, B, C, … best first, in oroscope's capacity order, and
+   written to `<name>_sites.kml`.
+4. A map opens with the shaded terrain, the search circle and the lettered sites, plus a list of
+   each site's area, capacity and facing direction. Sites reaching beyond the fine-mesh zone
+   are flagged. Click sites or press their letters to select them, then press "Build selected"
+   or Enter; Esc, Cancel or closing the window builds nothing. `--sites A,C` (or `all`) skips the
+   map, e.g. for batch jobs.
+5. Each picked site is built as its own bundle, centred on that site: `<name>_<letter>.jld2`
+   (`<name>` defaults to `site_<lat>_<lon>` of the point). To rebuild one later without
+   searching again, use `--kml <name>_sites.kml --placemark <letter>`.
+6. Or several sites become **one bundle**: tick "Build the selected sites as one bundle" in the
+   map, or pass `--combine` with `--sites`, e.g. `--sites B,D --combine`. The bundle is centred on
+   all of them, and its one detector region covers every chosen site. In the simulation they
+   are one detector: injection samples points on all of the sites by visible area, so rates add
+   up. The map shows how far the chosen sites reach from their combined centre. They must fit in
+   one fine-mesh zone (10 km), or part of the detector sits on ~300 m triangles; the usual check
+   and warning apply. The bundle is `<name>_<letters>.jld2` (e.g. `_BD`), and its outline is added
+   to `<name>_sites.kml` as placemark `BD` for rebuilding.
+
+Nothing has to be installed by hand. oroscope runs in its own Python, which
+[CondaPkg](https://github.com/JuliaPy/CondaPkg.jl) (a `tools/` dependency) creates on the first
+`--point` run from `tools/CondaPkg.toml` (Python + oroscope 0.5.x; a few minutes and ~0.5 GB, once).
+It lives in `~/.julia/conda_environments/tambosim_tools`, beside Julia's own packages rather
+than in the code tree. Later runs only check it. To use an existing Python that has oroscope
+instead, pass `--python /path/to/python` (or set `$OROSCOPE_PYTHON`). The DEM needs nothing
+either: as for any build, the Copernicus tiles are downloaded into a temporary directory, here
+shared by the search and the bundles and deleted at the end (`--tile-dir DIR` keeps them).
+
+`oroscope_configs/tambo_colca_config.json` holds TAMBO's site criteria, trimmed from oroscope's
+[`config/tambo_colca_config.json`](https://github.com/mbustama/oroscope/blob/main/config/tambo_colca_config.json)
+(v0.5.0) to the settings that differ from oroscope's defaults. Dropped: the radio (GRAND)
+Fresnel settings, the keys `--point` replaces (DEM, origin, region name, road map, outputs),
+and performance settings. Trimming leaves the search unchanged, which was checked on the same DEM.
+Values changed from oroscope's (e.g. TAMBO's 300 TeV – 1 EeV range instead of 3 PeV – 1 EeV for the
+decay and grammage terms) are listed in its `_source` key. It asks for 5000 units at 150 m in sub-arrays of at least 250, i.e. sites of a
+few km² or more; lower `min_sub_array_size` for TAMBITO-sized sites (~2 km²). Add variants
+alongside it; any oroscope key can be added (`oroscope --help`, or `default_config()`, lists
+them all). Its `_comment` keys mark which criteria are assumptions; `explanation.txt` in `<name>_oroscope/` says which
+cut limited the search. The detector region is exactly oroscope's site mask (triangle centres
+inside it), on mask pixels of `downsample_factor` × 1″. The search takes seconds for a 10–20 km
+radius; each bundle about 40 s.
 
 **The outline.** A placemark is matched by its `<name>`, its `id` attribute, or a "Comments"
 field (ExtendedData, including Google Earth web exports where the field is renamed but keeps
@@ -152,6 +221,7 @@ the flat triangles between vertices; there is no spline in the bundle. With Cope
 ridges narrower than ~100 m. Bilinear point sampling beat box means sized to the local
 spacing both near the array (5.4 vs 5.9 m robust σ vs a drone survey) and in the 10–50 km ring
 (24.6 vs 29.9 m vs full-resolution Copernicus).
+
 
 ## DEM choice: Copernicus GLO-30
 

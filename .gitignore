@@ -14,6 +14,7 @@ resources/proposal_tables/*.json
 resources/proposal_tables/*.dat
 examples/output/
 tools/output/
+tools/.CondaPkg/
 
 *.pdf
 *.png

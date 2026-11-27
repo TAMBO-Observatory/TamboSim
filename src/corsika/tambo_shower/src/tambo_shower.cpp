@@ -32,7 +32,6 @@
 #include <corsika/framework/geometry/Sphere.hpp>
 #include <corsika/framework/geometry/TriangularMesh.hpp>
 #include <corsika/framework/geometry/ClosedMesh.hpp>
-#include <corsika/framework/process/BoundaryCrossingProcess.hpp>
 #include <corsika/framework/process/ContinuousProcess.hpp>
 #include <corsika/framework/process/DynamicInteractionProcess.hpp>
 #include <corsika/framework/process/SecondariesProcess.hpp>
@@ -110,7 +109,6 @@
 #include <optional>
 #include <set>
 #include <string>
-#include <type_traits>
 #include <vector>
 
 using namespace corsika;

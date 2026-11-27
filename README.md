@@ -83,7 +83,7 @@ To use TamboSim as a base package for analysis and plotting, e.g. using TamboMak
 
 ### [2] Installing and compiling CORSIKA
 
-TamboSim relies on the C++ implementation [CORSIKA 8](https://corsika-8.readthedocs.io/en/latest/) for simulating the extensive air showers produced by charged particles in air. Specifically, you will need the `tambo/mesh` branch of CORSIKA 8, with the mesh geometry developed by Jeff Lazar, which adds functionality for simulating air shower development over complex 3D terrain (see section 2.2.1 of the [CORSIKA 8 publication](https://arxiv.org/abs/2604.01850)). On top of that, you will need to build TamboSim's own `tambo_shower` executable, whose source ships in this repo at [`src/corsika/tambo_shower/src/`](src/corsika/tambo_shower/src/).
+TamboSim relies on the C++ implementation [CORSIKA 8](https://corsika-8.readthedocs.io/en/latest/) for simulating the extensive air showers produced by charged particles in air. Specifically, you will need the `tambo/mesh` branch of CORSIKA 8 at the commit pinned in [the build instructions](src/corsika/tambo_shower/src/README.md), with the mesh geometry developed by Jeff Lazar, which adds functionality for simulating air shower development over complex 3D terrain (see section 2.2.1 of the [CORSIKA 8 publication](https://arxiv.org/abs/2604.01850)). On top of that, you will need to build TamboSim's own `tambo_shower` executable, whose source ships in this repo at [`src/corsika/tambo_shower/src/`](src/corsika/tambo_shower/src/).
 
 Running CORSIKA is computationally expensive, so it typically only makes sense to install on a high-performance computing cluster, e.g. [Harvard's FASRC](https://www.rc.fas.harvard.edu). Two paths:
 

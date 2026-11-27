@@ -15,14 +15,22 @@ PLY mesh loading; CORSIKA MR !753), plus fixes and speedups that are under
 review upstream separately. These features are not yet in the CORSIKA 8
 mainline.
 
+`tambo_shower` is built and tested against `tambo/mesh` at commit
+[`23449283486b5b30ade9471c431e24d3ccc1c609`](https://gitlab.iap.kit.edu/AirShowerPhysics/corsika/-/tree/23449283486b5b30ade9471c431e24d3ccc1c609),
+the source of the production binary. The branch keeps moving as those fixes go
+through review, so check out that commit rather than the branch tip. When
+`tambo_shower` moves to a newer commit, update it here.
+
 The general instructions for installing CORSIKA 8 [can be found here](https://gitlab.iap.kit.edu/AirShowerPhysics/corsika);
 the steps below are based on that resource and use CORSIKA 8's own
 `conan-install.sh` and `corsika-cmake.sh` wrappers.
 
-1. Clone the `tambo/mesh` branch of CORSIKA:
+1. Clone the `tambo/mesh` branch of CORSIKA and check out the pinned commit:
     ```shell
     git clone --recursive --branch tambo/mesh \
       https://gitlab.iap.kit.edu/AirShowerPhysics/corsika.git corsika
+    git -C corsika checkout 23449283486b5b30ade9471c431e24d3ccc1c609
+    git -C corsika submodule update --init --recursive
     ```
 
 2. CORSIKA uses Conan to manage its C++ dependencies, so you will need to

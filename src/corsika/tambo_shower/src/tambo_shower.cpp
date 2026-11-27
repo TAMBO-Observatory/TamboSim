@@ -1168,12 +1168,15 @@ int main(int argc, char** argv) {
   HEPEnergyType const mucut = 1_GeV * app["--mucut"]->as<double>();
   HEPEnergyType const taucut = 1_GeV * app["--taucut"]->as<double>();
   // Photons below gammacut are removed (their energy goes to the dE/dX profile); electrons
-  // and positrons keep emcut. Production thresholds stay at the lowest cut, so photons are
-  // still produced and then discarded by the cut.
+  // and positrons keep emcut. Production thresholds are the lowest of all the cuts,
+  // gammacut included, so no particle is cut before it is produced: with gammacut above
+  // emcut photons are still produced and then discarded by the cut, and with gammacut
+  // below it photons between the two are produced as particles rather than folded into
+  // continuous losses.
   ParticleCut<SubWriter<decltype(dEdX)>> cut(emcut, gammacut, hadcut, mucut, taucut,
                                              !track_neutrinos, dEdX);
 
-  auto const prod_threshold = std::min({emcut, hadcut, mucut, taucut});
+  auto const prod_threshold = std::min({emcut, gammacut, hadcut, mucut, taucut});
   set_energy_production_threshold(Code::Electron, prod_threshold);
   set_energy_production_threshold(Code::Positron, prod_threshold);
   set_energy_production_threshold(Code::Photon, prod_threshold);

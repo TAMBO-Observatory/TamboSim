@@ -311,21 +311,22 @@ Source pointers (under `corsika/` in the CORSIKA 8 source tree; FASRC `/n/holylf
 <details>
 <summary><h3>How does `tambo_shower` determine the PROPOSAL table settings (`emCut, v_cut`)?</h3></summary>
 
-`v_cut` is a hardcoded framework constant in `corsika/modules/PROPOSAL.hpp` (0.01, overridden to 1 for ionization via `p_cut_no_vcut`). `emCut` is derived from the `tambo_shower`'s four CLI energy cut flags: ([tambo_shower.cpp:978–994](../src/corsika/tambo_shower/src/tambo_shower.cpp#L978-L994)):
+`v_cut` is a hardcoded framework constant in `corsika/modules/PROPOSAL.hpp` (0.01, overridden to 1 for ionization via `p_cut_no_vcut`). `emCut` is derived from `tambo_shower`'s five CLI energy cut flags (the `--emcut` … `--taucut` options in [tambo_shower.cpp](../src/corsika/tambo_shower/src/tambo_shower.cpp)):
 
 | Flag | `tambo_shower` Default | Primary meaning |
 |---|---|---|
-| `--emcut`  | 10 GeV | min. kinetic energy of γ / e± |
-| `--hadcut` | 1 GeV | min. kinetic energy of hadrons |
-| `--mucut`  | 10 GeV | min. kinetic energy of muons |
-| `--taucut` | 10 GeV | min. kinetic energy of tau leptons |
+| `--emcut`    | 10 GeV | min. kinetic energy of e± (and γ, unless `--gammacut` is given) |
+| `--gammacut` | `--emcut` | min. kinetic energy of γ |
+| `--hadcut`   | 1 GeV | min. kinetic energy of hadrons |
+| `--mucut`    | 10 GeV | min. kinetic energy of muons |
+| `--taucut`   | 10 GeV | min. kinetic energy of tau leptons |
 
-The primary job of these flags is unrelated to PROPOSAL: each is the **cascade kill threshold** for its particle class, wired into CORSIKA's `ParticleCut` at [line 1376](../src/corsika/tambo_shower/src/tambo_shower.cpp#L1376) (`ParticleCut(emcut, emcut, hadcut, mucut, taucut, …)`) — a particle is dropped from the shower once its kinetic energy falls below the threshold for its class.
+The primary job of these flags is unrelated to PROPOSAL: each is the **cascade kill threshold** for its particle class, wired into CORSIKA's `ParticleCut` (`ParticleCut(emcut, gammacut, hadcut, mucut, taucut, …)`) — a particle is dropped from the shower once its kinetic energy falls below the threshold for its class. From TamboSim, `[corsika]` `em_ecut`, `gamma_ecut` (optional), `hadron_ecut` and `mu_ecut` set them; `--taucut` gets the muon cut.
 
-Their secondary job sets the PROPOSAL `emCut`. `tambo_shower` takes the minimum of all four and applies that one value uniformly as the production threshold for every tracked species ([lines 1379–1386](../src/corsika/tambo_shower/src/tambo_shower.cpp#L1379-L1386)):
+Their secondary job sets the PROPOSAL `emCut`. `tambo_shower` takes the minimum of all five and applies that one value uniformly as the production threshold for every tracked species, so no particle is cut before it can be produced:
 
 ```cpp
-auto const prod_threshold = std::min({emcut, hadcut, mucut, taucut});
+auto const prod_threshold = std::min({emcut, gammacut, hadcut, mucut, taucut});
 set_energy_production_threshold(Code::Electron, prod_threshold);  // …Positron, Photon,
 set_energy_production_threshold(Code::MuMinus,  prod_threshold);  // …MuPlus, TauMinus, TauPlus
 ```
@@ -334,7 +335,7 @@ The framework's `getOptimizedEmCut()` then snaps `prod_threshold` onto the large
 
 Source pointers:
 
-- `tambo_shower.cpp` (local, [src/corsika/tambo_shower/src/](../src/corsika/tambo_shower/src/)) — `--emcut/--hadcut/--mucut/--taucut` declarations (lines 279–295); `ParticleCut` construction (line 726); `prod_threshold` min and the seven `set_energy_production_threshold` calls (lines 729–736).
+- `tambo_shower.cpp` (local, [src/corsika/tambo_shower/src/](../src/corsika/tambo_shower/src/)) — the `--emcut/--gammacut/--hadcut/--mucut/--taucut` declarations; in `main`, the `ParticleCut` construction, the `prod_threshold` min and the seven `set_energy_production_threshold` calls that follow it.
 - `corsika/modules/PROPOSAL.hpp` — the hardcoded `v_cut` (0.01) and the ionization `p_cut_no_vcut` (v_cut→1); not driver-configurable.
 - `corsika/modules/proposal/ProposalProcessBase.inl` — `getOptimizedEmCut()` and the discrete cached-table menu the production threshold is snapped onto.
 

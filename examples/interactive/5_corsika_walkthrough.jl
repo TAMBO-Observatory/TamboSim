@@ -167,6 +167,8 @@ end
 #     --site-file <path.toml>  # atmosphere layers + geomagnetic field, from
 #                              # [corsika] site_file.  See resources/sites/.
 #     --emcut/hadcut/mucut/taucut <GeV>
+#     [--gammacut <GeV>]       # photons only, from [corsika] gamma_ecut if
+#                              # set; otherwise photons are cut at --emcut
 #     -M <hadron_model> -N <nevent> --seed <seed> --emthin <thinning>
 #     -f <outdir>
 #     [--terrain-mesh <path>]

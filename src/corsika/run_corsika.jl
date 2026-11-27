@@ -135,6 +135,9 @@ Build the argv vector for one invocation of `tambo_shower`.
   `"site_file"` (**required**, no default; path to a site TOML -- see
   [`site_file_path`](@ref) -- which supplies the atmosphere layer profile
   and the geomagnetic field),
+  `"gamma_ecut"` (default unset; a kinetic-energy cut in GeV for photons
+  only, passed as `--gammacut`; unset, `tambo_shower` cuts photons at
+  `em_ecut` like electrons and positrons),
   `"hadron_model"` (default `"SIBYLL-2.3d"`), `"thinning"` (default
   `1e-6`), `"nevent"` (default `1`), `"force_overwrite"` (default
   `false`; passes `--force` to the binary), `"time_command"` (default
@@ -184,6 +187,12 @@ function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, conf
         "--emthin",      string(thinning),
         "-f",            job.outdir,
     ]
+    if haskey(config, "gamma_ecut")
+        gamma_ecut = config["gamma_ecut"]
+        gamma_ecut isa Real || error(
+            "[corsika] gamma_ecut must be a number (GeV), got $(repr(gamma_ecut))")
+        append!(argv, ["--gammacut", string(Float64(gamma_ecut))])
+    end
     if !isempty(mesh_paths.terrain)
         append!(argv, ["--terrain-mesh", mesh_paths.terrain])
     end
@@ -344,8 +353,8 @@ Q-frame `corsika_directories` always reflects the *full* job list from
 # Config keys consulted
 - `"corsika_path"`, `"em_ecut"`, `"mu_ecut"`, `"hadron_ecut"` — required
 - `"seed"` — optional; randomized + stored if missing
-- `"hadron_model"`, `"thinning"`, `"nevent"`, `"use_terrain_mesh"`,
-  `"force_overwrite"` — optional
+- `"gamma_ecut"`, `"hadron_model"`, `"thinning"`, `"nevent"`,
+  `"use_terrain_mesh"`, `"force_overwrite"` — optional
 - `"executor"`, `"executor_sbatch_prefix"`, `"executor_dump_path"` — optional
 """
 function corsika_run!(

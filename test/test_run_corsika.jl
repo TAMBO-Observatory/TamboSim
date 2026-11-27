@@ -79,6 +79,7 @@ function run_corsika_orchestrator_tests()
         test_argv_has_required_flags(cr_frames)
         test_argv_site(cr_frames)
         test_argv_terrain_mesh_optional(cr_frames)
+        test_argv_gamma_ecut(cr_frames)
     end
     @testset "shipped site files" begin
         test_shipped_site_files()
@@ -298,6 +299,29 @@ function test_argv_terrain_mesh_optional(frames)
                               ecuts, cfg)
     @test "--obs-mesh" in argv
     @test !("--terrain-mesh" in argv)
+end
+
+function test_argv_gamma_ecut(frames)
+    job, cfg = _one_real_job(frames)
+    isnothing(job) && return
+    mesh_paths = (obs="/tmp/obs.ply", terrain="")
+    ecuts = SVector{3, Float64}(1e-3, 1e-2, 1e-1) * u"GeV"
+
+    # Unset: no --gammacut, so tambo_shower cuts photons at --emcut.
+    @test !("--gammacut" in build_corsika_argv(job, mesh_paths, ecuts, cfg))
+
+    photon_cfg = copy(cfg)
+    photon_cfg["gamma_ecut"] = 0.02
+    argv = build_corsika_argv(job, mesh_paths, ecuts, photon_cfg)
+    idx = findfirst(==("--gammacut"), argv)
+    @test !isnothing(idx)
+    @test argv[idx + 1] == "0.02"
+    # The photon cut does not replace the e± cut.
+    @test argv[findfirst(==("--emcut"), argv) + 1] == "0.001"
+
+    bad_cfg = copy(cfg)
+    bad_cfg["gamma_ecut"] = "0.02"
+    @test_throws ErrorException build_corsika_argv(job, mesh_paths, ecuts, bad_cfg)
 end
 
 # ============================================================================

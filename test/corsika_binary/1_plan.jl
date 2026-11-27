@@ -99,6 +99,11 @@ function _set_f_flag(argv, outdir)
     return out
 end
 
+# Top-level keys a test config may carry besides TamboSim's own sections:
+# `name` and `description` (the latter for readers only), `max_showers` and
+# `determinism_check` (read here), `baseline` (make_baselines.jl).
+const HARNESS_KEYS = ("name", "description", "max_showers", "determinism_check", "baseline")
+
 """
     plan_one(config_path, env)
 
@@ -107,6 +112,7 @@ number of shower jobs written (excluding any determinism repeat).
 """
 function plan_one(config_path, env)
     cfg  = TOML.parsefile(config_path)
+    TamboSim.check_config(cfg; extra_keys=HARNESS_KEYS)
     name = cfg["name"]
     base_outdir = joinpath(env.outdir, name)
     mkpath(base_outdir)

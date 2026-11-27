@@ -111,3 +111,80 @@ function relativize!(d::Dict)
         end
     end
 end
+
+# ---------------------------------------------------------------------------
+# Config key checks
+#
+# TamboSim rejects any config key it does not recognize, so a misspelt or
+# retired key stops the run instead of being ignored (and then stamped on the
+# M frame as though it had been used). Each stage checks the table it is given
+# (check_injection_config, check_proposal_config, check_corsika_config), and
+# check_config checks a whole config file.
+# ---------------------------------------------------------------------------
+
+"""
+    _check_config_keys(where, config, allowed) -> nothing
+
+Throw an error naming every key of `config` not in `allowed`, and listing the
+permitted keys. `where` names the table in the message, e.g. `"[corsika]"`.
+"""
+function _check_config_keys(where::AbstractString, config::AbstractDict, allowed)
+    unknown = sort!([string(k) for k in keys(config) if !(k in allowed)])
+    isempty(unknown) && return nothing
+    error(where, " has unrecognized key(s): ", join(repr.(unknown), ", "),
+          ". Permitted keys: ", join(allowed, ", "), ".")
+end
+
+"""
+    CONFIG_SECTIONS
+
+The top-level tables of a TamboSim config file, as the scripts in
+`examples/templates/` read it. See [`check_config`](@ref).
+"""
+const CONFIG_SECTIONS = ("geometry", "injection", "proposal", "corsika")
+
+"""
+    GEOMETRY_CONFIG_KEYS
+
+The keys `[geometry]` may hold: `geometry_path`, the GCD bundle the templates
+load.
+"""
+const GEOMETRY_CONFIG_KEYS = ("geometry_path",)
+
+"""
+    check_config(config::AbstractDict; extra_keys=()) -> nothing
+
+Throw an error if a whole TamboSim config holds a key that nothing reads:
+
+- a top-level key other than [`CONFIG_SECTIONS`](@ref) or `extra_keys` (for a
+  caller whose files carry settings of its own, such as the `corsika_binary`
+  suite's `max_showers`);
+- a `[geometry]` key other than [`GEOMETRY_CONFIG_KEYS`](@ref);
+- a key in `[injection]`, `[proposal]` or `[corsika]` that its stage would
+  reject ([`check_injection_config`](@ref) against the keys of the table's
+  `strategy`, [`check_proposal_config`](@ref), [`check_corsika_config`](@ref)).
+
+The stages check their own tables whenever they run, so this matters for code
+that loads a whole file: call it right after `TOML.parsefile`, so a bad key
+fails before any work is done.
+"""
+function check_config(config::AbstractDict; extra_keys=())
+    _check_config_keys("The config's top level", config, (CONFIG_SECTIONS..., extra_keys...))
+    for name in CONFIG_SECTIONS
+        haskey(config, name) || continue
+        config[name] isa AbstractDict ||
+            error("[$name] must be a table, got $(repr(config[name]))")
+    end
+    haskey(config, "geometry") &&
+        _check_config_keys("[geometry]", config["geometry"], GEOMETRY_CONFIG_KEYS)
+    if haskey(config, "injection")
+        injection = config["injection"]
+        haskey(injection, "strategy") || error(
+            "[injection] is missing `strategy`; set it to one of ",
+            join(repr.(sort!(collect(keys(INJECTION_CONFIG_KEYS)))), ", "), ".")
+        check_injection_config(injection, injection["strategy"])
+    end
+    haskey(config, "proposal") && check_proposal_config(config["proposal"])
+    haskey(config, "corsika") && check_corsika_config(config["corsika"])
+    return nothing
+end

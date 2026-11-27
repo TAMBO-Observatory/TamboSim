@@ -222,7 +222,6 @@ function test_proposal_config_stored()
     proposal_config = Dict{String,Any}(
         "seed"        => 7,
         "vcut"            => 0.5,
-        "do_interpolate"  => true,
         "do_continuous"   => true,
         "tablespath"      => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
                                       "resources", "proposal_tables"),
@@ -245,7 +244,6 @@ function test_proposal_output_keys()
     proposal_config = Dict{String,Any}(
         "seed"        => 7,
         "vcut"            => 0.5,
-        "do_interpolate"  => true,
         "do_continuous"   => true,
         "tablespath"      => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
                                       "resources", "proposal_tables"),
@@ -283,7 +281,6 @@ function test_proposal_skips_below_rest_energy()
     proposal_config = Dict{String,Any}(
         "seed"        => 7,
         "vcut"            => 0.5,
-        "do_interpolate"  => true,
         "do_continuous"   => true,
         "tablespath"      => joinpath(get(ENV, "TAMBOSIM_PATH", joinpath(@__DIR__, "..")),
                                       "resources", "proposal_tables"),

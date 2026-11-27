@@ -74,6 +74,7 @@ outfile        = args["outfile"]
 cut_inmountain = args["cut-inmountain"]
 
 config = TOML.parsefile(args["config"])
+TamboSim.check_config(config)   # unknown keys fail here, before any work
 relativize!(config)
 geometry_file  = something(args["geometry"], config["geometry"]["geometry_path"])
 

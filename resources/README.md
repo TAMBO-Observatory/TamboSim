@@ -24,6 +24,14 @@ Hand-edited TOML files that drive the four pipeline stages
 input bundle). Every other example or template that takes a `--config`
 argument defaults to one of these.
 
+A key TamboSim does not read is an error, not ignored: each stage rejects
+unknown keys in its own table (in `[injection]`, a key only another
+`strategy` reads counts as unknown), and `TamboSim.check_config(config)`,
+which the templates call after loading a file, also rejects unknown
+top-level tables and `[geometry]` keys. The accepted keys are
+`INJECTION_CONFIG_KEYS`, `PROPOSAL_CONFIG_KEYS`, `CORSIKA_CONFIG_KEYS` and
+`GEOMETRY_CONFIG_KEYS` in the source.
+
 | File | Purpose |
 |---|---|
 | `tau_neutrino_cc.toml` | The standard nu_tau CC configuration for the Colca Valley site, used for the TAMBO sensitivity paper. |

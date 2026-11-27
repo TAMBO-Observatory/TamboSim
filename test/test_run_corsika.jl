@@ -333,19 +333,7 @@ end
 # [corsika] key check
 # ============================================================================
 
-# Every tracked config with a [corsika] table. Not a readdir of
-# resources/configuration_examples/: local checkouts keep untracked scratch
-# configs there, many with retired keys.
-function _tracked_corsika_configs()
-    examples = joinpath(_TAMBOSIM_PATH, "resources", "configuration_examples")
-    binary_suite = joinpath(_TAMBOSIM_PATH, "test", "corsika_binary", "configs")
-    return vcat(
-        [joinpath(examples, f) for f in ("tau_neutrino_cc.toml", "muon_neutrino_cc.toml",
-                                         "cosmic_ray_proton.toml", "atmospheric_muon.toml")],
-        [joinpath(binary_suite, f) for f in readdir(binary_suite) if endswith(f, ".toml")],
-    )
-end
-
+# Tracked configs are checked whole in test_config_keys.jl.
 function test_corsika_key_check(frames)
     cfg = _default_corsika_config()
     @test isnothing(TamboSim.check_corsika_config(cfg))
@@ -383,10 +371,6 @@ function test_corsika_key_check(frames)
     @test !ispath(base_outdir)
     @test isempty(records)
     @test haskey(m, "corsika") == had_corsika
-
-    for path in _tracked_corsika_configs()
-        @test isnothing(TamboSim.check_corsika_config(TOML.parsefile(path)["corsika"]))
-    end
 end
 
 # ============================================================================

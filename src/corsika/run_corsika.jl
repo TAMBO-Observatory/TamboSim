@@ -29,12 +29,8 @@ in [`CORSIKA_CONFIG_KEYS`](@ref). [`corsika_run!`](@ref) calls it before doing
 anything else, and [`build_corsika_argv`](@ref) calls it too, for callers that
 build argv directly.
 """
-function check_corsika_config(config::AbstractDict)
-    unknown = sort!([string(k) for k in keys(config) if !(k in CORSIKA_CONFIG_KEYS)])
-    isempty(unknown) && return nothing
-    error("[corsika] has unrecognized key(s): ", join(repr.(unknown), ", "),
-          ". Permitted keys: ", join(CORSIKA_CONFIG_KEYS, ", "), ".")
-end
+check_corsika_config(config::AbstractDict) =
+    _check_config_keys("[corsika]", config, CORSIKA_CONFIG_KEYS)
 
 """
     site_file_path(config::Dict) -> String

@@ -88,6 +88,7 @@ outfile    = args["outfile"]
 cut_failed = !args["no-cut"]
 
 config = TOML.parsefile(args["config"])
+TamboSim.check_config(config)   # unknown keys fail here, before any work
 relativize!(config)
 
 injection_config = config["injection"]

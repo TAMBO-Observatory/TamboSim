@@ -19,9 +19,33 @@ const _propagator_cache = Dict{Tuple{Int, String}, Any}()
 const _config_dir = Ref{String}("")
 
 """
+    PROPOSAL_CONFIG_KEYS
+
+Every key the `[proposal]` table may hold: `seed`, read by
+[`proposal_propagation!`](@ref), and the settings [`init_proposal`](@ref)
+reads. [`check_proposal_config`](@ref) rejects any other key.
+"""
+const PROPOSAL_CONFIG_KEYS = (
+    "seed", "tablespath", "ecut", "vcut", "do_continuous",
+    "brems_parametrization", "brems_lpm", "epair_parametrization", "epair_lpm",
+    "ioniz_parametrization", "photo_parametrization", "photo_shadow",
+)
+
+"""
+    check_proposal_config(config::AbstractDict) -> nothing
+
+Throw an error naming every key of the `[proposal]` table `config` that is not
+in [`PROPOSAL_CONFIG_KEYS`](@ref). [`proposal_propagation!`](@ref) and
+[`init_proposal`](@ref) call it before doing anything else.
+"""
+check_proposal_config(config::AbstractDict) =
+    _check_config_keys("[proposal]", config, PROPOSAL_CONFIG_KEYS)
+
+"""
     init_proposal(config)
 
 Initializes the PROPOSAL.jl library and pre-computes propagator objects.
+Any key not in [`PROPOSAL_CONFIG_KEYS`](@ref) is an error.
 
 # Arguments
 - `config`: A dictionary containing configuration parameters:
@@ -38,6 +62,7 @@ Initializes the PROPOSAL.jl library and pre-computes propagator objects.
   - `photo_shadow`: Photonuclear shadow effect (default: "ButkevichMikheyev")
 """
 function init_proposal(config)
+    check_proposal_config(config)
     # Check if PROPOSAL library is available
     if !PP.is_library_available()
         @warn """

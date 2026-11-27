@@ -113,6 +113,12 @@ end
 Close an open surface mesh by adding a skirt (side walls) and a bottom cap,
 inset `depth_m` metres along the radial direction from each boundary vertex.
 Returns the inputs unchanged if the mesh is already closed.
+
+The result is consistently oriented with outward normals (every edge traversed
+once in each direction, positive signed volume), as a winding-number classifier
+(CORSIKA 8 `ClosedMesh`) requires: the skirt follows the winding of the surface
+faces along the boundary, the cap closes it, and if the surface itself faces
+inward every face is reversed.
 """
 function make_watertight(
     vertices :: Matrix{Float64},
@@ -170,6 +176,18 @@ function make_watertight(
     end
     n_loop = length(loop)
 
+    # Walk the boundary in the direction the surface faces traverse it, so the
+    # skirt faces below (which traverse each boundary edge b -> a) are wound
+    # consistently with the surface.
+    directed = Set{Tuple{Int,Int}}()
+    for i in axes(faces, 1)
+        push!(directed, (faces[i,1], faces[i,2]), (faces[i,2], faces[i,3]),
+              (faces[i,3], faces[i,1]))
+    end
+    if !((loop[1], loop[2]) in directed)
+        reverse!(loop)
+    end
+
     n_old = size(vertices, 1)
     bot_verts = Matrix{Float64}(undef, n_loop, 3)
     for (i, vi) in enumerate(loop)
@@ -197,10 +215,23 @@ function make_watertight(
     for i in 1:n_loop
         a_bot = bot_ring_start + i - 1
         b_bot = bot_ring_start + mod(i, n_loop)
-        bot_cap[i, :] = [a_bot, b_bot, bot_center_idx]
+        bot_cap[i, :] = [b_bot, a_bot, bot_center_idx]
     end
 
-    return new_verts, vcat(faces, side, bot_cap)
+    all_faces = vcat(faces, side, bot_cap)
+    # Outward normals: positive signed volume. A surface wound inward gives a
+    # consistently but inward-oriented closed mesh; reverse every face.
+    vol = 0.0
+    for i in axes(all_faces, 1)
+        a = new_verts[all_faces[i,1], :]
+        b = new_verts[all_faces[i,2], :]
+        c = new_verts[all_faces[i,3], :]
+        vol += dot(a, cross(b, c))
+    end
+    if vol < 0
+        all_faces = all_faces[:, [1, 3, 2]]
+    end
+    return new_verts, all_faces
 end
 
 function _detector_subset_vf(

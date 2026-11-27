@@ -84,6 +84,11 @@ function run_corsika_orchestrator_tests()
     @testset "shipped site files" begin
         test_shipped_site_files()
     end
+    # Read-only: the rejected corsika_run! call must fail before it stamps
+    # anything, which the test checks.
+    @testset "[corsika] key check" begin
+        test_corsika_key_check(cr_frames)
+    end
     # The two tests below mutate `cr_frames` (stamping M and Q frames).
     # They MUST run after the read-only tests above.
     @testset "corsika_run! stamping" begin
@@ -322,6 +327,66 @@ function test_argv_gamma_ecut(frames)
     bad_cfg = copy(cfg)
     bad_cfg["gamma_ecut"] = "0.02"
     @test_throws ErrorException build_corsika_argv(job, mesh_paths, ecuts, bad_cfg)
+end
+
+# ============================================================================
+# [corsika] key check
+# ============================================================================
+
+# Every tracked config with a [corsika] table. Not a readdir of
+# resources/configuration_examples/: local checkouts keep untracked scratch
+# configs there, many with retired keys.
+function _tracked_corsika_configs()
+    examples = joinpath(_TAMBOSIM_PATH, "resources", "configuration_examples")
+    binary_suite = joinpath(_TAMBOSIM_PATH, "test", "corsika_binary", "configs")
+    return vcat(
+        [joinpath(examples, f) for f in ("tau_neutrino_cc.toml", "muon_neutrino_cc.toml",
+                                         "cosmic_ray_proton.toml", "atmospheric_muon.toml")],
+        [joinpath(binary_suite, f) for f in readdir(binary_suite) if endswith(f, ".toml")],
+    )
+end
+
+function test_corsika_key_check(frames)
+    cfg = _default_corsika_config()
+    @test isnothing(TamboSim.check_corsika_config(cfg))
+
+    # FLUKA's environment is accepted, though TamboSim never reads it.
+    fluka_cfg = merge(cfg, Dict{String,Any}("FLUPRO" => "/fluka", "FLUFOR" => "gfortran"))
+    @test isnothing(TamboSim.check_corsika_config(fluka_cfg))
+
+    # A misspelt key: the binary's flag name instead of gamma_ecut.
+    bad_cfg = copy(cfg)
+    bad_cfg["gammacut"] = 0.02
+    err = try
+        TamboSim.check_corsika_config(bad_cfg)
+        nothing
+    catch e
+        e
+    end
+    @test err isa ErrorException
+    @test occursin("\"gammacut\"", err.msg)
+
+    job, _ = _one_real_job(frames)
+    if !isnothing(job)
+        ecuts = SVector{3, Float64}(1e-3, 1e-2, 1e-1) * u"GeV"
+        @test_throws ErrorException build_corsika_argv(
+            job, (obs="/tmp/obs.ply", terrain=""), ecuts, bad_cfg)
+    end
+
+    # corsika_run! rejects it before it stamps a frame or writes a file.
+    m = _get_last_frame(frames, 'M')
+    had_corsika = haskey(m, "corsika")
+    base_outdir = joinpath(mktempdir(), "showers")
+    records = []
+    @test_throws ErrorException corsika_run!(frames, bad_cfg, base_outdir;
+                                             executor=collect_jobs(records))
+    @test !ispath(base_outdir)
+    @test isempty(records)
+    @test haskey(m, "corsika") == had_corsika
+
+    for path in _tracked_corsika_configs()
+        @test isnothing(TamboSim.check_corsika_config(TOML.parsefile(path)["corsika"]))
+    end
 end
 
 # ============================================================================

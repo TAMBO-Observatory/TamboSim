@@ -1,5 +1,42 @@
 
 """
+    CORSIKA_CONFIG_KEYS
+
+Every key the `[corsika]` table may hold. [`check_corsika_config`](@ref)
+rejects any other key, so a misspelt or retired key stops the run instead of
+being ignored, and then stamped on the M frame as though it had been used.
+A new key that [`corsika_run!`](@ref) or [`build_corsika_argv`](@ref) reads
+must be added here.
+"""
+const CORSIKA_CONFIG_KEYS = (
+    # Required.
+    "corsika_path", "site_file", "em_ecut", "mu_ecut", "hadron_ecut",
+    # Optional, read by corsika_run! and build_corsika_argv.
+    "seed", "gamma_ecut", "hadron_model", "thinning", "nevent",
+    "force_overwrite", "time_command",
+    "use_terrain_mesh", "max_radius_km", "watertight_depth_km",
+    "executor", "executor_sbatch_prefix", "executor_dump_path",
+    # FLUKA's environment for tambo_shower. Not read here: the caller exports
+    # them before the binary runs (TamboSimProd's 2_plan_showers.jl).
+    "FLUPRO", "FLUFOR",
+)
+
+"""
+    check_corsika_config(config::AbstractDict) -> nothing
+
+Throw an error naming every key of the `[corsika]` table `config` that is not
+in [`CORSIKA_CONFIG_KEYS`](@ref). [`corsika_run!`](@ref) calls it before doing
+anything else, and [`build_corsika_argv`](@ref) calls it too, for callers that
+build argv directly.
+"""
+function check_corsika_config(config::AbstractDict)
+    unknown = sort!([string(k) for k in keys(config) if !(k in CORSIKA_CONFIG_KEYS)])
+    isempty(unknown) && return nothing
+    error("[corsika] has unrecognized key(s): ", join(repr.(unknown), ", "),
+          ". Permitted keys: ", join(CORSIKA_CONFIG_KEYS, ", "), ".")
+end
+
+"""
     site_file_path(config::Dict) -> String
 
 Path to the site file named by `[corsika] site_file`, checked for existence.
@@ -143,8 +180,10 @@ Build the argv vector for one invocation of `tambo_shower`.
   `false`; passes `--force` to the binary), `"time_command"` (default
   unset; when set to e.g. `["/usr/bin/time", "-v"]` it is prepended to
   argv so each `tambo_shower` call is wrapped by that timing command).
+  Any key not in [`CORSIKA_CONFIG_KEYS`](@ref) is an error.
 """
 function build_corsika_argv(job::NamedTuple, mesh_paths::NamedTuple, ecuts, config::Dict)
+    check_corsika_config(config)
     primary = job.primary
     inject_ecef    = convert(ecefcoordinates, primary.position)
     intercept_ecef = convert(ecefcoordinates, job.intercept)
@@ -350,12 +389,16 @@ for r in records; run(Cmd(r.argv)); end
 Q-frame `corsika_directories` always reflects the *full* job list from
 `plan_corsika_jobs`, regardless of what the executor actually dispatches.
 
-# Config keys consulted
-- `"corsika_path"`, `"em_ecut"`, `"mu_ecut"`, `"hadron_ecut"` — required
+# Config keys
+`config` is checked against [`CORSIKA_CONFIG_KEYS`](@ref) before anything
+else happens: an unrecognized key is an error.
+- `"corsika_path"`, `"site_file"`, `"em_ecut"`, `"mu_ecut"`, `"hadron_ecut"` — required
 - `"seed"` — optional; randomized + stored if missing
 - `"gamma_ecut"`, `"hadron_model"`, `"thinning"`, `"nevent"`,
-  `"use_terrain_mesh"`, `"force_overwrite"` — optional
+  `"force_overwrite"`, `"time_command"` — optional, see [`build_corsika_argv`](@ref)
+- `"use_terrain_mesh"`, `"max_radius_km"`, `"watertight_depth_km"` — optional
 - `"executor"`, `"executor_sbatch_prefix"`, `"executor_dump_path"` — optional
+- `"FLUPRO"`, `"FLUFOR"` — accepted but not read; the caller exports them
 """
 function corsika_run!(
     frames::TamboFrames,
@@ -364,6 +407,7 @@ function corsika_run!(
     executor=nothing,
     prefix::String="corsika",
 )
+    check_corsika_config(config)
     m_frame = _get_last_frame(frames, 'M')
     g_frame = m_frame.g_frame
     d_frame = m_frame.d_frame

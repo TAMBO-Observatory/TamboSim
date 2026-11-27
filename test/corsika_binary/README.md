@@ -94,9 +94,9 @@ all checks run against all showers:
   crossing the observation mesh are photons.
 - **Log warnings.** The shower log carries no WARN/ERROR/CRITICAL line beyond
   a curated benign allowlist — catching the non-fatal warnings tambo_shower
-  and CORSIKA can emit (a near-tangent rock exit, an obs/terrain mesh
-  mismatch, a tracker/medium node disagreement) that would otherwise leave a
-  complete-looking but wrong output.
+  and CORSIKA can emit (an obs/terrain mesh mismatch, a missing terrain mesh,
+  a logical-node desync corrected by CORSIKA's `Cascade`) that would otherwise
+  leave a complete-looking but wrong output.
 - **Determinism** (per config). A shower rerun with the same seed and binary
   produces identical output.
 - **Statistical consistency** (per config, opt-in). Median summary statistics

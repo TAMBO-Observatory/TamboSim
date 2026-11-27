@@ -464,11 +464,12 @@ const _WARN_ALLOWLIST = (
     assert_no_unexpected_warnings(shower_dir)
 
 The shower's log carries no WARN/ERROR/CRITICAL line other than the curated
-benign ones. tambo_shower emits several warnings that do *not* abort the run —
-a near-tangent rock exit, an obs/terrain mesh mismatch, a missing terrain mesh
-— and CORSIKA's framework logs a warning when its post-step containing-node
-check disagrees with the tracker. Each is a real concern that would otherwise
-leave a complete-looking output, so any unexpected warning fails the test.
+benign ones. tambo_shower emits warnings that do *not* abort the run — an
+obs/terrain mesh mismatch, a missing terrain mesh — and CORSIKA's `Cascade`
+logs one each time it re-roots a particle that is logically in the rock but
+geometrically outside it ("correcting logical-node desync"). Each is a real
+concern that would otherwise leave a complete-looking output, so any
+unexpected warning fails the test.
 
 The per-shower log is `<shower_dir>.log` — 3_run_showers.sh writes it as a
 sibling of the output directory, so `--force` cannot wipe it.

@@ -24,7 +24,7 @@ Each layer in CORSIKA's `LayeredSphericalAtmosphereBuilder` is constructed as a 
 
 `getContainingNode(p)` walks this tree depth-first and returns the *smallest* node whose `Sphere::contains(p)` is true. So at any point inside layer N, all layers ≥ N also geometrically contain that point — but the depth-first traversal picks the innermost one, and only that layer's medium properties apply.
 
-**The non-obvious consequence:** the innermost layer's ball extends all the way down to r=0. Anywhere below the Earth surface that's not claimed by another child node (e.g. the rock `TriangularMesh` in `tambo_shower`), the innermost atmosphere layer "owns" the point — including the entire Earth interior. The layer's exponential-density model is evaluated there with negative altitude, producing extrapolated densities that grow exponentially with depth: ~1.15 mg/cm³ at h=0 (normal sea-level air), ~3.3 mg/cm³ at h=−11 km, ~16 g/cm³ at h=−100 km, nonsense further down. This is numerically defined and harmless for descending particles in the air-outside-the-terrain-footprint case, but it does mean "the simulation treats Earth's interior as fictitious-density air" wherever the rock node isn't.
+**The non-obvious consequence:** the innermost layer's ball extends all the way down to r=0. Anywhere below the Earth surface that's not claimed by another child node (e.g. the rock `ClosedMesh` in `tambo_shower`), the innermost atmosphere layer "owns" the point — including the entire Earth interior. The layer's exponential-density model is evaluated there with negative altitude, producing extrapolated densities that grow exponentially with depth: ~1.15 mg/cm³ at h=0 (normal sea-level air), ~3.3 mg/cm³ at h=−11 km, ~16 g/cm³ at h=−100 km, nonsense further down. This is numerically defined and harmless for descending particles in the air-outside-the-terrain-footprint case, but it does mean "the simulation treats Earth's interior as fictitious-density air" wherever the rock node isn't.
 
 Source pointers (all under `corsika/` in the CORSIKA 8 source tree, e.g. on FASRC at `/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika/corsika/corsika/`):
 
@@ -130,17 +130,28 @@ Source pointers (under `corsika/` in the CORSIKA 8 source tree; FASRC `/n/holylf
 <details>
 <summary><h3>Do CORSIKA's medium lookup and tracking step-boundary detection agree on where a mesh surface is?</h3></summary>
 
-The terrain rock Q+A above relies on two mechanisms — the point→medium lookup (`getContainingNode`) and the tracking step-boundary detection (`nextIntersect`) — both resolving to the same `TriangularMesh`. However, they ask geometrically *different* questions about that surface: the medium lookup asks "is this point inside the rock?" (a point-in-mesh test), while the tracker asks "where along this trajectory does it cross the rock surface?" (a ray–surface intersection). 
+The terrain rock Q+A above relies on two mechanisms — the point→medium lookup (`getContainingNode`) and the tracking step-boundary detection (`nextIntersect`) — both resolving to the same `ClosedMesh`. They ask geometrically *different* questions about that surface: the medium lookup asks "is this point inside the rock?" (a point-in-mesh test), while the tracker asks "where along this trajectory does it cross the rock surface?" (a ray–surface intersection).
 
-In principle, if these questions were answered by independent code, they could disagree at the boundary by a numerical hair. Grazing, near-tangent Earth-skimming trajectories against a triangulated surface, such as those simulated in TAMBO, are exactly the regime where such disagreements surface. This failure would be pathological, not cosmetic: the tracker could step the particle "into rock" while the medium lookup at that point still returns air (so rock physics never actually applies), or the particle could thrash on the boundary — entering and immediately re-exiting indefinitely. 
+They are also answered by different code:
 
-In CORSIKA, however, the two mechanisms above do agree, by construction. The curved leap-frog tracker delegates the mesh intersection to the straight-line tracker, which ray-casts with the *same* BVH `intersectRayAll` and `boundaryPadding` that `TriangularMesh::contains()` uses. So the step-boundary geometry and the point-medium geometry are literally the same computation — they cannot disagree about where the rock surface is.
+- **Point→medium lookup.** `ClosedMesh::contains(p)` is the sign of the generalised winding number at `p` (> 0.5), built from the triangles' solid angles. It casts no rays and uses no padding.
+- **Step-boundary detection.** The tracker takes every forward crossing of the particle's ray from `TriangularMesh::crossings()`, each classified as entering or leaving by the sign of direction · face normal. Hits within `boundaryPadding` of each other (an edge or vertex) count once, and a touch is not a crossing. The particle's side is read from the first crossing — a leaving crossing means it is inside — so the entry and exit the tracker reports always agree with the crossings it found, even within the surface band where the winding number cannot tell.
 
-Source pointers (under `corsika/`; FASRC `/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika/corsika/`):
+Both are right only for a closed, consistently oriented, outward-facing mesh: an inward-wound patch flips the winding number and turns entries into exits. `ClosedMesh` checks this when it is built (every edge shared by exactly two faces and traversed once in each direction, positive signed volume) and throws otherwise, which is why cropped terrain needs `make_watertight` to orient its skirt and cap.
 
-- `detail/modules/tracking/TrackingLeapFrogCurved.inl` (lines 352–356, 358–372) — the curved tracker delegates `TriangularMesh` intersection to the straight tracker and dispatches a mesh-volume node by `dynamic_cast`.
-- `detail/modules/tracking/TrackingStraight.inl` (lines 167–238) — mesh intersection via `mesh.intersectRayAll` + `boundaryPadding`, entry/exit decided from `mesh.contains()`, consistent with the point-medium test.
-- `detail/framework/geometry/TriangularMesh.inl` (lines 63–95) — `contains()` is a 3-ray majority-vote parity test, robust for closed meshes and independent of triangle winding.
+Away from the surface the two agree. Within numerical precision of it — grazing, near-tangent Earth-skimming trajectories, exactly what TAMBO simulates — they can disagree. Left alone that would be pathological, not cosmetic: a particle logically in the rock while geometrically in air bleeds rock dE/dx in air, and a particle could thrash on the boundary, entering and re-exiting indefinitely. CORSIKA therefore reconciles the two rather than relying on agreement:
+
+- **Logically in air, geometrically in rock.** The ray's first crossing is a leaving one, so the tracker reports the particle inside the rock with entry at zero distance, and the next step enters it.
+- **Logically in rock, geometrically in air.** After every step `Cascade::step` checks that a particle whose node is a mesh is inside it, using `ClosedMesh::inside()` (which adds `kSurface` within `boundaryPadding` of the surface). `kOutside` re-roots the particle to its containing node at once, with a "correcting logical-node desync" warning. `kSurface` waits; the run aborts after 1000 consecutive steps in the band, or after 1000 corrections of one particle.
+- **Every crossing.** `Cascade` moves the particle 2 × `boundaryPadding` along its direction and places it in its containing node (see the rock-exit Q+A), so no step starts on the surface.
+
+Source pointers (CORSIKA 8, `tambo/mesh`):
+
+- `detail/framework/geometry/ClosedMesh.inl` — `contains()` (winding-number sign), `inside()` (three-state), validation at construction.
+- `detail/framework/geometry/TriangularMesh.inl` — `crossings()`: every BVH hit along the ray, grouped within `boundaryPadding` and classified by the face normal.
+- `detail/modules/tracking/TrackingStraight.inl` — `select_mesh_crossings()` (the side from the first crossing) and `intersect(particle, ClosedMesh)`.
+- `detail/modules/tracking/TrackingLeapFrogCurved.inl` — `intersect(particle, ClosedMesh)`: neutral particles go to the straight tracker; charged ones use the same `crossings()` and `select_mesh_crossings()`, timing each crossing along the curved path.
+- `detail/framework/core/Cascade.inl` — the boundary-desync backstop and the post-crossing placement in `Cascade::step`.
 
 </details>
 
@@ -149,13 +160,13 @@ Source pointers (under `corsika/`; FASRC `/n/holylfs05/LABS/arguelles_delgado_la
 
 CORSIKA's tracker documents and relies on a convention that every volume primitive is *convex*. In `nextIntersect`, the point where a particle leaves its current volume is taken as a single exit time from that volume's intersection — the in-source comment states "all Volume primitives must be convex, thus the last entry is always the exit point." Terrain is decidedly non-convex: a near-horizontal, Earth-skimming path can pierce the rock surface several times (into a ridge, out over a valley, into the next ridge), and a naive first-in/last-out pairing would mis-identify which segments are rock and which are air. This is a real assumption the generic primitive path depends on (spheres and planes satisfy it trivially) — not merely a comment.
 
-However, the `TriangularMesh` intersection deliberately does not rely on this assumption. Rather than returning a convex entry/exit pair, `TrackingStraight::intersect(…, TriangularMesh)` collects *all* ray–surface crossings, sorts them, and calls `mesh.contains(position)` to decide whether the *next* crossing is an entry or an exit — returning only that next-boundary pair (the source comment there reads "For non-convex meshes, this determines if next intersection is entry or exit"). Because the tracker re-evaluates at every boundary it stops at, each step is handed a freshly `contains()`-disambiguated crossing, so a multi-crossing non-convex path is resolved correctly, segment by segment. The convex convention therefore governs the generic primitive path but is intentionally bypassed for the mesh — by design, not by accident.
+However, the `ClosedMesh` intersection does not rely on this assumption. Rather than a convex entry/exit pair, `intersect(particle, ClosedMesh)` takes *all* forward crossings of the ray, each classified as entering or leaving by the outward face normal (`TriangularMesh::crossings()`), and `select_mesh_crossings()` returns only the next pair: if the first crossing is leaving, the particle is inside, with entry at zero and exit at that crossing; otherwise entry is the first crossing and exit the first leaving crossing after it. So the single `getExit()` that `nextIntersect` uses is the *next* exit, not the last. Because the tracker re-evaluates at every boundary it stops at, a multi-crossing non-convex path is resolved correctly, segment by segment. The convex convention therefore governs the generic primitive path but is bypassed for the mesh — by design, not by accident.
 
-Source pointers (under `corsika/`; FASRC `/n/holylfs05/LABS/arguelles_delgado_lab/Lab/TAMBO/common_software/corsika/corsika/`):
+Source pointers (CORSIKA 8, `tambo/mesh`):
 
-- `detail/modules/tracking/Intersect.inl` (lines ~37–55) — `nextIntersect` takes a single `getExit()` from the current volume's `Intersections` as where the particle leaves it; the in-source comment states the convex convention this relies on.
-- `detail/modules/tracking/TrackingStraight.inl` (lines ~211–238) — the `TriangularMesh` intersect sorts all ray–surface crossings and uses `mesh.contains(position)` to classify the next crossing as entry vs exit (explicit non-convex handling), returning only the next-boundary pair.
-- `detail/framework/geometry/TriangularMesh.inl` (lines 63–95) — `contains()` is the 3-ray majority-vote parity test used for that entry/exit decision.
+- `detail/modules/tracking/Intersect.inl` — `nextIntersect` takes a single `getExit()` from the current volume's `Intersections` as where the particle leaves it; the in-source comment states the convex convention this relies on.
+- `detail/modules/tracking/TrackingStraight.inl` — `select_mesh_crossings()` and `intersect(particle, ClosedMesh)`: the next entry/exit pair from the classified crossings (explicit non-convex handling).
+- `detail/framework/geometry/TriangularMesh.inl` — `crossings()`, which classifies each crossing by the face normal.
 
 </details>
 

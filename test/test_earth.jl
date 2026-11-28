@@ -104,6 +104,52 @@ function _boundary_edge_count(faces)
     return count(v -> v == 1, values(edge_count))
 end
 
+# Number of directed edges traversed more than once: 0 for a consistently
+# oriented closed mesh.
+function _inconsistent_edge_count(faces)
+    directed = Dict{Tuple{Int,Int}, Int}()
+    for i in axes(faces, 1)
+        for (a, b) in ((faces[i,1], faces[i,2]),
+                       (faces[i,2], faces[i,3]),
+                       (faces[i,3], faces[i,1]))
+            directed[(a, b)] = get(directed, (a, b), 0) + 1
+        end
+    end
+    return count(v -> v > 1, values(directed))
+end
+
+# Six times the signed volume enclosed by a closed mesh (> 0 for outward normals).
+function _signed_volume6(verts, faces)
+    vol = 0.0
+    for i in axes(faces, 1)
+        vol += dot(verts[faces[i,1], :], cross(verts[faces[i,2], :], verts[faces[i,3], :]))
+    end
+    return vol
+end
+
+# A small terrain-like patch on a sphere of radius `R`: an n x n vertex grid,
+# faces wound outward (counter-clockwise seen from outside) unless `inward`.
+function _sphere_patch(; n=6, R=6.371e6, half=1_000.0, inward=false)
+    verts = Matrix{Float64}(undef, n * n, 3)
+    k = 0
+    for i in 1:n, j in 1:n
+        k += 1
+        x = -half + 2half * (i - 1) / (n - 1)
+        y = -half + 2half * (j - 1) / (n - 1)
+        v = [x, y, R]
+        verts[k, :] = v .* (R / norm(v))
+    end
+    idx(i, j) = (i - 1) * n + j
+    faces = Matrix{Int}(undef, 2 * (n - 1)^2, 3)
+    f = 0
+    for i in 1:n-1, j in 1:n-1
+        faces[f += 1, :] = [idx(i, j), idx(i + 1, j), idx(i + 1, j + 1)]
+        faces[f += 1, :] = [idx(i, j), idx(i + 1, j + 1), idx(i, j + 1)]
+    end
+    inward && (faces = faces[:, [1, 3, 2]])
+    return verts, faces
+end
+
 # =============================================================================
 # Binary PLY parser for round-trip tests
 # =============================================================================
@@ -154,6 +200,7 @@ function run_earth_tests()
     @testset "make_watertight" begin
         test_make_watertight_already_closed()
         test_make_watertight_open_mesh()
+        test_make_watertight_orientation()
     end
 
     @testset "dump_to_h5" begin
@@ -255,6 +302,23 @@ function test_make_watertight_open_mesh()
     @test _boundary_edge_count(new_faces) == 0
     @test size(new_verts, 1) > size(verts, 1)
     @test size(new_faces, 1) > size(faces, 1)
+end
+
+function test_make_watertight_orientation()
+    # The closed mesh must be consistently oriented with outward normals: a
+    # winding-number classifier (CORSIKA 8 ClosedMesh) gives wrong answers
+    # otherwise, and ClosedMesh rejects such a mesh.
+    for inward in (false, true)
+        verts, faces = _sphere_patch(; inward=inward)
+        @test _boundary_edge_count(faces) > 0
+        new_verts, new_faces = make_watertight(verts, faces; depth_m=500.0)
+        @test _boundary_edge_count(new_faces) == 0
+        @test _inconsistent_edge_count(new_faces) == 0
+        @test _signed_volume6(new_verts, new_faces) > 0
+        # The surface faces come first; they are reversed only if they faced
+        # inward.
+        @test new_faces[axes(faces, 1), :] == (inward ? faces[:, [1, 3, 2]] : faces)
+    end
 end
 
 # -----------------------------------------------------------------------------

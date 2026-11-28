@@ -28,10 +28,10 @@
 #include <corsika/framework/core/Logging.hpp>
 #include <corsika/framework/core/PhysicalUnits.hpp>
 #include <corsika/framework/geometry/PhysicalGeometry.hpp>
-#include <corsika/framework/geometry/RootCoordinateSystem.hpp>
+#include <corsika/framework/geometry/CoordinateSystem.hpp>
 #include <corsika/framework/geometry/Sphere.hpp>
 #include <corsika/framework/geometry/TriangularMesh.hpp>
-#include <corsika/framework/process/BoundaryCrossingProcess.hpp>
+#include <corsika/framework/geometry/ClosedMesh.hpp>
 #include <corsika/framework/process/ContinuousProcess.hpp>
 #include <corsika/framework/process/DynamicInteractionProcess.hpp>
 #include <corsika/framework/process/SecondariesProcess.hpp>
@@ -109,7 +109,6 @@
 #include <optional>
 #include <set>
 #include <string>
-#include <type_traits>
 #include <vector>
 
 using namespace corsika;
@@ -121,106 +120,6 @@ using EnvType = media::Environment<EnvironmentInterface>;
 using StackType = setup::Stack<EnvType>;
 using TrackingType = setup::Tracking;
 using Particle = StackType::particle_type;
-
-// When a particle exits the terrain-rock volume, the tracker sets its logical
-// node to rock.getParent() (the topmost spanned atmosphere layer), which is
-// not necessarily the layer that geometrically contains the exit point.  This
-// BoundaryCrossingProcess re-resolves the logical node to the correct
-// atmosphere layer on rock exit, so the very next step uses the correct
-// medium.  Inert on every other boundary crossing (one pointer compare); the
-// resolution runs only when leaving rock.
-//
-// It resolves among LAYERS, not via the full getContainingNode.  The relocator
-// only ever runs with the particle sitting exactly on the rock surface (the
-// tracker leaves it at the crossing point, not nudged outside).  There,
-// getContainingNode is the wrong tool: it consults the rock via excludes(),
-// and TriangularMesh::contains() at an on-surface point is degenerate (it
-// drops the local face via the 1um boundary padding and votes by parity of
-// the remaining crossings -- for non-convex terrain it can vote "inside"), so
-// it could resolve back to the very rock the particle is leaving and
-// ping-pong the boundary with near-zero progress.  The question we actually
-// need answered is "which atmosphere LAYER contains this point?", which is a
-// pure Sphere::contains (altitude vs the layer boundary) -- robust exactly on
-// the rock surface and structurally unable to return the rock.  The
-// atmosphere is a single-child nested-ball chain; the rock mesh is only ever
-// a non-index-0 child of its owning layer, so descending the index-0 child
-// chain while each layer's volume contains the point yields the innermost
-// containing layer (L1 below the inner boundary, L2 above, ...) without ever
-// reaching the rock.  node.getVolume().contains() is the same primitive
-// Intersect.inl and getContainingNode use.
-struct RockExitRelocator : public BoundaryCrossingProcess<RockExitRelocator> {
-  EnvType& env_;
-  void const* rockNode_; // stable address of the terrain-rock node, or nullptr
-  RockExitRelocator(EnvType& env, void const* rockNode)
-      : env_(env), rockNode_(rockNode) {}
-  template <typename TParticle>
-  ProcessReturn doBoundaryCrossing(TParticle& particle,
-                                   typename TParticle::node_type const& from,
-                                   typename TParticle::node_type const& /*to*/) {
-    if (rockNode_ == nullptr || static_cast<void const*>(&from) != rockNode_)
-      return ProcessReturn::Ok;
-    auto const pos = particle.getPosition();
-    auto const& uk = env_.getUniverse()->getChildNodes();
-    auto* L = uk.empty() ? nullptr : uk[0].get();
-    decltype(L) layer = nullptr;
-    while (L != nullptr && L->getVolume().contains(pos)) {
-      layer = L; // innermost layer so far whose sphere contains the exit point
-      auto const& k = L->getChildNodes();
-      L = k.empty() ? nullptr : k[0].get(); // index-0 child is the next layer
-    }
-    if (layer != nullptr) particle.setNode(layer);
-    // Nudge the particle off the rock surface into air.  setNode alone is
-    // insufficient: the cascade re-derives the next step from getPosition(),
-    // and the tracker leaves a rock-exiting particle numerically pinned onto
-    // the exit triangle.  The pin is intrinsic floating-point cancellation,
-    // not a bug we can localise: the endpoint is computed as
-    // start + velocity*t_mollertrumbore in the ECEF frame at radius ~6.4e6 m,
-    // so the residual off the face is O(eps_mach * 1e6 m) ~ 1 nm -- far below
-    // the 1 um TriangularMesh boundaryPadding that both contains() and the
-    // straight-line ray intersect filter with a strict '>'.  A sub-padding
-    // self-hit is therefore discarded and the next "real" exit collapses to
-    // the far mountain face km away, unreachable in interaction-limited cm
-    // steps: the particle freezes, bleeding StandardRock dE/dx in air.
-    //
-    // Displace it so it is a defined CLEARANCE off the exit face's plane,
-    // measured along the surface normal -- the maximal-clearance direction,
-    // independent of incidence angle (a fixed step along the momentum
-    // direction clears only clearance*|cos(incidence)| perpendicular, which
-    // is why a plain along-momentum nudge is not robust).  We keep the
-    // particle on its own trajectory (move along +direction, the exit
-    // direction by construction at a from==rock crossing) but rescale the
-    // along-track distance by 1/|dir.n| so the perpendicular component off
-    // the face equals kClearance.  |dir.n| (absolute value) makes this
-    // independent of the triangle's winding-defined normal sign -- CORSIKA
-    // does not canonicalise mesh normals outward, so n's sign is unreliable,
-    // but moving forward along +direction by a positive distance is always
-    // the physically correct exit move regardless of n's sign.  Cascade::step
-    // dispatches boundary-crossing processes last, immediately before it
-    // returns; there is no pre-computed next trajectory, so the mutated
-    // position is read fresh on the very next step.
-    constexpr double kClearance = 2.0e-6;  // m, perpendicular target (2x padding)
-    constexpr double kMaxAlong = 1.0e-3;   // m, cap on along-track displacement
-    double along = kClearance;             // fallback: plain 2 um along direction
-    auto const* mesh = dynamic_cast<TriangularMesh const*>(&from.getVolume());
-    if (mesh != nullptr) {
-      auto const hits = mesh->intersectRayAll(pos, particle.getDirection());
-      if (!hits.empty()) { // sorted by distance: front() is the pin face
-        double const cosI =
-            std::abs(particle.getDirection().dot(hits.front().normal).magnitude());
-        along = (cosI > 1e-12) ? (kClearance / cosI) : kMaxAlong;
-        if (along > kMaxAlong) {
-          CORSIKA_LOG_WARN(
-              "RockExitRelocator: near-tangent rock exit (|dir.n|={}), "
-              "along-track nudge clamped to {} m (pid={} E={} GeV)",
-              cosI, kMaxAlong, particle.getPID(), particle.getEnergy() / 1_GeV);
-          along = kMaxAlong;
-        }
-      }
-    }
-    particle.setPosition(pos + along * 1_m * particle.getDirection());
-    return ProcessReturn::Ok;
-  }
-};
 
 // Keeps the in-rock EM cascade tractable.  A multi-TeV muon's brems/pair
 // losses in 2.65 g/cm3 rock would seed an EM shower CORSIKA tracks down to
@@ -282,121 +181,6 @@ struct RockEMAbsorber : public SecondariesProcess<RockEMAbsorber>,
   template <typename TParticle, typename TTrajectory>
   LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
     return std::numeric_limits<double>::infinity() * 1_m; // never limit steps
-  }
-};
-
-// Self-heal + safety net for the rock/air interface.  A particle can end up
-// logically resident in the terrain rock while geometrically outside it -- the
-// signature of a particle that bleeds StandardRock dE/dx in air and silently
-// ranges out before reaching any readout.  Two known routes produce it:
-// (1) a degenerate on-surface re-resolution after a rock-EXIT crossing
-// (handled at the source by RockExitRelocator's nudge), and (2) a near-tangent
-// grazing ENTRY through a thin rock feature, where the tracker fires the
-// air->rock entry crossing but the matching rock->air exit crossing is filtered
-// away by the mesh boundary padding, so the logical node is never corrected and
-// RockExitRelocator (from==rock only) never runs.
-//
-// This process is deliberately pathway-agnostic: rather than handle a specific
-// route it watches for the invariant violation itself -- logical node == rock
-// yet rock.contains(position) == false -- and, once that has persisted kHealAt
-// steps, SELF-HEALS by re-rooting the logical node to the geometrically correct
-// containing air layer (getContainingNode).  The heal is only reached while
-// !contains(), i.e. the particle is already geometrically in air, so re-rooting
-// to air is correct; kHealAt is set so the particle is clear of the 1um
-// on-surface padding zone (where getContainingNode is degenerate) by the time
-// it fires.  The cascade does not re-derive the node after a continuous step,
-// so the correction persists into the next step; at most kHealAt wrong-medium
-// steps are spent per grazing event.
-//
-// The abort is retained only as a backstop for a heal that fails its job, in
-// either of two shapes: kStuckLimit consecutive un-cleared steps (no containing
-// air node could be resolved), or kMaxHeals total heals (the particle heals,
-// re-sticks, and heals again -- a livelock the consecutive counter cannot see
-// because each heal zeroes it).  Counters are run-global: grazing events are
-// rare enough run-wide that the heal cap won't false-trip, and a livelock
-// concentrates on one particle and blows the cap unambiguously.  No-op when the
-// terrain mesh is disabled (rockNode_ == nullptr); one pointer compare per step
-// otherwise, with the contains() test reached only while a particle is
-// logically in the rock.
-struct RockInterfaceTripwire : public ContinuousProcess<RockInterfaceTripwire> {
-  EnvType& env_; // for getContainingNode at the self-heal
-  void const* rockNode_;
-  RockInterfaceTripwire(EnvType& env, void const* rockNode)
-      : env_(env), rockNode_(rockNode) {}
-  template <typename TParticle>
-  ProcessReturn doContinuous(Step<TParticle>& step, bool const) {
-    if (rockNode_ == nullptr) return ProcessReturn::Ok;
-    auto const& pre = step.getParticlePre();
-    auto const* nd = pre.getNode();
-    if (static_cast<void const*>(nd) != rockNode_) return ProcessReturn::Ok;
-    using NodeT = std::remove_reference_t<decltype(*nd)>;
-    bool const inside = static_cast<NodeT const*>(rockNode_)
-                            ->getVolume()
-                            .contains(pre.getPosition());
-    static long stuck = 0;
-    static long heals = 0;
-    if (inside) {
-      stuck = 0;
-      return ProcessReturn::Ok;
-    }
-    ++stuck;
-    constexpr long kHealAt = 50;     // wrong-medium steps tolerated before heal
-    constexpr long kStuckLimit = 1000; // heal failed to clear the invariant
-    constexpr long kMaxHeals = 1000; // livelock backstop (total heals run-wide)
-    auto abortStuck = [&](char const* why) {
-      auto const c =
-          pre.getPosition().getCoordinates(get_root_CoordinateSystem());
-      CORSIKA_LOG_ERROR(
-          "Rock/air interface stuck state [{}]: a particle has been logically "
-          "resident in the terrain rock while geometrically OUTSIDE it -- it "
-          "bleeds StandardRock dE/dx in air and silently ranges out before "
-          "reaching any readout.  stuck={} heals={} pid={} E={} GeV "
-          "pos=({:.1f},{:.1f},{:.1f}) m.  Aborting rather than emit a "
-          "misleading shower output.",
-          why, stuck, heals, pre.getPID(), pre.getEnergy() / 1_GeV,
-          c.getX() / 1_m, c.getY() / 1_m, c.getZ() / 1_m);
-      std::exit(EXIT_FAILURE);
-    };
-    // Self-heal: re-root the logical node to the geometrically-correct
-    // containing node (see the struct comment).  Reached only when !contains(),
-    // so the particle is already in air; once the invariant has persisted
-    // kHealAt steps it is clear of the on-surface padding zone, so
-    // getContainingNode is unambiguous and returns the air layer, not the rock.
-    // The Step interface exposes the pre-step particle as const, but the
-    // underlying stack particle is mutable and no ContinuousProcess node hook
-    // exists upstream, so the const_cast is sound; setNode takes a
-    // node_type const* so the const containing-node pointer passes directly.
-    if (stuck >= kHealAt) {
-      auto const* cn = env_.getUniverse()->getContainingNode(pre.getPosition());
-      if (cn != nullptr && static_cast<void const*>(cn) != rockNode_) {
-        if (heals >= kMaxHeals) {
-          abortStuck("heal-loop -- node re-rooted to air but particle keeps "
-                     "re-sticking");
-        }
-        const_cast<TParticle&>(pre).setNode(cn);
-        ++heals;
-        auto const c =
-            pre.getPosition().getCoordinates(get_root_CoordinateSystem());
-        CORSIKA_LOG_INFO(
-            "Rock/air interface: re-rooted a logically-in-rock particle to the "
-            "containing air layer after {} stuck steps (heal #{}).  pid={} "
-            "E={} GeV pos=({:.1f},{:.1f},{:.1f}) m.",
-            stuck, heals, pre.getPID(), pre.getEnergy() / 1_GeV, c.getX() / 1_m,
-            c.getY() / 1_m, c.getZ() / 1_m);
-        stuck = 0;
-        return ProcessReturn::Ok;
-      }
-      // No valid containing air node (cn null or still rock): cannot heal --
-      // fall through to the consecutive-step backstop.
-    }
-    if (stuck >= kStuckLimit) {
-      abortStuck("unhealed -- no containing air node could be resolved");
-    }
-    return ProcessReturn::Ok;
-  }
-  template <typename TParticle, typename TTrajectory>
-  LengthType getMaxStepLength(TParticle const&, TTrajectory const&) {
-    return std::numeric_limits<double>::infinity() * 1_m;
   }
 };
 
@@ -712,7 +496,7 @@ struct LoadedMeshes {
 
 static LoadedMeshes loadMeshes(std::string const& obsMeshPath,
                                std::string const& terrainMeshPath,
-                               CoordinateSystemPtr const& rootCS) {
+                               CoordinateSystem const& rootCS) {
   CORSIKA_LOG_INFO("Loading observation mesh: {}", obsMeshPath);
   // PLY coordinates are ECEF metres; load directly into rootCS with scale=1_m
   TriangularMesh obsMesh = TriangularMesh::fromPLY(obsMeshPath, rootCS, 1_m, 1e-6_m);
@@ -787,9 +571,12 @@ static LoadedMeshes loadMeshes(std::string const& obsMeshPath,
  *
  * Returns ok=false on a fatal atmosphere-topology error (caller must abort).
  * On success rockNodePtr is the stable terrain-rock node address, captured
- * before the ownership move so RockExitRelocator can identify rock-exit
- * boundary crossings; it stays nullptr (relocator no-ops) when the terrain
- * mesh is disabled.
+ * before the ownership move so RockEMAbsorber can identify the rock; it stays
+ * nullptr when the terrain mesh is disabled.
+ *
+ * The rock is a ClosedMesh, which requires a closed, consistently oriented,
+ * outward-facing mesh and throws otherwise (the winding-number inside test is
+ * silently wrong for any other mesh).
  */
 struct TerrainRockResult {
   bool ok;                 // false => fatal atmosphere-topology error, abort
@@ -797,7 +584,7 @@ struct TerrainRockResult {
 };
 
 static TerrainRockResult registerTerrainRock(EnvType& env,
-                                              CoordinateSystemPtr const& rootCS,
+                                              CoordinateSystem const& rootCS,
                                               Point const& earthSurface,
                                               MagneticFieldVector const& obsField,
                                               bool useTerrainMesh,
@@ -826,7 +613,7 @@ static TerrainRockResult registerTerrainRock(EnvType& env,
   // Set up locally using Silicon = get_nucleus_code(28, 14).
   static media::NuclearComposition const rockComposition{
       {Code::Oxygen, get_nucleus_code(28, 14)}, {0.533, 0.467}};
-  auto rockNode = EnvType::createNode<TriangularMesh>(std::move(insetVertices), faces);
+  auto rockNode = EnvType::createNode<ClosedMesh>(std::move(insetVertices), faces);
   rockNode->setModelProperties<MyExtraEnv<media::HomogeneousMedium<EnvironmentInterface>>>(
       1.000327, earthSurface,
       media::Medium::StandardRock,
@@ -845,13 +632,11 @@ static TerrainRockResult registerTerrainRock(EnvType& env,
   // getContainingNode at the terrain's maximum radius).  Ownership goes to
   // topLayer (the topmost spanned layer) so rock.getParent() is a real
   // atmosphere layer -- never the universe, which would erase the particle.
-  // The tracker sets a rock-exiting particle's logical node to that parent
-  // regardless of where the exit point actually is; exact placement is
-  // delivered separately by RockExitRelocator (a BoundaryCrossingProcess in
-  // the process sequence) which, on every rock exit, re-resolves the logical
-  // node to the true containing node via a full-tree getContainingNode.  So
-  // the next step always uses the correct medium, and ownership only governs
-  // the getParent()-never-universe safety.
+  // The tracker hands a rock-exiting particle to that parent; CORSIKA's
+  // Cascade then moves it clear of the rock surface and places it in the node
+  // that geometrically contains it (the layer at the exit point), so the next
+  // step uses the correct medium. Ownership only governs the
+  // getParent()-never-universe safety.
   Point const rockTop{rootCS, 0_m, 0_m, rTopM * 1_m};
   auto* topLayer = env.getUniverse()->getContainingNode(rockTop);
   using LayerPtr = decltype(env.getUniverse().get());
@@ -980,6 +765,11 @@ int main(int argc, char** argv) {
       ->default_val(10.0)
       ->check(CLI::Range(1e-6, 1.e13))
       ->group("Config");
+  app.add_option("--gammacut",
+                 "Min. kin. energy of photons (GeV); overrides --emcut for photons only. "
+                 "Default: same as --emcut")
+      ->check(CLI::Range(1e-6, 1.e13))
+      ->group("Config");
   app.add_option("--hadcut", "Min. kin. energy of hadrons (GeV)")
       ->default_val(1.0)
       ->check(CLI::Range(0.02, 1.e13))
@@ -1106,7 +896,7 @@ int main(int argc, char** argv) {
   #pragma region Environment
   /* === ENVIRONMENT === */
   EnvType env;
-  CoordinateSystemPtr const& rootCS = env.getCoordinateSystem();
+  CoordinateSystem const& rootCS = env.getCoordinateSystem();
   Point const earthCenter{rootCS, 0_m, 0_m, 0_m};
   Point const earthSurface{rootCS, 0_m, 0_m, constants::EarthRadius::Mean};
   // media::GeomagneticModel wmm(earthCenter, corsika_data("GeoMag/WMM.COF"));
@@ -1370,13 +1160,21 @@ int main(int argc, char** argv) {
   corsika::sophia::InteractionModel sophia;
 
   HEPEnergyType const emcut = 1_GeV * app["--emcut"]->as<double>();
+  HEPEnergyType const gammacut =
+      app["--gammacut"]->count() ? 1_GeV * app["--gammacut"]->as<double>() : emcut;
   HEPEnergyType const hadcut = 1_GeV * app["--hadcut"]->as<double>();
   HEPEnergyType const mucut = 1_GeV * app["--mucut"]->as<double>();
   HEPEnergyType const taucut = 1_GeV * app["--taucut"]->as<double>();
-  ParticleCut<SubWriter<decltype(dEdX)>> cut(emcut, emcut, hadcut, mucut, taucut,
+  // Photons below gammacut are removed (their energy goes to the dE/dX profile); electrons
+  // and positrons keep emcut. Production thresholds are the lowest of all the cuts,
+  // gammacut included, so no particle is cut before it is produced: with gammacut above
+  // emcut photons are still produced and then discarded by the cut, and with gammacut
+  // below it photons between the two are produced as particles rather than folded into
+  // continuous losses.
+  ParticleCut<SubWriter<decltype(dEdX)>> cut(emcut, gammacut, hadcut, mucut, taucut,
                                              !track_neutrinos, dEdX);
 
-  auto const prod_threshold = std::min({emcut, hadcut, mucut, taucut});
+  auto const prod_threshold = std::min({emcut, gammacut, hadcut, mucut, taucut});
   set_energy_production_threshold(Code::Electron, prod_threshold);
   set_energy_production_threshold(Code::Positron, prod_threshold);
   set_energy_production_threshold(Code::Photon, prod_threshold);
@@ -1466,19 +1264,14 @@ int main(int argc, char** argv) {
                             : 0.5 * emthinfrac * primaryTotalEnergy / 1_GeV;
     EMThinning thinning{emthinfrac * primaryTotalEnergy, maxW, !multithin};
     StackInspector<StackType> stackInspect(10000, false, primaryTotalEnergy);
-    RockExitRelocator rockRelocator{env, rockNodePtr};
     RockEMAbsorber rockEMAbsorber{rockNodePtr};
-    RockInterfaceTripwire rockTripwire{env, rockNodePtr};
 
     // Order mirrors c8_air_shower: inspector first, thinning near end before cut.
-    // rockRelocator runs early so any later boundary-aware process in the same
-    // crossing observes the corrected logical node.  rockEMAbsorber runs before
-    // the EM/hadron/decay processes so an e+-/gamma in rock is removed before
-    // any interaction is sampled for it that step (collapsing the cascade).
-    // rockTripwire is a passive per-step invariant check (logical==rock implies
-    // contains()); it mutates nothing and only aborts on a sustained violation.
-    auto fullSequence = make_sequence(stackInspect, rockRelocator, rockEMAbsorber,
-                                      rockTripwire,
+    // rockEMAbsorber runs before the EM/hadron/decay processes so an e+-/gamma
+    // in rock is removed before any interaction is sampled for it that step
+    // (collapsing the cascade). Rock entry and exit placement, and the
+    // logical-node/geometry consistency check, are done by CORSIKA's Cascade.
+    auto fullSequence = make_sequence(stackInspect, rockEMAbsorber,
                                       neutrinoPrimaryPythia, hadronSequence,
                                       decaySequence, emCascade, 
                                       // prodprof, 

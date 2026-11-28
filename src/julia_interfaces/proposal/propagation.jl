@@ -168,7 +168,8 @@ contain `inkey` and writing four new keys per event:
   first).
 - `config::Dict`: parsed `[proposal]` TOML table. Consults
   `"seed"` (RNG seed) and any cross-section / parametrization
-  settings that `init_proposal` knows about.
+  settings that `init_proposal` knows about. Any other key is an error
+  ([`check_proposal_config`](@ref)).
 
 # Keyword arguments
 - `prefix::String`: namespace for the config snapshot and per-Q-frame
@@ -194,6 +195,8 @@ function proposal_propagation!(
     prefix::String="proposal",
     inkey::String="injection_final_state"
 )
+    # Before the config is stamped on the M frame (init_proposal checks again).
+    check_proposal_config(config)
     m_frame = _get_last_frame(frames, 'M')
     g_frame = m_frame.g_frame
 

@@ -21,6 +21,7 @@ const TESTSETS = [
     ("CORSIKA Hits",               "test_corsika_hits.jl",               :run_corsika_hits_tests),
     ("Cosmic Ray Injection",       "test_cosmicray_injection.jl",        :run_cosmicray_injection_tests),
     ("Simulation API",             "test_simulation_api.jl",             :run_simulation_api_tests),
+    ("Config Keys",                "test_config_keys.jl",                :run_config_key_tests),
 ]
 
 # Filter: if ARGS is non-empty, include only testsets whose name contains any of the

@@ -448,21 +448,28 @@ const _WARN_ALLOWLIST = (
     # SIBYLL is queried for target types it does not model during setup; the
     # framework handles the fallback. Emitted a few times on every shower.
     "Invalid target type nucleus for hadron interaction model",
-    # VMD photonuclear path: a near-threshold photon loss is handed to SIBYLL
-    # as a Rho0 projectile it cannot process at that energy, so those (small)
-    # secondaries are dropped. A known CORSIKA limitation, not a fault.
-    "HE interaction model cannot handle configuration in photo-hadronic interaction",
+    # VMD photonuclear path: a near-threshold photon loss is handed to the HE
+    # (SIBYLL) or LE (FLUKA) hadronic model as a projectile it cannot process
+    # at that energy, so those (small) secondaries are dropped. A known CORSIKA
+    # limitation, not a fault.
+    "interaction model cannot handle configuration in photo-hadronic interaction",
+    # CORSIKA 8 >= 1.0 (c44fd96d5): the dE/dX Xmax parabola fit fails for a
+    # profile without a clear interior maximum (e.g. a shower that reaches the
+    # ground or rock before its maximum), and the writer now skips Xmax
+    # instead of writing an undefined value.
+    "Xmax estimation failed. Skipping Xmax.",
 )
 
 """
     assert_no_unexpected_warnings(shower_dir)
 
 The shower's log carries no WARN/ERROR/CRITICAL line other than the curated
-benign ones. tambo_shower emits several warnings that do *not* abort the run —
-a near-tangent rock exit, an obs/terrain mesh mismatch, a missing terrain mesh
-— and CORSIKA's framework logs a warning when its post-step containing-node
-check disagrees with the tracker. Each is a real concern that would otherwise
-leave a complete-looking output, so any unexpected warning fails the test.
+benign ones. tambo_shower emits warnings that do *not* abort the run — an
+obs/terrain mesh mismatch, a missing terrain mesh — and CORSIKA's `Cascade`
+logs one each time it re-roots a particle that is logically in the rock but
+geometrically outside it ("correcting logical-node desync"). Each is a real
+concern that would otherwise leave a complete-looking output, so any
+unexpected warning fails the test.
 
 The per-shower log is `<shower_dir>.log` — 3_run_showers.sh writes it as a
 sibling of the output directory, so `--force` cannot wipe it.

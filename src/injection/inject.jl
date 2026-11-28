@@ -577,6 +577,41 @@ function _setup_injection(frames::TamboFrames, config::Dict, prefix::String, fna
     return g_frame, m_frame, q_frames
 end
 
+const _INJECTION_COMMON_KEYS = (
+    "strategy", "nevent", "seed", "gamma", "emin", "emax",
+    "thetamin", "thetamax", "phimin", "phimax",
+)
+
+"""
+    INJECTION_CONFIG_KEYS
+
+The keys `[injection]` may hold, by `strategy`. Every strategy reads
+`strategy`, `nevent`, `seed`, the power law (`gamma`, `emin`, `emax`) and the
+angular ranges; the neutrino strategies add `pdg` and `xs_location`, and
+`CosmicRayInjection` adds `pdg` or `A` and `Z`, and `altitude`. A key that only
+another strategy reads is rejected too: it would be ignored.
+"""
+const INJECTION_CONFIG_KEYS = Dict(
+    "NeutrinoInjection"     => (_INJECTION_COMMON_KEYS..., "pdg", "xs_location"),
+    "MuonNeutrinoInjection" => (_INJECTION_COMMON_KEYS..., "pdg", "xs_location"),
+    "CosmicRayInjection"    => (_INJECTION_COMMON_KEYS..., "pdg", "A", "Z", "altitude"),
+)
+
+"""
+    check_injection_config(config::AbstractDict, strategy::AbstractString) -> nothing
+
+Throw an error naming every key of the `[injection]` table `config` that
+`strategy` does not read (see [`INJECTION_CONFIG_KEYS`](@ref)). The injection
+backends call it before doing anything else.
+"""
+function check_injection_config(config::AbstractDict, strategy::AbstractString)
+    haskey(INJECTION_CONFIG_KEYS, strategy) || error(
+        "[injection] has unknown strategy $(repr(strategy)); expected one of ",
+        join(repr.(sort!(collect(keys(INJECTION_CONFIG_KEYS)))), ", "), ".")
+    _check_config_keys("[injection] (strategy $(repr(strategy)))", config,
+                       INJECTION_CONFIG_KEYS[strategy])
+end
+
 """
     inject!(frames::TamboFrames, config::Dict; prefix::String="injection")
 
@@ -587,8 +622,9 @@ to the matching backend:
 - `"MuonNeutrinoInjection"`   → [`inject_neutrinos!`](@ref) (same physics; routes muon to CORSIKA directly)
 - `"CosmicRayInjection"`      → [`inject_cosmicrays!`](@ref)
 
-Errors loudly if `strategy` is missing or not recognized. The backends
-remain callable directly for tests and power users.
+Errors loudly if `strategy` is missing or not recognized, or if `config` holds
+a key the strategy does not read ([`check_injection_config`](@ref)). The
+backends remain callable directly for tests and power users.
 """
 function inject!(
     frames::TamboFrames,
@@ -644,7 +680,8 @@ in place by:
   C, and D frames (typically loaded from a GCD bundle).
 - `config::Dict`: parsed `[injection]` TOML table. Must contain `"nevent"`;
   consults `"pdg"`, `"emin"`, `"emax"`, `"gamma"`, `"thetamin/max"`,
-  `"phimin/max"`, `"xs_location"`, and `"seed"` (RNG seed).
+  `"phimin/max"`, `"xs_location"`, and `"seed"` (RNG seed). Any other key
+  but `"strategy"` is an error ([`check_injection_config`](@ref)).
 
 # Keyword arguments
 - `prefix::String`: namespace under which states and the config snapshot
@@ -655,6 +692,10 @@ function inject_neutrinos!(
     config::Dict;
     prefix::String="injection"
 )
+    # Both neutrino strategies read the same keys; name the config's own in errors.
+    strategy = get(config, "strategy", "NeutrinoInjection")
+    check_injection_config(config, strategy == "MuonNeutrinoInjection" ? strategy :
+                                   "NeutrinoInjection")
     g_frame, m_frame, q_frames = _setup_injection(frames, config, prefix, "inject_neutrinos!")
     d_frame = m_frame.d_frame
 
@@ -757,7 +798,9 @@ so the close- and final-state-of-the-CC-vertex machinery is not needed.
 # Arguments
 - `frames::TamboFrames`: container to mutate; must already contain G, C, D.
 - `config::Dict`: parsed config table. Must contain `"nevent"`, and
-  either `"pdg"` or both `"A"` and `"Z"` (mass and atomic number).
+  either `"pdg"` or both `"A"` and `"Z"` (mass and atomic number). A key
+  `CosmicRayInjection` does not read is an error
+  ([`check_injection_config`](@ref)).
 
 # Keyword arguments
 - `prefix::String`: namespace for the config snapshot and per-Q-frame
@@ -768,6 +811,7 @@ function inject_cosmicrays!(
     config::Dict;
     prefix::String="injection"
 )
+    check_injection_config(config, "CosmicRayInjection")
     pdg = _resolve_primary_pdg(config)
     abs(pdg) in (12, 14, 16) && error(
         "inject_cosmicrays!: pdg=$pdg is a neutrino. Use strategy " *

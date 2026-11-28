@@ -114,11 +114,12 @@ Close an open surface mesh by adding a skirt (side walls) and a bottom cap,
 inset `depth_m` metres along the radial direction from each boundary vertex.
 Returns the inputs unchanged if the mesh is already closed.
 
-The result is consistently oriented with outward normals (every edge traversed
-once in each direction, positive signed volume), as a winding-number classifier
-(CORSIKA 8 `ClosedMesh`) requires: the skirt follows the winding of the surface
-faces along the boundary, the cap closes it, and if the surface itself faces
-inward every face is reversed.
+When it closes the mesh, and the input surface is consistently wound, the result
+is consistently oriented with outward normals (every edge traversed once in each
+direction, positive signed volume), as a winding-number classifier (CORSIKA 8
+`ClosedMesh`) requires: the skirt follows the winding of the surface faces along
+the boundary, the cap closes it, and if the surface itself faces inward every
+face is reversed.
 """
 function make_watertight(
     vertices :: Matrix{Float64},
@@ -178,15 +179,13 @@ function make_watertight(
 
     # Walk the boundary in the direction the surface faces traverse it, so the
     # skirt faces below (which traverse each boundary edge b -> a) are wound
-    # consistently with the surface.
-    directed = Set{Tuple{Int,Int}}()
-    for i in axes(faces, 1)
-        push!(directed, (faces[i,1], faces[i,2]), (faces[i,2], faces[i,3]),
-              (faces[i,3], faces[i,1]))
-    end
-    if !((loop[1], loop[2]) in directed)
-        reverse!(loop)
-    end
+    # consistently with the surface. A boundary edge belongs to a single face,
+    # so that face decides.
+    s, t = loop[1], loop[2]
+    traverses_st(i) = (faces[i,1], faces[i,2]) == (s, t) ||
+                      (faces[i,2], faces[i,3]) == (s, t) ||
+                      (faces[i,3], faces[i,1]) == (s, t)
+    any(traverses_st, axes(faces, 1)) || reverse!(loop)
 
     n_old = size(vertices, 1)
     bot_verts = Matrix{Float64}(undef, n_loop, 3)

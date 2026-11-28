@@ -315,6 +315,9 @@ function test_make_watertight_orientation()
         @test _boundary_edge_count(new_faces) == 0
         @test _inconsistent_edge_count(new_faces) == 0
         @test _signed_volume6(new_verts, new_faces) > 0
+        # The surface faces come first; they are reversed only if they faced
+        # inward.
+        @test new_faces[axes(faces, 1), :] == (inward ? faces[:, [1, 3, 2]] : faces)
     end
 end
 
